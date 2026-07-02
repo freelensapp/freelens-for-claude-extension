@@ -13,7 +13,17 @@
   "ignoreBinaries": ["electron-rebuild", "yq"],
   "ignoreDependencies": [
     // used as vite plugin
-    "@babel/plugin-proposal-decorators"
+    "@babel/plugin-proposal-decorators",
+    // TODO: currently unused because `src` is minimal; these are provided by the
+    // Freelens host (react, react-dom, mobx, mobx-react) or used by tests and
+    // will be needed again once real components/tests are added. Remove from
+    // this list when they are imported by `src`.
+    "@testing-library/react",
+    "@types/react",
+    "mobx",
+    "mobx-react",
+    "react",
+    "react-dom"
   ],
 
   "typescript": {
