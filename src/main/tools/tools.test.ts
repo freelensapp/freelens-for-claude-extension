@@ -3,11 +3,15 @@
  * Licensed under MIT License. See LICENSE in root directory for more information.
  */
 
+import { PatchStrategy } from "@kubernetes/client-node";
 import { describe, expect, it, vi } from "vitest";
 import { type ClusterVersionClient, runClusterVersion } from "./cluster-version";
+import { type CreateResourceClient, runCreateResource } from "./create-resource";
 import { LOG_BYTE_CAP, selectFields, stripManagedFields, truncateBytes } from "./kube-format";
+import { type PatchResourceClient, runPatchResource } from "./patch-resource";
 import { type PodLogsClient, runPodLogs } from "./pod-logs";
 import { type ResourcesClient, runResources } from "./resources";
+import { runUpdateResource, type UpdateResourceClient } from "./update-resource";
 import { runWarningEvents, type WarningEventsClient } from "./warning-events";
 
 const resourcesClient = (objects: { read: unknown; list: unknown }): ResourcesClient =>
@@ -20,6 +24,12 @@ const warningEventsClient = (core: {
 }): WarningEventsClient => ({ core }) as unknown as WarningEventsClient;
 const clusterVersionClient = (version: { getCode: unknown }): ClusterVersionClient =>
   ({ version }) as unknown as ClusterVersionClient;
+const createResourceClient = (create: unknown): CreateResourceClient =>
+  ({ objects: { create } }) as unknown as CreateResourceClient;
+const updateResourceClient = (objects: { read: unknown; replace: unknown }): UpdateResourceClient =>
+  ({ objects }) as unknown as UpdateResourceClient;
+const patchResourceClient = (objects: { patch: unknown }, patchSubresource: unknown): PatchResourceClient =>
+  ({ objects, patchSubresource }) as unknown as PatchResourceClient;
 
 describe("kube-format", () => {
   it("strips metadata.managedFields from a single resource", () => {
@@ -174,6 +184,90 @@ describe("runResources", () => {
       includeManagedFields: true,
     });
     expect(out).toContain("managedFields");
+  });
+});
+
+describe("runCreateResource", () => {
+  it("strips managedFields and creates the resource", async () => {
+    const create = vi.fn(async (spec: Record<string, unknown>) => spec);
+    const out = await runCreateResource(createResourceClient(create), {
+      manifest: {
+        apiVersion: "v1",
+        kind: "ConfigMap",
+        metadata: { name: "cfg", namespace: "default", managedFields: [{ manager: "kubectl" }] },
+      },
+    });
+    const created = create.mock.calls[0][0] as { metadata: Record<string, unknown> };
+    expect(created.metadata).not.toHaveProperty("managedFields");
+    expect(out).toContain('Created ConfigMap "cfg"');
+  });
+
+  it("rejects a manifest missing required fields", async () => {
+    await expect(runCreateResource(createResourceClient(vi.fn()), { manifest: { kind: "ConfigMap" } })).rejects.toThrow(
+      /apiVersion is required/,
+    );
+  });
+});
+
+describe("runUpdateResource", () => {
+  it("carries over resourceVersion from the live object when omitted", async () => {
+    const read = vi.fn(async () => ({ metadata: { resourceVersion: "99" } }));
+    const replace = vi.fn(async (spec: Record<string, unknown>) => spec);
+    await runUpdateResource(updateResourceClient({ read, replace }), {
+      manifest: { apiVersion: "v1", kind: "Service", metadata: { name: "web", namespace: "default" } },
+    });
+    expect(read).toHaveBeenCalled();
+    const replaced = replace.mock.calls[0][0] as { metadata: Record<string, unknown> };
+    expect(replaced.metadata.resourceVersion).toBe("99");
+  });
+
+  it("does not re-read when the manifest already has a resourceVersion", async () => {
+    const read = vi.fn();
+    const replace = vi.fn(async (spec: Record<string, unknown>) => spec);
+    await runUpdateResource(updateResourceClient({ read, replace }), {
+      manifest: { apiVersion: "v1", kind: "Service", metadata: { name: "web", resourceVersion: "5" } },
+    });
+    expect(read).not.toHaveBeenCalled();
+  });
+});
+
+describe("runPatchResource", () => {
+  it("uses a JSON merge patch for the resource itself", async () => {
+    const patch = vi.fn(async (spec: Record<string, unknown>) => spec);
+    const patchSubresource = vi.fn(async () => {});
+    await runPatchResource(patchResourceClient({ patch }, patchSubresource), {
+      apiVersion: "apps/v1",
+      kind: "Deployment",
+      namespace: "default",
+      name: "nginx",
+      patch: { spec: { replicas: 2 } },
+    });
+    expect(patchSubresource).not.toHaveBeenCalled();
+    expect(patch).toHaveBeenCalledWith(
+      expect.objectContaining({ apiVersion: "apps/v1", kind: "Deployment" }),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      PatchStrategy.MergePatch,
+    );
+  });
+
+  it("routes to a strategic-merge subresource patch for scale", async () => {
+    const patch = vi.fn(async (spec: Record<string, unknown>) => spec);
+    const patchSubresource = vi.fn(async () => {});
+    await runPatchResource(patchResourceClient({ patch }, patchSubresource), {
+      apiVersion: "apps/v1",
+      kind: "Deployment",
+      namespace: "default",
+      name: "nginx",
+      patch: { spec: { replicas: 3 } },
+      subresource: "Scale",
+    });
+    expect(patch).not.toHaveBeenCalled();
+    expect(patchSubresource).toHaveBeenCalledWith(
+      expect.objectContaining({ subresource: "scale", name: "nginx", patch: { spec: { replicas: 3 } } }),
+    );
   });
 });
 

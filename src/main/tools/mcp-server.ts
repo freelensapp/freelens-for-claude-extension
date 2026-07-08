@@ -5,8 +5,11 @@
 
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import { clusterVersionSchema, runClusterVersion } from "./cluster-version";
+import { type CreateResourceInput, createResourceSchema, runCreateResource } from "./create-resource";
+import { type PatchResourceInput, patchResourceSchema, runPatchResource } from "./patch-resource";
 import { type PodLogsInput, podLogsSchema, runPodLogs } from "./pod-logs";
 import { type ResourcesInput, resourcesSchema, runResources } from "./resources";
+import { runUpdateResource, type UpdateResourceInput, updateResourceSchema } from "./update-resource";
 import { runWarningEvents, type WarningEventsInput, warningEventsSchema } from "./warning-events";
 
 import type { McpSdkServerConfigWithInstance } from "@anthropic-ai/claude-agent-sdk";
@@ -111,6 +114,25 @@ export function createKubeMcpServer(client: KubeClient): McpSdkServerConfigWithI
         "Report the Kubernetes API server version (gitVersion, major/minor, platform, buildDate).",
         clusterVersionSchema,
         () => guard(() => runClusterVersion(client)),
+      ),
+      tool(
+        "kube_create_resource",
+        "Create a Kubernetes resource from a full manifest. Requires user approval.",
+        createResourceSchema,
+        (args: CreateResourceInput) => guard(() => runCreateResource(client, args)),
+      ),
+      tool(
+        "kube_update_resource",
+        "Replace a Kubernetes resource with a full manifest. Requires user approval.",
+        updateResourceSchema,
+        (args: UpdateResourceInput) => guard(() => runUpdateResource(client, args)),
+      ),
+      tool(
+        "kube_patch_resource",
+        'Patch a Kubernetes resource (JSON merge patch), or a subresource like "scale" with a strategic-merge ' +
+          "patch to scale a workload via { spec: { replicas: N } }. Requires user approval.",
+        patchResourceSchema,
+        (args: PatchResourceInput) => guard(() => runPatchResource(client, args)),
       ),
     ],
   });
