@@ -11,6 +11,15 @@ import { globalExternals } from "./build/global-externals.js";
 // `rollupOptions.external` that electron-vite would otherwise apply.
 const runtimeExternals = ["electron", /^electron\//, ...builtinModules, ...builtinModules.map((m) => `node:${m}`)];
 
+// Optional native/peer dependencies of bundled packages (e.g. `node-fetch` and
+// `ws`, pulled in transitively by `@kubernetes/client-node`). They are loaded
+// through `require(...)` guarded by try/catch upstream and are never installed.
+// Left to the bundler, rolldown emits a virtual shim that throws eagerly at
+// load time ("Could not resolve \"encoding\" imported by \"node-fetch\""),
+// which crashes extension activation. Keeping them external preserves the
+// guarded `require(...)` so the missing module is handled gracefully.
+const optionalPeerExternals = ["encoding", "bufferutil", "utf-8-validate"];
+
 export default defineConfig({
   // main process has full access to Node.js APIs
   main: {
@@ -21,7 +30,7 @@ export default defineConfig({
         formats: ["cjs"],
       },
       rolldownOptions: {
-        external: runtimeExternals,
+        external: [...runtimeExternals, ...optionalPeerExternals],
         output: {
           // silence warning about using `chunk.default` to access the default export
           exports: "named",
