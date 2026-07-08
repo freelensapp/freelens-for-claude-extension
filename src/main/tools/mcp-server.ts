@@ -4,6 +4,7 @@
  */
 
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
+import { clusterVersionSchema, runClusterVersion } from "./cluster-version";
 import { type PodLogsInput, podLogsSchema, runPodLogs } from "./pod-logs";
 import { type ResourcesInput, resourcesSchema, runResources } from "./resources";
 import { runWarningEvents, type WarningEventsInput, warningEventsSchema } from "./warning-events";
@@ -104,6 +105,12 @@ export function createKubeMcpServer(client: KubeClient): McpSdkServerConfigWithI
         "List Warning-type events across the cluster or a namespace, most recent first.",
         warningEventsSchema,
         (args: WarningEventsInput) => guard(() => runWarningEvents(client, args)),
+      ),
+      tool(
+        "kube_cluster_version",
+        "Report the Kubernetes API server version (gitVersion, major/minor, platform, buildDate).",
+        clusterVersionSchema,
+        () => guard(() => runClusterVersion(client)),
       ),
     ],
   });

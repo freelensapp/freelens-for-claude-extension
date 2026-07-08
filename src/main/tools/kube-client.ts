@@ -4,7 +4,7 @@
  */
 
 import { Main } from "@freelensapp/extensions";
-import { CoreV1Api, KubeConfig, KubernetesObjectApi } from "@kubernetes/client-node";
+import { CoreV1Api, KubeConfig, KubernetesObjectApi, VersionApi } from "@kubernetes/client-node";
 
 // Path 1 of the two viable tool backends in D4: a main-process
 // `@kubernetes/client-node` client built from the target cluster's kubeconfig
@@ -17,6 +17,7 @@ export interface KubeClient {
   config: KubeConfig;
   objects: KubernetesObjectApi;
   core: CoreV1Api;
+  version: VersionApi;
 }
 
 const clientCache = new Map<string, KubeClient>();
@@ -47,6 +48,7 @@ export function getKubeClient(clusterId: string): KubeClient {
     config,
     objects: KubernetesObjectApi.makeApiClient(config),
     core: config.makeApiClient(CoreV1Api),
+    version: config.makeApiClient(VersionApi),
   };
   clientCache.set(clusterId, client);
   return client;

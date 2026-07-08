@@ -4,6 +4,7 @@
  */
 
 import { describe, expect, it, vi } from "vitest";
+import { type ClusterVersionClient, runClusterVersion } from "./cluster-version";
 import { LOG_BYTE_CAP, selectFields, stripManagedFields, truncateBytes } from "./kube-format";
 import { type PodLogsClient, runPodLogs } from "./pod-logs";
 import { type ResourcesClient, runResources } from "./resources";
@@ -17,6 +18,8 @@ const warningEventsClient = (core: {
   listEventForAllNamespaces: unknown;
   listNamespacedEvent: unknown;
 }): WarningEventsClient => ({ core }) as unknown as WarningEventsClient;
+const clusterVersionClient = (version: { getCode: unknown }): ClusterVersionClient =>
+  ({ version }) as unknown as ClusterVersionClient;
 
 describe("kube-format", () => {
   it("strips metadata.managedFields from a single resource", () => {
@@ -171,6 +174,23 @@ describe("runResources", () => {
       includeManagedFields: true,
     });
     expect(out).toContain("managedFields");
+  });
+});
+
+describe("runClusterVersion", () => {
+  it("summarizes the API server version", async () => {
+    const getCode = vi.fn(async () => ({
+      major: "1",
+      minor: "30",
+      gitVersion: "v1.30.2",
+      platform: "linux/amd64",
+      buildDate: "2024-06-11T00:00:00Z",
+    }));
+    const out = await runClusterVersion(clusterVersionClient({ getCode }));
+    expect(getCode).toHaveBeenCalled();
+    expect(out).toContain("v1.30.2");
+    expect(out).toContain("major/minor: 1.30");
+    expect(out).toContain("linux/amd64");
   });
 });
 
