@@ -127,15 +127,36 @@ Endpoint sketch:
 ### D4. Kubernetes tools: in-process MCP server in the main process
 
 Reimplement the original extension's Kubernetes tool set as an **in-process
-SDK MCP server** (`createSdkMcpServer` + `tool()` with zod schemas). These
-tools execute inside the extension main process (not in the Claude Code
-subprocess), so they can use Freelens context directly.
+SDK MCP server** (`createSdkMcpServer` + `tool()` with zod schemas). The MCP
+server is registered where the Claude Agent SDK `query()` runs — the
+extension main process — and is the integration point regardless of where a
+tool's Kubernetes work is ultimately performed.
 
-Cluster access: build `@kubernetes/client-node` clients from the target
-cluster's `kubeconfigPath` + `kubeconfigContext`, available on the
-`KubernetesCluster` catalog entity in the main process. This keeps tools
-working independent of renderer page lifecycle and gives per-cluster
-isolation for free (one MCP server instance bound per cluster session).
+Cluster access — two viable paths, both retained as legitimate designs:
+
+1. **Main-process client from kubeconfig.** Build `@kubernetes/client-node`
+   clients from the target cluster's `kubeconfigPath` + `kubeconfigContext`,
+   available on the `KubernetesCluster` catalog entity in the main process.
+   This keeps tools working independent of renderer page lifecycle and gives
+   per-cluster isolation for free (one MCP server instance bound per cluster
+   session). It is the simplest path for M0's read-only tools.
+2. **Bridge to the renderer's `Renderer.K8sApi`.** A tool call in the main
+   process delegates to the renderer, which executes it through
+   `Renderer.K8sApi` (the original extension's approach). This is **not
+   rejected** — it is a natural way to expose Freelens' own cluster context
+   to the extension: requests flow through Freelens' kube-proxy and cluster
+   connection management, inheriting exec-plugin auth, port-forward/proxy
+   handling, resource stores, and watch caches that a raw client rebuilt
+   from a kubeconfig path would have to reimplement. Its cost is coupling to
+   an open cluster frame and an extra main<->renderer round-trip.
+
+The two are not exclusive: the MCP server can resolve each tool against
+either backend. M0 uses path 1 for its three read-only tools (no dependence
+on an open page); path 2 is the preferred way to reach Freelens context
+where that context matters (e.g. respecting the user's active proxy settings
+or reusing already-watched resource stores), and is expected to carry tools
+introduced in later milestones. The choice is per-tool, decided by whether a
+tool needs Freelens' connection context or must survive page navigation.
 
 Tool parity target (mirrors the original 12):
 
@@ -163,11 +184,6 @@ dedicated **Kubectl tool** that runs `kubectl` through Freelens' own terminal
 (visible to the user, using the cluster's kubeconfig). Maintainer decision:
 built-in `Bash`/filesystem tools stay disallowed; the Kubectl-via-Freelens-
 terminal tool is deferred (skipped for now).
-
-Rejected alternative: bridging tool calls back to the renderer to reuse
-`Renderer.K8sApi` (original extension's approach). It couples tool execution
-to an open page and adds a round-trip; the kubeconfig path is simpler and
-survives page navigation.
 
 ### D5. Sessions and persistence: one Claude Code session per cluster
 
@@ -305,3 +321,10 @@ All four open questions were answered by the maintainer in issue #7:
 4. **Naming** — "Freelens for Claude", to avoid trademark issues: the
    "for Claude" form uses the trademark without implying an official
    Anthropic tool.
+5. **D4 tool execution** — clarified. Bridging tool calls to the renderer's
+   `Renderer.K8sApi` is **not** rejected; it is a natural way to expose
+   Freelens' cluster context to the extension and is retained as a
+   first-class option alongside the main-process kubeconfig client. M0 keeps
+   the main-process client for its read-only tools; the renderer bridge is
+   preferred where Freelens connection context matters and is expected in
+   later milestones.
