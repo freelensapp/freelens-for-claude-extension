@@ -6,6 +6,7 @@
 import { randomBytes } from "node:crypto";
 import { Common, Main } from "@freelensapp/extensions";
 import { BridgeStore } from "../common/bridge-store";
+import { ChatSessionStore } from "../common/session-store";
 import { BridgeServer } from "./bridge/server";
 import { type DetectionResult, detectClaudeCode } from "./claude/detect";
 import { SessionManager } from "./claude/session-manager";
@@ -23,11 +24,18 @@ export default class ForClaudeMain extends Main.LensExtension {
       const store = BridgeStore.createInstance<BridgeStore>();
       store.loadExtension(this);
 
+      const sessionStore = ChatSessionStore.createInstance<ChatSessionStore>();
+      sessionStore.loadExtension(this);
+
       const token = randomBytes(32).toString("hex");
       this.detection = await detectClaudeCode();
 
       const baseDir = await this.getExtensionFileFolder();
-      this.sessionManager = new SessionManager(() => (this.detection.found ? this.detection.path : undefined), baseDir);
+      this.sessionManager = new SessionManager(
+        () => (this.detection.found ? this.detection.path : undefined),
+        baseDir,
+        sessionStore,
+      );
 
       this.server = new BridgeServer({
         token,
