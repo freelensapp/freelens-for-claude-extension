@@ -31,7 +31,15 @@
     "react-dom",
     // types-only and test-only dev dependencies
     "@testing-library/react",
-    "@types/react"
+    "@types/react",
+    // optional peer dependencies of node-fetch / ws (pulled in transitively by
+    // @kubernetes/client-node). They are loaded via guarded `require(...)` in a
+    // try/catch and kept `external` in the main build (see electron.vite.config.js),
+    // so the guarded requires survive in `out/main/index.js`. They are intentionally
+    // not installed, so knip would otherwise report them as unlisted dependencies.
+    "encoding",
+    "bufferutil",
+    "utf-8-validate"
   ],
 
   "typescript": {
