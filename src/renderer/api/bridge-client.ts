@@ -93,6 +93,25 @@ export class BridgeClient {
     if (!response.ok) throw new Error(`set permission mode failed: ${response.status}`);
   }
 
+  /** Switch the per-cluster model; `null` restores the Claude Code default. */
+  async setModel(clusterId: string, model: string | null): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/clusters/${encodeURIComponent(clusterId)}/model`, {
+      method: "POST",
+      headers: { ...this.authHeader, "Content-Type": "application/json" },
+      body: JSON.stringify({ model }),
+    });
+    if (!response.ok) throw new Error(`set model failed: ${response.status}`);
+  }
+
+  /** Re-run the last failed turn. Resolves for a 202, rejects for a 409/other. */
+  async retry(clusterId: string): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/clusters/${encodeURIComponent(clusterId)}/retry`, {
+      method: "POST",
+      headers: this.authHeader,
+    });
+    if (!response.ok) throw new Error(`retry failed: ${response.status}`);
+  }
+
   /**
    * Open an SSE stream for a cluster's session events. Returns a function that
    * closes the stream. Reconnects with capped exponential backoff when the

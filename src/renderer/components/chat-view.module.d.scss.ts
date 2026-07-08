@@ -5,11 +5,14 @@ declare const classNames: {
   readonly assistantBubble: "assistantBubble";
   readonly toolNotice: "toolNotice";
   readonly errorBanner: "errorBanner";
+  readonly errorItem: "errorItem";
+  readonly retryButton: "retryButton";
   readonly errorHint: "errorHint";
   readonly statusStrip: "statusStrip";
   readonly statusLeft: "statusLeft";
   readonly workingIndicator: "workingIndicator";
   readonly resumedNotice: "resumedNotice";
+  readonly usage: "usage";
   readonly actions: "actions";
   readonly modeSelector: "modeSelector";
   readonly modeSelect: "modeSelect";
