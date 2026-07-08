@@ -1,0 +1,71 @@
+/**
+ * Copyright (c) Freelens Authors. All rights reserved.
+ * Licensed under MIT License. See LICENSE in root directory for more information.
+ */
+
+import { z } from "zod";
+import { LOG_BYTE_CAP, truncateBytes } from "./kube-format";
+
+import type { CoreV1Api } from "@kubernetes/client-node";
+
+const DEFAULT_TAIL_LINES = 200;
+
+export const podLogsSchema = {
+  namespace: z.string().describe("Namespace of the pod."),
+  name: z.string().describe("Pod name."),
+  container: z.string().optional().describe("Container name. Defaults to the only container when there is one."),
+  tailLines: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .describe(`Number of lines from the end of the log to fetch (default ${DEFAULT_TAIL_LINES}).`),
+  grep: z.string().optional().describe("JavaScript regular expression; only matching log lines are returned."),
+};
+
+const podLogsInput = z.object(podLogsSchema);
+export type PodLogsInput = z.infer<typeof podLogsInput>;
+
+/** The slice of the Kubernetes client the pod-logs tool needs. */
+export interface PodLogsClient {
+  core: Pick<CoreV1Api, "readNamespacedPodLog">;
+}
+
+/**
+ * Fetch a snapshot of a pod's logs, optionally filtered by a regex applied
+ * line-by-line, capped to {@link LOG_BYTE_CAP} bytes.
+ */
+export async function runPodLogs(client: PodLogsClient, input: PodLogsInput): Promise<string> {
+  const { namespace, name, container, grep } = input;
+  const tailLines = input.tailLines ?? DEFAULT_TAIL_LINES;
+
+  let regex: RegExp | undefined;
+  if (grep) {
+    try {
+      regex = new RegExp(grep);
+    } catch (error) {
+      return `Invalid grep pattern: ${error instanceof Error ? error.message : String(error)}`;
+    }
+  }
+
+  const raw = await client.core.readNamespacedPodLog({
+    name,
+    namespace,
+    container,
+    tailLines,
+  });
+
+  if (!raw) {
+    return `No logs available for pod "${name}"${container ? ` container "${container}"` : ""}.`;
+  }
+
+  let lines = raw.split("\n");
+  if (regex) {
+    lines = lines.filter((line) => regex.test(line));
+    if (lines.length === 0) {
+      return `No log lines matched /${grep}/ for pod "${name}".`;
+    }
+  }
+
+  return truncateBytes(lines.join("\n"), LOG_BYTE_CAP);
+}
