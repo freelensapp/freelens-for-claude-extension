@@ -64,14 +64,50 @@
   min-height: 1.8rem;
 }
 
+.statusLeft {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
 .workingIndicator {
   font-size: 0.85em;
   opacity: 0.7;
 }
 
+.resumedNotice {
+  font-size: 0.8em;
+  opacity: 0.6;
+  font-style: italic;
+}
+
 .actions {
   display: flex;
+  align-items: center;
   gap: 0.5rem;
+}
+
+.modeSelector {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.8em;
+  opacity: 0.85;
+}
+
+.modeSelect {
+  padding: 0.2em 0.4em;
+  border-radius: 4px;
+  border: 1px solid rgba(127, 127, 127, 0.4);
+  background: rgba(127, 127, 127, 0.08);
+  color: inherit;
+  font: inherit;
+  font-size: 1em;
+}
+
+.modeWarning {
+  border-color: rgba(224, 108, 117, 0.7);
+  color: var(--colorError, #e06c75);
 }
 
 .secondaryButton {

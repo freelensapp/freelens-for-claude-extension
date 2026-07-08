@@ -7,8 +7,13 @@ declare const classNames: {
   readonly errorBanner: "errorBanner";
   readonly errorHint: "errorHint";
   readonly statusStrip: "statusStrip";
+  readonly statusLeft: "statusLeft";
   readonly workingIndicator: "workingIndicator";
+  readonly resumedNotice: "resumedNotice";
   readonly actions: "actions";
+  readonly modeSelector: "modeSelector";
+  readonly modeSelect: "modeSelect";
+  readonly modeWarning: "modeWarning";
   readonly secondaryButton: "secondaryButton";
   readonly inputRow: "inputRow";
   readonly input: "input";

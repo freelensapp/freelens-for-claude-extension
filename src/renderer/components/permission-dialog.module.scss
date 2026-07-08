@@ -1,0 +1,124 @@
+.card {
+  align-self: stretch;
+  border: 1px solid rgba(229, 192, 123, 0.5);
+  border-radius: 6px;
+  background: rgba(229, 192, 123, 0.08);
+  overflow: hidden;
+}
+
+.pending {
+  border-color: rgba(229, 192, 123, 0.7);
+}
+
+.header {
+  padding: 0.4em 0.8em;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  background: rgba(229, 192, 123, 0.18);
+  color: var(--colorWarning, #e5c07b);
+}
+
+.section {
+  padding: 0.5em 0.8em;
+}
+
+.sectionLabel {
+  font-size: 0.75em;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  opacity: 0.6;
+  margin-bottom: 0.3em;
+}
+
+.code {
+  margin: 0;
+  padding: 0.5em;
+  border-radius: 4px;
+  background: rgba(127, 127, 127, 0.12);
+  font-family: var(--font-monospace, monospace);
+  font-size: 0.8em;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-x: auto;
+}
+
+.added {
+  color: var(--colorOk, #98c379);
+  background: rgba(152, 195, 121, 0.12);
+  display: block;
+}
+
+.removed {
+  color: var(--colorError, #e06c75);
+  background: rgba(224, 108, 117, 0.12);
+  display: block;
+}
+
+.hunk {
+  opacity: 0.6;
+  display: block;
+}
+
+.backup {
+  margin-top: 0.5em;
+}
+
+.backupSummary {
+  cursor: pointer;
+  font-size: 0.8em;
+  opacity: 0.75;
+}
+
+.buttons {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+  padding: 0 0.8em 0.6em;
+}
+
+.approve {
+  padding: 0.35em 1.1em;
+  cursor: pointer;
+  border: none;
+  border-radius: 4px;
+  background: #98c379;
+  color: #1a1a1a;
+  font-weight: 600;
+}
+
+.deny {
+  padding: 0.35em 1.1em;
+  cursor: pointer;
+  border: 1px solid rgba(224, 108, 117, 0.6);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--colorError, #e06c75);
+}
+
+.resolved {
+  border-color: rgba(127, 127, 127, 0.35);
+  background: rgba(127, 127, 127, 0.06);
+}
+
+.resolvedSummary {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  padding: 0.4em 0.8em;
+  cursor: pointer;
+  font-size: 0.85em;
+}
+
+.resolvedTitle {
+  opacity: 0.75;
+}
+
+.approvedTag {
+  color: var(--colorOk, #98c379);
+  font-weight: 600;
+}
+
+.deniedTag {
+  color: var(--colorError, #e06c75);
+  font-weight: 600;
+}

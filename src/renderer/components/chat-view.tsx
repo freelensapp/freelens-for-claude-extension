@@ -6,10 +6,17 @@
 import { useEffect, useReducer, useRef, useState } from "react";
 import styles from "./chat-view.module.scss";
 import { Markdown } from "./markdown";
+import { PermissionDialog } from "./permission-dialog";
 
-import type { KeyboardEvent } from "react";
+import type { ChangeEvent, KeyboardEvent } from "react";
 
-import type { SessionErrorKind, SessionEvent } from "../../common/protocol";
+import type {
+  PermissionBehavior,
+  PermissionMode,
+  SessionErrorKind,
+  SessionEvent,
+  SessionEventMap,
+} from "../../common/protocol";
 import type { BridgeClient } from "../api/bridge-client";
 
 interface ChatViewProps {
@@ -17,20 +24,30 @@ interface ChatViewProps {
   client: BridgeClient;
 }
 
+type PermissionRequest = SessionEventMap["permission_request"];
+
 type ChatItem =
   | { kind: "user"; text: string }
   | { kind: "assistant"; text: string }
   | { kind: "tool_call"; toolName: string }
-  | { kind: "tool_result"; toolName: string; summary: string };
+  | { kind: "tool_result"; toolName: string; summary: string }
+  | {
+      kind: "permission";
+      requestId: string;
+      request: PermissionRequest;
+      resolution?: { behavior: PermissionBehavior; reason?: string };
+    };
 
 interface ChatState {
   items: ChatItem[];
   draft: string;
   working: boolean;
+  mode: PermissionMode;
+  resumed: boolean;
   error?: { message: string; kind: SessionErrorKind };
 }
 
-const initialState: ChatState = { items: [], draft: "", working: false };
+const initialState: ChatState = { items: [], draft: "", working: false, mode: "approve", resumed: false };
 
 type ChatAction = SessionEvent | { type: "reset" };
 
@@ -53,6 +70,22 @@ function reducer(state: ChatState, action: ChatAction): ChatState {
         ...state,
         items: [...state.items, { kind: "tool_result", toolName: action.data.toolName, summary: action.data.summary }],
       };
+    case "permission_request":
+      return {
+        ...state,
+        items: [...state.items, { kind: "permission", requestId: action.data.requestId, request: action.data }],
+      };
+    case "permission_resolved":
+      return {
+        ...state,
+        items: state.items.map((item) =>
+          item.kind === "permission" && item.requestId === action.data.requestId
+            ? { ...item, resolution: { behavior: action.data.behavior, reason: action.data.reason } }
+            : item,
+        ),
+      };
+    case "session_meta":
+      return { ...state, mode: action.data.permissionMode, resumed: action.data.resumed };
     case "turn_complete": {
       const items = state.draft ? [...state.items, { kind: "assistant" as const, text: state.draft }] : state.items;
       return { ...state, items, draft: "", working: false };
@@ -63,6 +96,12 @@ function reducer(state: ChatState, action: ChatAction): ChatState {
       return state;
   }
 }
+
+const MODE_LABELS: Record<PermissionMode, string> = {
+  readOnly: "Read-only",
+  approve: "Approve",
+  acceptAll: "Accept all",
+};
 
 function ToolNotice({ label }: { label: string }) {
   return <div className={styles.toolNotice}>{label}</div>;
@@ -118,6 +157,25 @@ export function ChatView({ clusterId, client }: ChatViewProps) {
     setEpoch((value) => value + 1);
   };
 
+  const resolvePermission = (requestId: string, behavior: PermissionBehavior) => {
+    void client.resolvePermission(requestId, behavior).catch((error) => {
+      dispatch({
+        type: "error",
+        data: { message: `Failed to resolve approval: ${String(error)}`, kind: "other" },
+      });
+    });
+  };
+
+  const changeMode = (event: ChangeEvent<HTMLSelectElement>) => {
+    const mode = event.target.value as PermissionMode;
+    void client.setPermissionMode(clusterId, mode).catch((error) => {
+      dispatch({
+        type: "error",
+        data: { message: `Failed to change mode: ${String(error)}`, kind: "other" },
+      });
+    });
+  };
+
   return (
     <div className={styles.chatView}>
       <div className={styles.transcript} ref={scrollRef}>
@@ -139,6 +197,16 @@ export function ChatView({ clusterId, client }: ChatViewProps) {
           }
           if (item.kind === "tool_call") {
             return <ToolNotice key={key} label={`Calling ${item.toolName}...`} />;
+          }
+          if (item.kind === "permission") {
+            return (
+              <PermissionDialog
+                key={item.requestId}
+                request={item.request}
+                resolution={item.resolution}
+                onResolve={(behavior) => resolvePermission(item.requestId, behavior)}
+              />
+            );
           }
           return <ToolNotice key={key} label={`${item.toolName} returned`} />;
         })}
@@ -162,8 +230,25 @@ export function ChatView({ clusterId, client }: ChatViewProps) {
       ) : null}
 
       <div className={styles.statusStrip}>
-        {state.working ? <span className={styles.workingIndicator}>Working...</span> : <span />}
+        <div className={styles.statusLeft}>
+          {state.working ? <span className={styles.workingIndicator}>Working...</span> : null}
+          {state.resumed ? <span className={styles.resumedNotice}>conversation resumed</span> : null}
+        </div>
         <div className={styles.actions}>
+          <label className={styles.modeSelector}>
+            Mode:
+            <select
+              className={state.mode === "acceptAll" ? `${styles.modeSelect} ${styles.modeWarning}` : styles.modeSelect}
+              value={state.mode}
+              onChange={changeMode}
+            >
+              {(Object.keys(MODE_LABELS) as PermissionMode[]).map((mode) => (
+                <option key={mode} value={mode}>
+                  {MODE_LABELS[mode]}
+                </option>
+              ))}
+            </select>
+          </label>
           {state.working ? (
             <button type="button" className={styles.secondaryButton} onClick={stop}>
               Stop
@@ -182,7 +267,6 @@ export function ChatView({ clusterId, client }: ChatViewProps) {
           placeholder="Ask about this cluster..."
           onChange={(event) => setInput(event.target.value)}
           onKeyDown={onKeyDown}
-          disabled={state.working}
           rows={2}
         />
         <button

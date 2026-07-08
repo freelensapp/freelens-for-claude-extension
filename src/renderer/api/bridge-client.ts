@@ -4,7 +4,13 @@
  */
 
 import { BridgeStore } from "../../common/bridge-store";
-import { decodeSseFrame, type SessionEvent, type StatusResponse } from "../../common/protocol";
+import {
+  decodeSseFrame,
+  type PermissionBehavior,
+  type PermissionMode,
+  type SessionEvent,
+  type StatusResponse,
+} from "../../common/protocol";
 
 /** Handlers for a live SSE subscription. */
 export interface StreamHandlers {
@@ -65,6 +71,26 @@ export class BridgeClient {
       method: "DELETE",
       headers: this.authHeader,
     });
+  }
+
+  /** Approve or deny a pending mutating-tool request. */
+  async resolvePermission(requestId: string, behavior: PermissionBehavior): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/permissions/${encodeURIComponent(requestId)}`, {
+      method: "POST",
+      headers: { ...this.authHeader, "Content-Type": "application/json" },
+      body: JSON.stringify({ behavior }),
+    });
+    if (!response.ok) throw new Error(`resolve permission failed: ${response.status}`);
+  }
+
+  /** Switch the per-cluster permission mode. */
+  async setPermissionMode(clusterId: string, mode: PermissionMode): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/clusters/${encodeURIComponent(clusterId)}/permission-mode`, {
+      method: "POST",
+      headers: { ...this.authHeader, "Content-Type": "application/json" },
+      body: JSON.stringify({ mode }),
+    });
+    if (!response.ok) throw new Error(`set permission mode failed: ${response.status}`);
   }
 
   /**

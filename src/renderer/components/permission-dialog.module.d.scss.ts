@@ -1,0 +1,22 @@
+declare const classNames: {
+  readonly card: "card";
+  readonly pending: "pending";
+  readonly header: "header";
+  readonly section: "section";
+  readonly sectionLabel: "sectionLabel";
+  readonly code: "code";
+  readonly added: "added";
+  readonly removed: "removed";
+  readonly hunk: "hunk";
+  readonly backup: "backup";
+  readonly backupSummary: "backupSummary";
+  readonly buttons: "buttons";
+  readonly approve: "approve";
+  readonly deny: "deny";
+  readonly resolved: "resolved";
+  readonly resolvedSummary: "resolvedSummary";
+  readonly resolvedTitle: "resolvedTitle";
+  readonly approvedTag: "approvedTag";
+  readonly deniedTag: "deniedTag";
+};
+export = classNames;
