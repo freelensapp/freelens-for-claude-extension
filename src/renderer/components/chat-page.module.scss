@@ -1,0 +1,22 @@
+.notice {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.8rem;
+  height: 100%;
+  opacity: 0.8;
+}
+
+.retry {
+  padding: 0.4em 1.1em;
+  cursor: pointer;
+  border: 1px solid rgba(127, 127, 127, 0.4);
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+
+  &:hover {
+    background: rgba(127, 127, 127, 0.15);
+  }
+}

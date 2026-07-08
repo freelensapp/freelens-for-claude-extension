@@ -2,28 +2,44 @@
   "$schema": "https://unpkg.com/knip@5/schema-jsonc.json",
 
   "entry": [
-    "out/{main,preload}/index.js!",
-    "src/main/index.ts",
-    "src/renderer/index.tsx",
+    // Real extension entry points live in `src`. Mark them as production (`!`)
+    // so `knip --production` traces dependencies from source instead of the
+    // bundled `out/` output, where imports are inlined and thus invisible.
+    "src/main/index.ts!",
+    "src/renderer/index.tsx!",
     "src/**/*.{test,spec}.{ts,tsx}",
     "test/**/*.{ts,tsx}"
   ],
-  "project": ["*.{js,mjs,ts}", "out/**/*.js!", "src/**/*.{ts,tsx}"],
+  // `src` files are production code (`!`) so `knip --production` follows
+  // transitive imports from the entry points through the whole source tree.
+  // Without the `!`, production mode only inspects the entry files themselves
+  // and reports transitively-used runtime dependencies as unused.
+  "project": ["*.{js,mjs,ts}", "src/**/*.{ts,tsx}!"],
 
   "ignoreBinaries": ["electron-rebuild", "yq"],
   "ignoreDependencies": [
-    // used as vite plugin
+    // used as a vite plugin, not imported directly
     "@babel/plugin-proposal-decorators",
-    // TODO: currently unused because `src` is minimal; these are provided by the
-    // Freelens host (react, react-dom, mobx, mobx-react) or used by tests and
-    // will be needed again once real components/tests are added. Remove from
-    // this list when they are imported by `src`.
-    "@testing-library/react",
-    "@types/react",
+    // provided by the Freelens host as globals at runtime (see the
+    // `globalExternals` map in electron.vite.config.js); they are imported by
+    // `src` but never bundled, so production mode would otherwise report them
+    // as unlisted dependencies.
+    "@freelensapp/extensions",
     "mobx",
     "mobx-react",
     "react",
-    "react-dom"
+    "react-dom",
+    // types-only and test-only dev dependencies
+    "@testing-library/react",
+    "@types/react",
+    // optional peer dependencies of node-fetch / ws (pulled in transitively by
+    // @kubernetes/client-node). They are loaded via guarded `require(...)` in a
+    // try/catch and kept `external` in the main build (see electron.vite.config.js),
+    // so the guarded requires survive in `out/main/index.js`. They are intentionally
+    // not installed, so knip would otherwise report them as unlisted dependencies.
+    "encoding",
+    "bufferutil",
+    "utf-8-validate"
   ],
 
   "typescript": {

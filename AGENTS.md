@@ -46,21 +46,53 @@ pnpm clean:all            # Clean everything (dts, node_modules, out, tgz)
 
 ## Architecture
 
+The extension embeds a Claude-powered chat in Freelens. The main process runs
+the Claude Agent SDK (which spawns the user's own Claude Code) and exposes a
+local HTTP/SSE bridge; the renderer is a per-cluster chat page. See the approved
+plan in [docs/PLAN.md](./docs/PLAN.md) and the M0 spec in
+[docs/M0.md](./docs/M0.md).
+
 ```text
 src/
-  main/index.ts            # Extension entry point (main process, CJS)
-  renderer/index.tsx       # Extension entry point (renderer process, CJS)
-  renderer/api/gateway-api/ # K8s object model classes (one file per CRD)
-  renderer/details/gateway-api/ # Detail view components for CRDs
-  renderer/pages/gateway-api/  # Cluster page components
-  renderer/components/      # Shared components
-  renderer/icons/           # SVG icons
-  renderer/observer.ts      # MobX observer helper
-  renderer/utils.ts         # Utility functions (e.g., createHash)
-  common/utils.ts           # Common utilities (e.g., maybe)
+  common/
+    bridge-store.ts        # ExtensionStore: { port, token } synced main -> renderer
+    protocol.ts            # shared request/response and SSE event types
+  main/
+    index.ts               # onActivate: start bridge; onDeactivate: stop it
+    claude/
+      detect.ts            # locate Claude Code binary, read version
+      session-manager.ts   # per-cluster session lifecycle over the Agent SDK
+    bridge/
+      server.ts            # node:http server, routing, bearer auth, CORS, SSE
+    tools/
+      kube-client.ts       # KubeConfig from the cluster catalog entity
+      kube-format.ts       # YAML, managedFields stripping, truncation helpers
+      mcp-server.ts        # createSdkMcpServer with the three read-only tools
+      resources.ts         # kube_resources tool
+      pod-logs.ts          # kube_pod_logs tool
+      warning-events.ts    # kube_warning_events tool
+  renderer/
+    index.tsx              # clusterPages + clusterPageMenus registration
+    api/
+      bridge-client.ts     # fetch wrapper + SSE reader against the bridge
+    components/
+      chat-page.tsx        # page: onboarding gate or chat view
+      chat-view.tsx        # message list + input + status strip
+      markdown.tsx         # react-markdown wrapper (code blocks, links)
+      onboarding.tsx       # Claude Code missing / not detected panel
+      *.module.scss        # component styles (SCSS modules)
+    icons/
+      claude-icon.tsx      # cluster page menu icon
 ```
 
-Build output goes to `out/`.
+Build output goes to `out/`. The Agent SDK and `@kubernetes/client-node` are
+bundled but must only be imported from `src/main/**` (never the renderer).
+
+### CRD KubeObject template (not used by M0)
+
+The `## CRD KubeObject Pattern` and gateway-api sections below document the
+upstream extension template's example CRD layout. M0 does not ship any CRD
+models; keep the pattern notes for reference if CRD views are added later.
 
 ## CRD KubeObject Pattern
 
