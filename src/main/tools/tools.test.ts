@@ -5,12 +5,16 @@
 
 import { PatchStrategy } from "@kubernetes/client-node";
 import { describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 import { type ClusterVersionClient, runClusterVersion } from "./cluster-version";
 import { type CreateResourceClient, runCreateResource } from "./create-resource";
+import { type DeletePodClient, deletePodSchema, runDeletePod } from "./delete-pod";
+import { type DeleteResourceClient, runDeleteResource } from "./delete-resource";
 import { LOG_BYTE_CAP, selectFields, stripManagedFields, truncateBytes } from "./kube-format";
 import { type PatchResourceClient, runPatchResource } from "./patch-resource";
 import { type PodLogsClient, runPodLogs } from "./pod-logs";
 import { type ResourcesClient, runResources } from "./resources";
+import { type RolloutRestartClient, rolloutRestartSchema, runRolloutRestart } from "./rollout-restart";
 import { runUpdateResource, type UpdateResourceClient } from "./update-resource";
 import { runWarningEvents, type WarningEventsClient } from "./warning-events";
 
@@ -30,6 +34,15 @@ const updateResourceClient = (objects: { read: unknown; replace: unknown }): Upd
   ({ objects }) as unknown as UpdateResourceClient;
 const patchResourceClient = (objects: { patch: unknown }, patchSubresource: unknown): PatchResourceClient =>
   ({ objects, patchSubresource }) as unknown as PatchResourceClient;
+const deleteResourceClient = (objects: { delete: unknown; patch: unknown }): DeleteResourceClient =>
+  ({ objects }) as unknown as DeleteResourceClient;
+const deletePodClient = (core: {
+  createNamespacedPodEviction: unknown;
+  deleteNamespacedPod: unknown;
+  patchNamespacedPod: unknown;
+}): DeletePodClient => ({ core }) as unknown as DeletePodClient;
+const rolloutRestartClient = (objects: { patch: unknown }): RolloutRestartClient =>
+  ({ objects }) as unknown as RolloutRestartClient;
 
 describe("kube-format", () => {
   it("strips metadata.managedFields from a single resource", () => {
@@ -268,6 +281,99 @@ describe("runPatchResource", () => {
     expect(patchSubresource).toHaveBeenCalledWith(
       expect.objectContaining({ subresource: "scale", name: "nginx", patch: { spec: { replicas: 3 } } }),
     );
+  });
+});
+
+describe("runDeleteResource", () => {
+  it("does a normal delete by default", async () => {
+    const del = vi.fn(async (..._args: unknown[]) => ({}));
+    const patch = vi.fn();
+    await runDeleteResource(deleteResourceClient({ delete: del, patch }), {
+      apiVersion: "v1",
+      kind: "ConfigMap",
+      namespace: "default",
+      name: "cfg",
+    });
+    expect(del).toHaveBeenCalledTimes(1);
+    expect(del.mock.calls[0][1]).toBeUndefined();
+  });
+
+  it("force-deletes with grace period 0 and background propagation", async () => {
+    const del = vi.fn(async (..._args: unknown[]) => ({}));
+    await runDeleteResource(deleteResourceClient({ delete: del, patch: vi.fn() }), {
+      apiVersion: "v1",
+      kind: "Pod",
+      namespace: "default",
+      name: "web",
+      mode: "force_delete",
+    });
+    expect(del).toHaveBeenCalledWith(expect.anything(), undefined, undefined, 0, undefined, "Background");
+  });
+
+  it("force-finalizes by clearing finalizers with a merge patch", async () => {
+    const patch = vi.fn(async (..._args: unknown[]) => ({}));
+    await runDeleteResource(deleteResourceClient({ delete: vi.fn(), patch }), {
+      apiVersion: "v1",
+      kind: "PersistentVolume",
+      name: "pv",
+      mode: "force_finalize",
+    });
+    const spec = patch.mock.calls[0][0] as { metadata: { finalizers: unknown[] } };
+    expect(spec.metadata.finalizers).toEqual([]);
+    expect(patch.mock.calls[0][5]).toBe(PatchStrategy.MergePatch);
+  });
+});
+
+describe("runDeletePod", () => {
+  it("requires a mode", () => {
+    expect(z.object(deletePodSchema).safeParse({ namespace: "default", name: "web" }).success).toBe(false);
+  });
+
+  it("creates an Eviction for evict mode", async () => {
+    const createNamespacedPodEviction = vi.fn(async (..._args: unknown[]) => ({}));
+    await runDeletePod(
+      deletePodClient({
+        createNamespacedPodEviction,
+        deleteNamespacedPod: vi.fn(),
+        patchNamespacedPod: vi.fn(),
+      }),
+      { namespace: "default", name: "web", mode: "evict" },
+    );
+    const arg = createNamespacedPodEviction.mock.calls[0][0] as { body: { kind: string } };
+    expect(arg.body.kind).toBe("Eviction");
+  });
+
+  it("clears finalizers then deletes for delete_with_finalizers", async () => {
+    const patchNamespacedPod = vi.fn(async () => ({}));
+    const deleteNamespacedPod = vi.fn(async () => ({}));
+    await runDeletePod(
+      deletePodClient({ createNamespacedPodEviction: vi.fn(), deleteNamespacedPod, patchNamespacedPod }),
+      { namespace: "default", name: "web", mode: "delete_with_finalizers" },
+    );
+    expect(patchNamespacedPod).toHaveBeenCalled();
+    expect(deleteNamespacedPod).toHaveBeenCalled();
+  });
+});
+
+describe("runRolloutRestart", () => {
+  it("rejects a non-restartable kind", () => {
+    expect(z.object(rolloutRestartSchema).safeParse({ kind: "Job", namespace: "default", name: "x" }).success).toBe(
+      false,
+    );
+  });
+
+  it("stamps the restartedAt annotation with a strategic-merge patch", async () => {
+    const patch = vi.fn(async (..._args: unknown[]) => ({}));
+    await runRolloutRestart(
+      rolloutRestartClient({ patch }),
+      { kind: "Deployment", namespace: "default", name: "nginx" },
+      () => "2026-01-01T00:00:00Z",
+    );
+    const spec = patch.mock.calls[0][0] as {
+      spec: { template: { metadata: { annotations: Record<string, string> } } };
+    };
+    expect(spec.spec.template.metadata.annotations["kubectl.kubernetes.io/restartedAt"]).toBe("2026-01-01T00:00:00Z");
+    expect(patch.mock.calls[0][5]).toBe(PatchStrategy.StrategicMergePatch);
   });
 });
 

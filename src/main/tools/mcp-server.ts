@@ -6,9 +6,12 @@
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import { clusterVersionSchema, runClusterVersion } from "./cluster-version";
 import { type CreateResourceInput, createResourceSchema, runCreateResource } from "./create-resource";
+import { type DeletePodInput, deletePodSchema, runDeletePod } from "./delete-pod";
+import { type DeleteResourceInput, deleteResourceSchema, runDeleteResource } from "./delete-resource";
 import { type PatchResourceInput, patchResourceSchema, runPatchResource } from "./patch-resource";
 import { type PodLogsInput, podLogsSchema, runPodLogs } from "./pod-logs";
 import { type ResourcesInput, resourcesSchema, runResources } from "./resources";
+import { type RolloutRestartInput, rolloutRestartSchema, runRolloutRestart } from "./rollout-restart";
 import { runUpdateResource, type UpdateResourceInput, updateResourceSchema } from "./update-resource";
 import { runWarningEvents, type WarningEventsInput, warningEventsSchema } from "./warning-events";
 
@@ -133,6 +136,24 @@ export function createKubeMcpServer(client: KubeClient): McpSdkServerConfigWithI
           "patch to scale a workload via { spec: { replicas: N } }. Requires user approval.",
         patchResourceSchema,
         (args: PatchResourceInput) => guard(() => runPatchResource(client, args)),
+      ),
+      tool(
+        "kube_delete_resource",
+        "Delete a Kubernetes resource (normal, force, or finalizer-clearing). Requires user approval.",
+        deleteResourceSchema,
+        (args: DeleteResourceInput) => guard(() => runDeleteResource(client, args)),
+      ),
+      tool(
+        "kube_delete_pod",
+        "Evict or delete a pod (evict, force_delete, or delete_with_finalizers). Requires user approval.",
+        deletePodSchema,
+        (args: DeletePodInput) => guard(() => runDeletePod(client, args)),
+      ),
+      tool(
+        "kube_rollout_restart",
+        "Trigger a rolling restart of a Deployment, DaemonSet, or StatefulSet. Requires user approval.",
+        rolloutRestartSchema,
+        (args: RolloutRestartInput) => guard(() => runRolloutRestart(client, args)),
       ),
     ],
   });
