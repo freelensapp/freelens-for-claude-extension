@@ -146,6 +146,39 @@ export class BridgeServer {
       return;
     }
 
+    const modeId = matchCluster(pathname, "permission-mode");
+    if (req.method === "POST" && modeId) {
+      const body = (await readJsonBody(req)) as { mode?: unknown };
+      if (body.mode !== "readOnly" && body.mode !== "approve" && body.mode !== "acceptAll") {
+        sendJson(res, 400, { error: "Invalid permission mode" });
+        return;
+      }
+      this.deps.sessionManager.setPermissionMode(modeId, body.mode);
+      sendJson(res, 200, { mode: body.mode });
+      return;
+    }
+
+    const permissionMatch = pathname.match(/^\/permissions\/([^/]+)$/);
+    if (req.method === "POST" && permissionMatch) {
+      const requestId = decodeURIComponent(permissionMatch[1]);
+      const body = (await readJsonBody(req)) as { behavior?: unknown };
+      if (body.behavior !== "allow" && body.behavior !== "deny") {
+        sendJson(res, 400, { error: "Invalid behavior" });
+        return;
+      }
+      const result = this.deps.sessionManager.resolvePermission(requestId, body.behavior);
+      if (result === "not_found") {
+        sendJson(res, 404, { error: "Unknown permission request" });
+        return;
+      }
+      if (result === "already_resolved") {
+        sendJson(res, 409, { error: "Permission request already resolved" });
+        return;
+      }
+      sendJson(res, 200, { resolved: true });
+      return;
+    }
+
     sendJson(res, 404, { error: "Not found" });
   }
 

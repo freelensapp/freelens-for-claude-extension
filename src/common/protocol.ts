@@ -27,11 +27,32 @@ export interface SendMessageRequest {
   text: string;
 }
 
+/** Body of `POST /permissions/:requestId`. */
+export interface ResolvePermissionRequest {
+  behavior: PermissionBehavior;
+}
+
+/** Body of `POST /clusters/:id/permission-mode`. */
+export interface SetPermissionModeRequest {
+  mode: PermissionMode;
+}
+
 /** The classification attached to an `error` event. */
 export type SessionErrorKind = "not_found" | "auth" | "other";
 
 /** Session lifecycle state reflected in the status strip. */
 export type SessionState = "idle" | "working";
+
+/**
+ * Per-cluster approval policy for mutating tools.
+ * - `readOnly`: mutating tools are always denied.
+ * - `approve`: every mutation pauses on a user approval dialog (default).
+ * - `acceptAll`: mutations are auto-approved (never persisted).
+ */
+export type PermissionMode = "readOnly" | "approve" | "acceptAll";
+
+/** How a permission request was resolved. */
+export type PermissionBehavior = "allow" | "deny";
 
 /**
  * SSE event payloads, keyed by event type. Each entry is serialized as one
@@ -46,6 +67,25 @@ export interface SessionEventMap {
   tool_result: { toolName: string; summary: string };
   turn_complete: Record<string, never>;
   error: { message: string; kind: SessionErrorKind };
+  /** A mutating tool is awaiting user approval. */
+  permission_request: {
+    requestId: string;
+    toolName: string;
+    /** Short human header, e.g. `UPDATE SERVICE` or `DELETE POD (evict)`. */
+    actionTitle: string;
+    /** The tool input, echoed for the dialog. */
+    input: unknown;
+    /** The tool input rendered as YAML. */
+    proposedYaml: string;
+    /** Pre-change YAML of the target resource (managedFields stripped), best-effort. */
+    currentYaml?: string;
+    /** Unified diff from `currentYaml` to the proposed manifest (updates only). */
+    diff?: string;
+  };
+  /** A pending permission request was resolved (by the user or automatically). */
+  permission_resolved: { requestId: string; behavior: PermissionBehavior; reason?: string };
+  /** Session metadata pushed to a new subscriber before the transcript replay. */
+  session_meta: { permissionMode: PermissionMode; resumed: boolean };
 }
 
 export type SessionEventType = keyof SessionEventMap;

@@ -21,6 +21,17 @@ describe("protocol SSE round-trip", () => {
     sessionEvent("tool_result", { toolName: "kube_resources", summary: "3 pods" }),
     sessionEvent("turn_complete", {}),
     sessionEvent("error", { message: "boom", kind: "auth" }),
+    sessionEvent("permission_request", {
+      requestId: "req-1",
+      toolName: "kube_update_resource",
+      actionTitle: "UPDATE SERVICE",
+      input: { manifest: { kind: "Service" } },
+      proposedYaml: "kind: Service\n",
+      currentYaml: "kind: Service\nspec: {}\n",
+      diff: "--- current\n+++ proposed\n",
+    }),
+    sessionEvent("permission_resolved", { requestId: "req-1", behavior: "deny", reason: "interrupted" }),
+    sessionEvent("session_meta", { permissionMode: "approve", resumed: true }),
   ];
 
   for (const event of cases) {

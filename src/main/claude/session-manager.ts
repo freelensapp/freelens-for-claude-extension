@@ -3,15 +3,35 @@
  * Licensed under MIT License. See LICENSE in root directory for more information.
  */
 
-import { mkdir } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { Common } from "@freelensapp/extensions";
-import { type SessionErrorKind, type SessionEvent, sessionEvent } from "../../common/protocol";
-import { disposeKubeClient, getKubeClient } from "../tools/kube-client";
-import { ALLOWED_TOOL_NAMES, createKubeMcpServer, MCP_SERVER_NAME } from "../tools/mcp-server";
+import {
+  type PermissionBehavior,
+  type PermissionMode,
+  type SessionErrorKind,
+  type SessionEvent,
+  sessionEvent,
+} from "../../common/protocol";
+import { disposeKubeClient, getKubeClient, type KubeClient } from "../tools/kube-client";
+import { stripManagedFields, toYaml } from "../tools/kube-format";
+import {
+  ALLOWED_TOOL_NAMES,
+  createKubeMcpServer,
+  isKnownToolName,
+  isMutatingToolName,
+  MCP_SERVER_NAME,
+  unqualifyToolName,
+} from "../tools/mcp-server";
+import { PermissionBroker, type ResolveResult } from "./permission-broker";
 
 import type { Query, SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+
+import type { ChatSessionState } from "../../common/session-store";
+import type { ApprovalTarget } from "../tools/approval";
 
 /** Claude Code built-in tools that must never run against a cluster chat. */
 const DISALLOWED_BUILTIN_TOOLS = [
@@ -35,7 +55,22 @@ const PERSISTED_EVENTS = new Set<SessionEvent["type"]>([
   "tool_call",
   "tool_result",
   "error",
+  "permission_request",
+  "permission_resolved",
 ]);
+
+/** Delay after the last persisted event before the transcript is flushed to disk. */
+const TRANSCRIPT_DEBOUNCE_MS = 500;
+
+/** Per-cluster scratch directory holding the resumable transcript. */
+function clusterDir(baseDir: string, clusterId: string): string {
+  return join(baseDir, "clusters", clusterId);
+}
+
+/** Path of the persisted transcript for a cluster. */
+function transcriptPath(baseDir: string, clusterId: string): string {
+  return join(clusterDir(baseDir, clusterId), "transcript.json");
+}
 
 type SessionListener = (event: SessionEvent) => void;
 
@@ -105,28 +140,100 @@ class ClusterSession {
   private readonly input = new MessageQueue();
   private readonly abort = new AbortController();
   private readonly toolNames = new Map<string, string>();
+  private readonly broker: PermissionBroker;
+  private readonly dir: string;
+  private readonly transcriptFile: string;
+  private client?: KubeClient;
+  private claudeCodePath?: string;
+  private resumed = false;
+  private resumeRetried = false;
+  private sessionId?: string;
   private queryHandle?: Query;
   private working = false;
   private started = false;
+  private writeTimer?: ReturnType<typeof setTimeout>;
 
   constructor(
     private readonly clusterId: string,
     private readonly resolveClaudeCodePath: () => string | undefined,
-    private readonly baseDir: string,
-  ) {}
+    baseDir: string,
+    private readonly store: ChatSessionState,
+  ) {
+    this.dir = clusterDir(baseDir, clusterId);
+    this.transcriptFile = transcriptPath(baseDir, clusterId);
+    this.broker = new PermissionBroker(
+      (event) => this.emit(event),
+      (target) => this.captureBackup(target),
+      () => randomUUID(),
+      () => this.resumed,
+    );
+    // Restore the persisted permission mode (mutating setMode directly, without
+    // re-persisting) and the transcript so a reconnecting page replays history.
+    const persisted = this.store.read(clusterId);
+    if (persisted?.permissionMode) this.broker.setMode(persisted.permissionMode);
+    this.loadTranscript();
+  }
+
+  /** Load the persisted transcript synchronously so the first subscriber replays it. */
+  private loadTranscript(): void {
+    try {
+      const parsed = JSON.parse(readFileSync(this.transcriptFile, "utf8"));
+      if (Array.isArray(parsed)) this.transcript.push(...(parsed as SessionEvent[]));
+    } catch {
+      // No transcript yet (or unreadable); start with an empty history.
+    }
+  }
 
   subscribe(listener: SessionListener): () => void {
     this.subscribers.add(listener);
     listener(sessionEvent("status", { state: this.working ? "working" : "idle" }));
+    listener(sessionEvent("session_meta", { permissionMode: this.broker.getMode(), resumed: this.resumed }));
     for (const event of this.transcript) listener(event);
     return () => {
       this.subscribers.delete(listener);
     };
   }
 
+  getPermissionMode(): PermissionMode {
+    return this.broker.getMode();
+  }
+
+  setPermissionMode(mode: PermissionMode): void {
+    this.broker.setMode(mode);
+    // `acceptAll` is intentionally not persisted (the store ignores it).
+    this.store.writePermissionMode(this.clusterId, mode);
+  }
+
+  /** Resolve a pending approval; reports whether it was found or already settled. */
+  resolvePermission(requestId: string, behavior: PermissionBehavior): ResolveResult {
+    return this.broker.resolve(requestId, behavior);
+  }
+
   private emit(event: SessionEvent): void {
-    if (PERSISTED_EVENTS.has(event.type)) this.transcript.push(event);
+    if (PERSISTED_EVENTS.has(event.type)) {
+      this.transcript.push(event);
+      this.scheduleTranscriptWrite();
+    }
     for (const listener of this.subscribers) listener(event);
+  }
+
+  /** Debounce a transcript flush so a burst of events writes disk only once. */
+  private scheduleTranscriptWrite(): void {
+    if (this.writeTimer) clearTimeout(this.writeTimer);
+    this.writeTimer = setTimeout(() => {
+      this.writeTimer = undefined;
+      void this.flushTranscript();
+    }, TRANSCRIPT_DEBOUNCE_MS);
+  }
+
+  /** Write the in-memory transcript to disk; best-effort, never throws. */
+  private async flushTranscript(): Promise<void> {
+    try {
+      await mkdir(this.dir, { recursive: true });
+      await writeFile(this.transcriptFile, JSON.stringify(this.transcript));
+    } catch {
+      // A failed transcript write must not break the live chat.
+    }
   }
 
   private setWorking(working: boolean): void {
@@ -168,39 +275,91 @@ class ClusterSession {
       return;
     }
 
-    const cwd = join(this.baseDir, "clusters", this.clusterId);
     try {
-      await mkdir(cwd, { recursive: true });
+      await mkdir(this.dir, { recursive: true });
     } catch {
       // Fall back to the base dir; a missing scratch dir is not fatal.
     }
 
-    const client = getKubeClient(this.clusterId);
+    this.client = getKubeClient(this.clusterId);
+    this.claudeCodePath = claudeCodePath;
 
+    // Resume the stored Claude Code session on the first turn after a restart.
+    const resumeId = this.store.read(this.clusterId)?.sessionId;
+    this.startQuery(resumeId);
+    if (resumeId) {
+      this.resumed = true;
+      this.emit(sessionEvent("session_meta", { permissionMode: this.broker.getMode(), resumed: true }));
+    }
+
+    void this.consume();
+  }
+
+  /** Build (or rebuild) the SDK query; `resume` continues a stored session. */
+  private startQuery(resume?: string): void {
+    const client = this.client;
+    if (!client || !this.claudeCodePath) return;
     this.queryHandle = query({
       prompt: this.input,
       options: {
         abortController: this.abort,
-        pathToClaudeCodeExecutable: claudeCodePath,
-        cwd,
+        pathToClaudeCodeExecutable: this.claudeCodePath,
+        cwd: this.dir,
         mcpServers: { [MCP_SERVER_NAME]: createKubeMcpServer(client) },
         allowedTools: ALLOWED_TOOL_NAMES,
         disallowedTools: DISALLOWED_BUILTIN_TOOLS,
         settingSources: [],
         includePartialMessages: true,
-        canUseTool: async (toolName) =>
-          ALLOWED_TOOL_NAMES.includes(toolName)
-            ? { behavior: "allow", updatedInput: {} }
-            : { behavior: "deny", message: `Tool "${toolName}" is not permitted in this read-only cluster chat.` },
+        canUseTool: (toolName, input, extra) => this.canUseTool(toolName, input, extra),
+        ...(resume ? { resume } : {}),
         systemPrompt: {
           type: "preset",
           preset: "claude_code",
-          append: `You are operating on the Kubernetes cluster "${client.clusterName}" through read-only tools. You cannot modify the cluster; only inspect it. Prefer the kube_ tools to answer questions about cluster state.`,
+          append:
+            `You are operating on the Kubernetes cluster "${client.clusterName}" through kube_ tools. ` +
+            "Read-only tools (list/get resources, pod logs, warning events, cluster version) run freely. " +
+            "Mutating tools (create, update, patch/scale, delete, delete pod, rollout restart) exist, but every " +
+            "mutation requires explicit user approval, and all mutations are denied while the chat is in read-only " +
+            "mode. Prefer reads to discover current state before proposing any mutation, and never retry a denied " +
+            "action unless the user asks you to.",
         },
       },
     });
+  }
 
-    void this.consume();
+  /** SDK approval callback. Read-only tools are pre-allowed; only mutating tools reach the broker. */
+  private async canUseTool(
+    toolName: string,
+    input: Record<string, unknown>,
+    extra: { signal?: AbortSignal },
+  ): Promise<{ behavior: "allow"; updatedInput: Record<string, unknown> } | { behavior: "deny"; message: string }> {
+    if (!isKnownToolName(toolName)) {
+      return { behavior: "deny", message: `Tool "${toolName}" is not permitted in this cluster chat.` };
+    }
+    // Read-only tools are in allowedTools and normally never reach here; allow, echoing input.
+    if (!isMutatingToolName(toolName)) {
+      return { behavior: "allow", updatedInput: input };
+    }
+
+    const decision = await this.broker.decideMutating(unqualifyToolName(toolName), input, extra.signal);
+    return decision.behavior === "allow"
+      ? { behavior: "allow", updatedInput: input }
+      : { behavior: "deny", message: decision.message ?? "The user denied the action." };
+  }
+
+  /** Best-effort read of the target resource for the approval backup; never throws. */
+  private async captureBackup(target: ApprovalTarget): Promise<string | undefined> {
+    if (!this.client) return undefined;
+    try {
+      const current = await this.client.objects.read({
+        apiVersion: target.apiVersion,
+        kind: target.kind,
+        metadata: { name: target.name, namespace: target.namespace },
+      });
+      return toYaml(stripManagedFields(current));
+    } catch {
+      return undefined;
+    }
   }
 
   private async consume(): Promise<void> {
@@ -210,7 +369,19 @@ class ClusterSession {
         this.handleMessage(message);
       }
     } catch (error) {
-      if (!this.abort.signal.aborted) {
+      if (this.abort.signal.aborted) {
+        // Shutting down; the error is expected and swallowed.
+      } else if (this.resumed && !this.resumeRetried) {
+        // The stored session is gone: drop it and restart fresh, transparently.
+        this.resumeRetried = true;
+        this.resumed = false;
+        this.sessionId = undefined;
+        this.store.writeSessionId(this.clusterId, undefined);
+        this.emit(sessionEvent("session_meta", { permissionMode: this.broker.getMode(), resumed: false }));
+        this.startQuery(undefined);
+        await this.consume();
+        return;
+      } else {
         this.emit(
           sessionEvent("error", {
             message: error instanceof Error ? error.message : String(error),
@@ -219,12 +390,27 @@ class ClusterSession {
         );
       }
     } finally {
+      this.broker.denyAllPending("the session ended");
       this.setWorking(false);
     }
   }
 
+  /** Persist the Claude Code session id reported by the SDK for later resume. */
+  private captureSessionId(sessionId: string): void {
+    if (this.sessionId === sessionId) return;
+    this.sessionId = sessionId;
+    this.store.writeSessionId(this.clusterId, sessionId);
+  }
+
   private handleMessage(message: SDKMessage): void {
     switch (message.type) {
+      case "system": {
+        const system = message as { subtype?: string; session_id?: string };
+        if (system.subtype === "init" && system.session_id) {
+          this.captureSessionId(system.session_id);
+        }
+        break;
+      }
       case "stream_event": {
         const event = message.event as { type?: string; delta?: { type?: string; text?: string } };
         if (event.type === "content_block_delta" && event.delta?.type === "text_delta" && event.delta.text) {
@@ -287,6 +473,7 @@ class ClusterSession {
   }
 
   async interrupt(): Promise<void> {
+    this.broker.denyAllPending("the turn was interrupted");
     try {
       await this.queryHandle?.interrupt();
     } catch {
@@ -295,7 +482,26 @@ class ClusterSession {
     this.setWorking(false);
   }
 
-  async dispose(): Promise<void> {
+  /**
+   * Tear the session down. `persistTranscript` keeps the transcript on disk
+   * (graceful shutdown / deactivate); when `false` the transcript file is
+   * removed instead (a new chat starts clean).
+   */
+  async dispose(persistTranscript: boolean): Promise<void> {
+    if (this.writeTimer) {
+      clearTimeout(this.writeTimer);
+      this.writeTimer = undefined;
+    }
+    if (persistTranscript) {
+      await this.flushTranscript();
+    } else {
+      try {
+        await rm(this.transcriptFile, { force: true });
+      } catch {
+        // Best-effort; a leftover transcript is harmless.
+      }
+    }
+    this.broker.denyAllPending("the session was disposed");
     this.input.close();
     this.abort.abort();
     try {
@@ -314,12 +520,13 @@ export class SessionManager {
   constructor(
     private readonly resolveClaudeCodePath: () => string | undefined,
     private readonly baseDir: string,
+    private readonly store: ChatSessionState,
   ) {}
 
   private getOrCreate(clusterId: string): ClusterSession {
     let session = this.sessions.get(clusterId);
     if (!session) {
-      session = new ClusterSession(clusterId, this.resolveClaudeCodePath, this.baseDir);
+      session = new ClusterSession(clusterId, this.resolveClaudeCodePath, this.baseDir, this.store);
       this.sessions.set(clusterId, session);
     }
     return session;
@@ -342,16 +549,46 @@ export class SessionManager {
     await this.sessions.get(clusterId)?.interrupt();
   }
 
-  async dispose(clusterId: string): Promise<void> {
-    const session = this.sessions.get(clusterId);
-    if (!session) return;
-    this.sessions.delete(clusterId);
-    await session.dispose();
+  /** Set the per-cluster permission mode, creating the session state if needed. */
+  setPermissionMode(clusterId: string, mode: PermissionMode): void {
+    this.getOrCreate(clusterId).setPermissionMode(mode);
   }
 
+  /** Resolve a pending approval identified only by its request id. */
+  resolvePermission(requestId: string, behavior: PermissionBehavior): ResolveResult {
+    let sawResolved = false;
+    for (const session of this.sessions.values()) {
+      const result = session.resolvePermission(requestId, behavior);
+      if (result === "ok") return "ok";
+      if (result === "already_resolved") sawResolved = true;
+    }
+    return sawResolved ? "already_resolved" : "not_found";
+  }
+
+  /**
+   * Start a fresh chat for a cluster: clear the stored session id, drop the live
+   * session, and delete its transcript. The persisted permission mode is kept.
+   */
+  async dispose(clusterId: string): Promise<void> {
+    this.store.writeSessionId(clusterId, undefined);
+    const session = this.sessions.get(clusterId);
+    if (session) {
+      this.sessions.delete(clusterId);
+      await session.dispose(false);
+      return;
+    }
+    // No live session, but a transcript may still be on disk from a past run.
+    try {
+      await rm(transcriptPath(this.baseDir, clusterId), { force: true });
+    } catch {
+      // Best-effort.
+    }
+  }
+
+  /** Tear all sessions down on deactivate, preserving transcripts for resume. */
   async disposeAll(): Promise<void> {
     const all = [...this.sessions.values()];
     this.sessions.clear();
-    await Promise.all(all.map((session) => session.dispose()));
+    await Promise.all(all.map((session) => session.dispose(true)));
   }
 }

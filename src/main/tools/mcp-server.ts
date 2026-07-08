@@ -4,8 +4,15 @@
  */
 
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
+import { clusterVersionSchema, runClusterVersion } from "./cluster-version";
+import { type CreateResourceInput, createResourceSchema, runCreateResource } from "./create-resource";
+import { type DeletePodInput, deletePodSchema, runDeletePod } from "./delete-pod";
+import { type DeleteResourceInput, deleteResourceSchema, runDeleteResource } from "./delete-resource";
+import { type PatchResourceInput, patchResourceSchema, runPatchResource } from "./patch-resource";
 import { type PodLogsInput, podLogsSchema, runPodLogs } from "./pod-logs";
 import { type ResourcesInput, resourcesSchema, runResources } from "./resources";
+import { type RolloutRestartInput, rolloutRestartSchema, runRolloutRestart } from "./rollout-restart";
+import { runUpdateResource, type UpdateResourceInput, updateResourceSchema } from "./update-resource";
 import { runWarningEvents, type WarningEventsInput, warningEventsSchema } from "./warning-events";
 
 import type { McpSdkServerConfigWithInstance } from "@anthropic-ai/claude-agent-sdk";
@@ -15,10 +22,54 @@ import type { KubeClient } from "./kube-client";
 /** MCP server name; combined with tool names to form `mcp__<server>__<tool>`. */
 export const MCP_SERVER_NAME = "freelens-kube";
 
-const TOOL_NAMES = ["kube_resources", "kube_pod_logs", "kube_warning_events"] as const;
+/** Read-only tools: auto-allowed, listed in the SDK `allowedTools` option. */
+export const READ_ONLY_TOOL_NAMES = [
+  "kube_resources",
+  "kube_pod_logs",
+  "kube_warning_events",
+  "kube_cluster_version",
+] as const;
 
-/** Fully-qualified tool names for the SDK `allowedTools` option. */
-export const ALLOWED_TOOL_NAMES = TOOL_NAMES.map((name) => `mcp__${MCP_SERVER_NAME}__${name}`);
+/** Mutating tools: routed through `canUseTool` for approval. */
+export const MUTATING_TOOL_NAMES = [
+  "kube_create_resource",
+  "kube_update_resource",
+  "kube_patch_resource",
+  "kube_delete_resource",
+  "kube_delete_pod",
+  "kube_rollout_restart",
+] as const;
+
+/** Qualify a short tool name to its `mcp__<server>__<tool>` form. */
+export function qualifyToolName(name: string): string {
+  return `mcp__${MCP_SERVER_NAME}__${name}`;
+}
+
+/** The short tool name from a fully-qualified `mcp__<server>__<tool>`, or the input unchanged. */
+export function unqualifyToolName(name: string): string {
+  const prefix = `mcp__${MCP_SERVER_NAME}__`;
+  return name.startsWith(prefix) ? name.slice(prefix.length) : name;
+}
+
+/** Fully-qualified read-only tool names for the SDK `allowedTools` option. */
+export const ALLOWED_TOOL_NAMES = READ_ONLY_TOOL_NAMES.map(qualifyToolName);
+
+/** Fully-qualified mutating tool names (never in `allowedTools`). */
+export const MUTATING_QUALIFIED_TOOL_NAMES = MUTATING_TOOL_NAMES.map(qualifyToolName);
+
+/** Whether a fully-qualified or short tool name is one of ours. */
+export function isKnownToolName(name: string): boolean {
+  const short = unqualifyToolName(name);
+  return (
+    (READ_ONLY_TOOL_NAMES as readonly string[]).includes(short) ||
+    (MUTATING_TOOL_NAMES as readonly string[]).includes(short)
+  );
+}
+
+/** Whether a fully-qualified or short tool name is a mutating tool. */
+export function isMutatingToolName(name: string): boolean {
+  return (MUTATING_TOOL_NAMES as readonly string[]).includes(unqualifyToolName(name));
+}
 
 function textResult(text: string) {
   return { content: [{ type: "text" as const, text }] };
@@ -60,6 +111,49 @@ export function createKubeMcpServer(client: KubeClient): McpSdkServerConfigWithI
         "List Warning-type events across the cluster or a namespace, most recent first.",
         warningEventsSchema,
         (args: WarningEventsInput) => guard(() => runWarningEvents(client, args)),
+      ),
+      tool(
+        "kube_cluster_version",
+        "Report the Kubernetes API server version (gitVersion, major/minor, platform, buildDate).",
+        clusterVersionSchema,
+        () => guard(() => runClusterVersion(client)),
+      ),
+      tool(
+        "kube_create_resource",
+        "Create a Kubernetes resource from a full manifest. Requires user approval.",
+        createResourceSchema,
+        (args: CreateResourceInput) => guard(() => runCreateResource(client, args)),
+      ),
+      tool(
+        "kube_update_resource",
+        "Replace a Kubernetes resource with a full manifest. Requires user approval.",
+        updateResourceSchema,
+        (args: UpdateResourceInput) => guard(() => runUpdateResource(client, args)),
+      ),
+      tool(
+        "kube_patch_resource",
+        'Patch a Kubernetes resource (JSON merge patch), or a subresource like "scale" with a strategic-merge ' +
+          "patch to scale a workload via { spec: { replicas: N } }. Requires user approval.",
+        patchResourceSchema,
+        (args: PatchResourceInput) => guard(() => runPatchResource(client, args)),
+      ),
+      tool(
+        "kube_delete_resource",
+        "Delete a Kubernetes resource (normal, force, or finalizer-clearing). Requires user approval.",
+        deleteResourceSchema,
+        (args: DeleteResourceInput) => guard(() => runDeleteResource(client, args)),
+      ),
+      tool(
+        "kube_delete_pod",
+        "Evict or delete a pod (evict, force_delete, or delete_with_finalizers). Requires user approval.",
+        deletePodSchema,
+        (args: DeletePodInput) => guard(() => runDeletePod(client, args)),
+      ),
+      tool(
+        "kube_rollout_restart",
+        "Trigger a rolling restart of a Deployment, DaemonSet, or StatefulSet. Requires user approval.",
+        rolloutRestartSchema,
+        (args: RolloutRestartInput) => guard(() => runRolloutRestart(client, args)),
       ),
     ],
   });

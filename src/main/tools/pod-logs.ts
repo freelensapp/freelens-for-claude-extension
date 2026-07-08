@@ -21,6 +21,11 @@ export const podLogsSchema = {
     .optional()
     .describe(`Number of lines from the end of the log to fetch (default ${DEFAULT_TAIL_LINES}).`),
   grep: z.string().optional().describe("JavaScript regular expression; only matching log lines are returned."),
+  previous: z
+    .boolean()
+    .optional()
+    .describe("Return logs from the previous terminated container instance (useful for CrashLoopBackOff)."),
+  timestamps: z.boolean().optional().describe("Prefix each line with its RFC3339 timestamp."),
 };
 
 const podLogsInput = z.object(podLogsSchema);
@@ -36,7 +41,7 @@ export interface PodLogsClient {
  * line-by-line, capped to {@link LOG_BYTE_CAP} bytes.
  */
 export async function runPodLogs(client: PodLogsClient, input: PodLogsInput): Promise<string> {
-  const { namespace, name, container, grep } = input;
+  const { namespace, name, container, grep, previous, timestamps } = input;
   const tailLines = input.tailLines ?? DEFAULT_TAIL_LINES;
 
   let regex: RegExp | undefined;
@@ -48,12 +53,23 @@ export async function runPodLogs(client: PodLogsClient, input: PodLogsInput): Pr
     }
   }
 
-  const raw = await client.core.readNamespacedPodLog({
-    name,
-    namespace,
-    container,
-    tailLines,
-  });
+  let raw: string;
+  try {
+    raw = await client.core.readNamespacedPodLog({
+      name,
+      namespace,
+      container,
+      tailLines,
+      previous,
+      timestamps,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (previous && /previous terminated container.*not found/i.test(message)) {
+      return `No previous (terminated) container instance was found for pod "${name}"${container ? ` container "${container}"` : ""}; it may not have restarted yet.`;
+    }
+    throw error;
+  }
 
   if (!raw) {
     return `No logs available for pod "${name}"${container ? ` container "${container}"` : ""}.`;

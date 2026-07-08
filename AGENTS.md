@@ -49,35 +49,47 @@ pnpm clean:all            # Clean everything (dts, node_modules, out, tgz)
 The extension embeds a Claude-powered chat in Freelens. The main process runs
 the Claude Agent SDK (which spawns the user's own Claude Code) and exposes a
 local HTTP/SSE bridge; the renderer is a per-cluster chat page. See the approved
-plan in [docs/PLAN.md](./docs/PLAN.md) and the M0 spec in
-[docs/M0.md](./docs/M0.md).
+plan in [docs/PLAN.md](./docs/PLAN.md), the M0 spec in
+[docs/M0.md](./docs/M0.md), and the M1 spec (tool and safety parity) in
+[docs/M1.md](./docs/M1.md).
 
 ```text
 src/
   common/
     bridge-store.ts        # ExtensionStore: { port, token } synced main -> renderer
-    protocol.ts            # shared request/response and SSE event types
+    session-store.ts       # ChatSessionStore: per-cluster sessionId + permission mode
+    protocol.ts            # shared request/response and SSE event types (incl. permission events)
   main/
-    index.ts               # onActivate: start bridge; onDeactivate: stop it
+    index.ts               # onActivate: start bridge + stores; onDeactivate: stop it
     claude/
       detect.ts            # locate Claude Code binary, read version
-      session-manager.ts   # per-cluster session lifecycle over the Agent SDK
+      session-manager.ts   # per-cluster session lifecycle, resume, transcript persistence
+      permission-broker.ts # per-session permission modes + approval request/resolve
     bridge/
-      server.ts            # node:http server, routing, bearer auth, CORS, SSE
+      server.ts            # node:http server, routing, bearer auth, CORS, SSE, permission routes
     tools/
-      kube-client.ts       # KubeConfig from the cluster catalog entity
-      kube-format.ts       # YAML, managedFields stripping, truncation helpers
-      mcp-server.ts        # createSdkMcpServer with the three read-only tools
-      resources.ts         # kube_resources tool
-      pod-logs.ts          # kube_pod_logs tool
+      kube-client.ts       # KubeConfig + typed API surface from the cluster catalog entity
+      kube-format.ts       # YAML, managedFields stripping, truncation, selectFields, toDiff
+      mcp-server.ts        # createSdkMcpServer; read-only vs mutating tool name sets
+      approval.ts          # describeApproval: action title + backup target per mutating tool
+      resources.ts         # kube_resources tool (field selection, managedFields opt-in)
+      pod-logs.ts          # kube_pod_logs tool (previous, timestamps)
       warning-events.ts    # kube_warning_events tool
+      cluster-version.ts   # kube_cluster_version tool
+      create-resource.ts   # kube_create_resource tool
+      update-resource.ts   # kube_update_resource tool (backup + diff)
+      patch-resource.ts    # kube_patch_resource tool (incl. scale subresource)
+      delete-resource.ts   # kube_delete_resource tool (delete / force / finalize)
+      delete-pod.ts        # kube_delete_pod tool (evict / force / finalizers)
+      rollout-restart.ts   # kube_rollout_restart tool (Deployment/DaemonSet/StatefulSet)
   renderer/
     index.tsx              # clusterPages + clusterPageMenus registration
     api/
-      bridge-client.ts     # fetch wrapper + SSE reader against the bridge
+      bridge-client.ts     # fetch wrapper + SSE reader; resolvePermission, setPermissionMode
     components/
       chat-page.tsx        # page: onboarding gate or chat view
-      chat-view.tsx        # message list + input + status strip
+      chat-view.tsx        # message list + input + status strip + permission-mode selector
+      permission-dialog.tsx # inline approval card (proposed YAML, backup, diff)
       markdown.tsx         # react-markdown wrapper (code blocks, links)
       onboarding.tsx       # Claude Code missing / not detected panel
       *.module.scss        # component styles (SCSS modules)
@@ -88,10 +100,10 @@ src/
 Build output goes to `out/`. The Agent SDK and `@kubernetes/client-node` are
 bundled but must only be imported from `src/main/**` (never the renderer).
 
-### CRD KubeObject template (not used by M0)
+### CRD KubeObject template (not used by M0/M1)
 
 The `## CRD KubeObject Pattern` and gateway-api sections below document the
-upstream extension template's example CRD layout. M0 does not ship any CRD
+upstream extension template's example CRD layout. M0/M1 do not ship any CRD
 models; keep the pattern notes for reference if CRD views are added later.
 
 ## CRD KubeObject Pattern
@@ -290,6 +302,12 @@ When asked to implement a change on a PR:
    separately. Do not batch multiple independent fixes into a single
    commit. This keeps the history bisectable and makes each change easy
    to revert individually.
+5. **Push after every commit** — run a `git push` immediately after each
+   commit, never batch several commits into a single push at the end. The
+   workflow has a total timeout of 60 minutes; a long task can be
+   interrupted mid-run. Pushing each commit as it lands means a later
+   `@claude resume after timeout` run picks up from the last pushed commit
+   with no lost work. Unpushed commits are lost when the session times out.
 
 ### Branch Naming Conventions
 

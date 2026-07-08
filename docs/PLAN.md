@@ -3,7 +3,8 @@
 Status: **approved** — all open questions were resolved by the maintainer in
 issue [#7](https://github.com/freelensapp/freelens-for-claude-extension/issues/7);
 see [Resolved questions](#resolved-questions) at the end of this document.
-Next step: implement **M0** as specified in [M0.md](./M0.md).
+**M0 is delivered** and confirmed working by the maintainer.
+Next step: implement **M1** as specified in [M1.md](./M1.md).
 
 Process note: planning and analysis run on issues (Fable model);
 implementation runs on pull requests (Opus model).
@@ -297,7 +298,8 @@ calls. Detailed implementation specification: [M0.md](./M0.md).
 
 **M1 — tool and safety parity.** Full 12-tool set, approval dialog with YAML
 diff, permission modes, session persistence and resume, per-cluster session
-management (new chat, stop).
+management (new chat, stop — delivered in M0). Detailed implementation
+specification: [M1.md](./M1.md).
 
 **M2 — UX parity.** Usage display, retry, model picker, tool-call cards,
 "Ask Claude" on resources, preferences page.

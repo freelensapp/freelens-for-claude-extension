@@ -30,11 +30,31 @@ export const Renderer = {
   },
 };
 
+// Minimal stand-in for the host `ExtensionStore` base class. The real one
+// persists to disk and is a host singleton; the stub keeps subclass state in
+// memory so store logic (e.g. `ChatSessionStore`) can be unit-tested.
+class ExtensionStore<_T> {
+  constructor(_params: unknown) {}
+  loadExtension(_extension: unknown): void {}
+  static createInstance<T>(this: new () => T): T {
+    return new this();
+  }
+  static getInstance<T>(this: new () => T): T {
+    return new this();
+  }
+  static getInstanceOrCreate<T>(this: new () => T): T {
+    return new this();
+  }
+}
+
 export const Common = {
   logger: {
     debug: vi.fn(),
     info: vi.fn(),
     warn: vi.fn(),
     error: vi.fn(),
+  },
+  Store: {
+    ExtensionStore,
   },
 };
