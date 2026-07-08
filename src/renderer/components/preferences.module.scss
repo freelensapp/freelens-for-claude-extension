@@ -1,0 +1,45 @@
+.preferences {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  max-width: 40rem;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.hint {
+  font-size: 0.85em;
+  opacity: 0.6;
+}
+
+.mono {
+  font-family: var(--font-monospace, monospace);
+}
+
+.number {
+  max-width: 10rem;
+}
+
+.select {
+  max-width: 16rem;
+  padding: 0.3em 0.5em;
+  border-radius: 4px;
+  border: 1px solid rgba(127, 127, 127, 0.4);
+  background: rgba(127, 127, 127, 0.08);
+  color: inherit;
+  font: inherit;
+}
+
+.textarea {
+  resize: vertical;
+  padding: 0.5em;
+  border-radius: 4px;
+  border: 1px solid rgba(127, 127, 127, 0.4);
+  background: rgba(127, 127, 127, 0.08);
+  color: inherit;
+  font-family: inherit;
+}
