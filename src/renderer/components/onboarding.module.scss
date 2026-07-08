@@ -1,0 +1,51 @@
+.onboarding {
+  display: flex;
+  justify-content: center;
+  padding: 2rem;
+  height: 100%;
+  overflow-y: auto;
+}
+
+.card {
+  max-width: 640px;
+  width: 100%;
+
+  h2 {
+    margin-top: 0;
+  }
+
+  h3 {
+    margin-bottom: 0.3em;
+  }
+
+  code {
+    font-family: var(--font-monospace, monospace);
+    padding: 0 0.2em;
+    background: rgba(127, 127, 127, 0.2);
+    border-radius: 3px;
+  }
+}
+
+.checks {
+  padding-left: 1.4em;
+}
+
+.error {
+  color: var(--colorError, #e06c75);
+}
+
+.button {
+  margin-top: 1rem;
+  padding: 0.5em 1.2em;
+  cursor: pointer;
+  border: none;
+  border-radius: 4px;
+  background: var(--colorSoftError, #3d90ce);
+  background: #3d90ce;
+  color: #fff;
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: default;
+  }
+}
