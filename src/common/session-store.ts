@@ -26,6 +26,8 @@ export interface ChatSessionEntry {
   sessionId?: string;
   /** The last persisted permission mode for this cluster. */
   permissionMode: PersistedPermissionMode;
+  /** The selected model alias; absent means the Claude Code default. */
+  model?: string;
   /** ISO timestamp of the last write. */
   updatedAt: string;
 }
@@ -46,6 +48,8 @@ export interface ChatSessionState {
   writeSessionId(clusterId: string, sessionId: string | undefined): void;
   /** Persist the permission mode; `acceptAll` is ignored (never persisted). */
   writePermissionMode(clusterId: string, mode: PermissionMode): void;
+  /** Persist the selected model alias; `undefined` clears it (Claude Code default). */
+  writeModel(clusterId: string, model: string | undefined): void;
 }
 
 export class ChatSessionStore extends Common.Store.ExtensionStore<ChatSessionStoreModel> implements ChatSessionState {
@@ -84,6 +88,17 @@ export class ChatSessionStore extends Common.Store.ExtensionStore<ChatSessionSto
     this.sessions = {
       ...this.sessions,
       [clusterId]: { ...base, permissionMode: mode, updatedAt: this.now() },
+    };
+  }
+
+  writeModel(clusterId: string, model: string | undefined): void {
+    const existing = this.sessions[clusterId];
+    // Nothing to clear for a cluster we have never seen.
+    if (!existing && model == null) return;
+    const base: ChatSessionEntry = existing ?? { permissionMode: "approve", updatedAt: this.now() };
+    this.sessions = {
+      ...this.sessions,
+      [clusterId]: { ...base, model, updatedAt: this.now() },
     };
   }
 

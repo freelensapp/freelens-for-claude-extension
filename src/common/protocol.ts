@@ -37,6 +37,22 @@ export interface SetPermissionModeRequest {
   mode: PermissionMode;
 }
 
+/** Body of `POST /clusters/:id/model`. `null` restores the Claude Code default. */
+export interface SetModelRequest {
+  model: string | null;
+}
+
+/**
+ * The model aliases offered by the picker and accepted by `POST .../model`.
+ * A `null`/absent selection means "Claude Code default".
+ */
+export const MODEL_CHOICES = ["sonnet", "opus", "haiku"] as const;
+
+/** Whether a value is one of the known model aliases. */
+export function isModelChoice(value: unknown): value is (typeof MODEL_CHOICES)[number] {
+  return typeof value === "string" && (MODEL_CHOICES as readonly string[]).includes(value);
+}
+
 /** The classification attached to an `error` event. */
 export type SessionErrorKind = "not_found" | "auth" | "other";
 
@@ -63,10 +79,17 @@ export interface SessionEventMap {
   user_message: { text: string };
   assistant_delta: { text: string };
   assistant_message: { text: string };
-  tool_call: { toolName: string; input: unknown };
-  tool_result: { toolName: string; summary: string };
+  /** `callId` is the SDK `tool_use` block id, absent for replayed M1 transcripts. */
+  tool_call: { toolName: string; input: unknown; callId?: string };
+  /** `callId` is the block's `tool_use_id`, absent for replayed M1 transcripts. */
+  tool_result: { toolName: string; summary: string; callId?: string };
   turn_complete: Record<string, never>;
-  error: { message: string; kind: SessionErrorKind };
+  /** Per-turn token usage from the SDK `result` message. */
+  usage: { inputTokens: number; cachedInputTokens: number; outputTokens: number };
+  /** Native Claude Code conversation compaction. */
+  compaction: { trigger: "manual" | "auto"; preTokens: number };
+  /** `canRetry` marks errors a Retry button can re-run (a user turn exists). */
+  error: { message: string; kind: SessionErrorKind; canRetry?: boolean };
   /** A mutating tool is awaiting user approval. */
   permission_request: {
     requestId: string;
@@ -85,7 +108,14 @@ export interface SessionEventMap {
   /** A pending permission request was resolved (by the user or automatically). */
   permission_resolved: { requestId: string; behavior: PermissionBehavior; reason?: string };
   /** Session metadata pushed to a new subscriber before the transcript replay. */
-  session_meta: { permissionMode: PermissionMode; resumed: boolean };
+  session_meta: {
+    permissionMode: PermissionMode;
+    resumed: boolean;
+    /** Selected model alias; absent means the Claude Code default. */
+    model?: string;
+    /** The model id the SDK `init` message resolved to (for the Default label). */
+    resolvedModel?: string;
+  };
 }
 
 export type SessionEventType = keyof SessionEventMap;

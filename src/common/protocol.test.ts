@@ -4,7 +4,14 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { decodeSseFrame, encodeSseEvent, type SessionEvent, sessionEvent } from "./protocol";
+import {
+  decodeSseFrame,
+  encodeSseEvent,
+  isModelChoice,
+  MODEL_CHOICES,
+  type SessionEvent,
+  sessionEvent,
+} from "./protocol";
 
 /** Strip the trailing blank-line separator so we can feed one frame to the decoder. */
 function frameOf(encoded: string): string {
@@ -18,9 +25,14 @@ describe("protocol SSE round-trip", () => {
     sessionEvent("assistant_delta", { text: "partial " }),
     sessionEvent("assistant_message", { text: "Here is the answer.\nWith a newline." }),
     sessionEvent("tool_call", { toolName: "kube_resources", input: { kind: "Pod" } }),
+    sessionEvent("tool_call", { toolName: "kube_resources", input: { kind: "Pod" }, callId: "toolu_1" }),
     sessionEvent("tool_result", { toolName: "kube_resources", summary: "3 pods" }),
+    sessionEvent("tool_result", { toolName: "kube_resources", summary: "3 pods", callId: "toolu_1" }),
+    sessionEvent("usage", { inputTokens: 1200, cachedInputTokens: 800, outputTokens: 345 }),
+    sessionEvent("compaction", { trigger: "auto", preTokens: 120000 }),
     sessionEvent("turn_complete", {}),
     sessionEvent("error", { message: "boom", kind: "auth" }),
+    sessionEvent("error", { message: "flaky", kind: "other", canRetry: true }),
     sessionEvent("permission_request", {
       requestId: "req-1",
       toolName: "kube_update_resource",
@@ -32,6 +44,12 @@ describe("protocol SSE round-trip", () => {
     }),
     sessionEvent("permission_resolved", { requestId: "req-1", behavior: "deny", reason: "interrupted" }),
     sessionEvent("session_meta", { permissionMode: "approve", resumed: true }),
+    sessionEvent("session_meta", {
+      permissionMode: "approve",
+      resumed: false,
+      model: "haiku",
+      resolvedModel: "claude-haiku-4-5",
+    }),
   ];
 
   for (const event of cases) {
@@ -47,5 +65,14 @@ describe("protocol SSE round-trip", () => {
 
   it("returns null for frames without data", () => {
     expect(decodeSseFrame("event: status")).toBeNull();
+  });
+});
+
+describe("model choices", () => {
+  it("recognizes the known aliases and rejects anything else", () => {
+    for (const model of MODEL_CHOICES) expect(isModelChoice(model)).toBe(true);
+    expect(isModelChoice("gpt")).toBe(false);
+    expect(isModelChoice(null)).toBe(false);
+    expect(isModelChoice(undefined)).toBe(false);
   });
 });
