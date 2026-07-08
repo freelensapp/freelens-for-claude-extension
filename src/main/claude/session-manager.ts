@@ -30,8 +30,12 @@ import { PermissionBroker, type ResolveResult } from "./permission-broker";
 
 import type { Query, SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 
+import type { PreferencesState } from "../../common/preferences-store";
 import type { ChatSessionState } from "../../common/session-store";
 import type { ApprovalTarget } from "../tools/approval";
+
+/** The read tool that may be gated behind an approval preference. */
+const POD_LOGS_TOOL = "kube_pod_logs";
 
 /** Claude Code built-in tools that must never run against a cluster chat. */
 const DISALLOWED_BUILTIN_TOOLS = [
@@ -54,10 +58,15 @@ const PERSISTED_EVENTS = new Set<SessionEvent["type"]>([
   "assistant_message",
   "tool_call",
   "tool_result",
+  "usage",
+  "compaction",
   "error",
   "permission_request",
   "permission_resolved",
 ]);
+
+/** Read-only tools that the SDK may run without hitting `canUseTool`; pod logs are gated separately. */
+const AUTO_ALLOWED_TOOL_NAMES = ALLOWED_TOOL_NAMES.filter((name) => unqualifyToolName(name) !== POD_LOGS_TOOL);
 
 /** Delay after the last persisted event before the transcript is flushed to disk. */
 const TRANSCRIPT_DEBOUNCE_MS = 500;
@@ -118,6 +127,14 @@ interface ContentBlock {
   is_error?: boolean;
 }
 
+/** The token counters carried on the SDK `result` message. */
+interface UsageTotals {
+  input_tokens?: number;
+  output_tokens?: number;
+  cache_read_input_tokens?: number;
+  cache_creation_input_tokens?: number;
+}
+
 function classifyError(reason: string | undefined): SessionErrorKind {
   if (reason === "authentication_failed" || reason === "oauth_org_not_allowed") return "auth";
   return "other";
@@ -152,12 +169,19 @@ class ClusterSession {
   private working = false;
   private started = false;
   private writeTimer?: ReturnType<typeof setTimeout>;
+  /** The selected model alias; `undefined` means the Claude Code default. */
+  private selectedModel?: string;
+  /** The model id the SDK `init` message reported (for the Default label). */
+  private resolvedModel?: string;
+  /** The last user prompt, kept so a failed turn can be retried without re-adding the bubble. */
+  private lastUserText?: string;
 
   constructor(
     private readonly clusterId: string,
     private readonly resolveClaudeCodePath: () => string | undefined,
     baseDir: string,
     private readonly store: ChatSessionState,
+    private readonly preferences: PreferencesState,
   ) {
     this.dir = clusterDir(baseDir, clusterId);
     this.transcriptFile = transcriptPath(baseDir, clusterId);
@@ -166,11 +190,15 @@ class ClusterSession {
       (target) => this.captureBackup(target),
       () => randomUUID(),
       () => this.resumed,
+      () => ({ model: this.selectedModel, resolvedModel: this.resolvedModel }),
     );
     // Restore the persisted permission mode (mutating setMode directly, without
     // re-persisting) and the transcript so a reconnecting page replays history.
     const persisted = this.store.read(clusterId);
     if (persisted?.permissionMode) this.broker.setMode(persisted.permissionMode);
+    // Initialize the model from the stored per-cluster choice, or the default
+    // preference when the cluster has never picked one.
+    this.selectedModel = persisted?.model ?? (this.preferences.defaultModel.trim() || undefined);
     this.loadTranscript();
   }
 
@@ -187,11 +215,21 @@ class ClusterSession {
   subscribe(listener: SessionListener): () => void {
     this.subscribers.add(listener);
     listener(sessionEvent("status", { state: this.working ? "working" : "idle" }));
-    listener(sessionEvent("session_meta", { permissionMode: this.broker.getMode(), resumed: this.resumed }));
+    listener(this.sessionMetaEvent());
     for (const event of this.transcript) listener(event);
     return () => {
       this.subscribers.delete(listener);
     };
+  }
+
+  /** Build a `session_meta` event carrying the current mode, resume flag, and model. */
+  private sessionMetaEvent(): SessionEvent {
+    return sessionEvent("session_meta", {
+      permissionMode: this.broker.getMode(),
+      resumed: this.resumed,
+      model: this.selectedModel,
+      resolvedModel: this.resolvedModel,
+    });
   }
 
   getPermissionMode(): PermissionMode {
@@ -202,6 +240,29 @@ class ClusterSession {
     this.broker.setMode(mode);
     // `acceptAll` is intentionally not persisted (the store ignores it).
     this.store.writePermissionMode(this.clusterId, mode);
+  }
+
+  /**
+   * Switch the model used for subsequent turns. Persists the choice, updates a
+   * live query best-effort (never restarting the conversation), and echoes the
+   * new selection through `session_meta`.
+   */
+  setModel(model: string | undefined): void {
+    this.selectedModel = model;
+    this.store.writeModel(this.clusterId, model);
+    if (this.queryHandle) {
+      try {
+        void this.queryHandle.setModel(model);
+      } catch (error) {
+        this.emit(
+          sessionEvent("error", {
+            message: `Could not switch the model on the live session: ${error instanceof Error ? error.message : String(error)}`,
+            kind: "other",
+          }),
+        );
+      }
+    }
+    this.emit(this.sessionMetaEvent());
   }
 
   /** Resolve a pending approval; reports whether it was found or already settled. */
@@ -242,7 +303,25 @@ class ClusterSession {
   }
 
   async sendMessage(text: string): Promise<void> {
+    this.lastUserText = text;
     this.emit(sessionEvent("user_message", { text }));
+    await this.pushUserTurn(text);
+  }
+
+  /**
+   * Re-run the last user turn after a failure. Refuses (so the bridge answers
+   * 409) when a turn is in flight or there is nothing to retry. Deliberately
+   * does not re-emit a `user_message`: the original prompt is already in the
+   * transcript.
+   */
+  async retry(): Promise<"accepted" | "nothing_to_retry"> {
+    if (this.working || this.lastUserText == null) return "nothing_to_retry";
+    await this.pushUserTurn(this.lastUserText);
+    return "accepted";
+  }
+
+  /** Ensure a live query exists and enqueue one user turn; emits no user_message. */
+  private async pushUserTurn(text: string): Promise<void> {
     this.setWorking(true);
     if (!this.started) {
       await this.start();
@@ -289,7 +368,7 @@ class ClusterSession {
     this.startQuery(resumeId);
     if (resumeId) {
       this.resumed = true;
-      this.emit(sessionEvent("session_meta", { permissionMode: this.broker.getMode(), resumed: true }));
+      this.emit(this.sessionMetaEvent());
     }
 
     void this.consume();
@@ -305,26 +384,38 @@ class ClusterSession {
         abortController: this.abort,
         pathToClaudeCodeExecutable: this.claudeCodePath,
         cwd: this.dir,
-        mcpServers: { [MCP_SERVER_NAME]: createKubeMcpServer(client) },
-        allowedTools: ALLOWED_TOOL_NAMES,
+        mcpServers: {
+          [MCP_SERVER_NAME]: createKubeMcpServer(client, () => this.preferences.podLogsTailLines),
+        },
+        // Pod logs are omitted so `canUseTool` fires for them and the approval
+        // preference can be enforced live.
+        allowedTools: AUTO_ALLOWED_TOOL_NAMES,
         disallowedTools: DISALLOWED_BUILTIN_TOOLS,
         settingSources: [],
         includePartialMessages: true,
         canUseTool: (toolName, input, extra) => this.canUseTool(toolName, input, extra),
         ...(resume ? { resume } : {}),
+        ...(this.selectedModel ? { model: this.selectedModel } : {}),
         systemPrompt: {
           type: "preset",
           preset: "claude_code",
-          append:
-            `You are operating on the Kubernetes cluster "${client.clusterName}" through kube_ tools. ` +
-            "Read-only tools (list/get resources, pod logs, warning events, cluster version) run freely. " +
-            "Mutating tools (create, update, patch/scale, delete, delete pod, rollout restart) exist, but every " +
-            "mutation requires explicit user approval, and all mutations are denied while the chat is in read-only " +
-            "mode. Prefer reads to discover current state before proposing any mutation, and never retry a denied " +
-            "action unless the user asks you to.",
+          append: this.buildSystemPromptAppend(client.clusterName),
         },
       },
     });
+  }
+
+  /** Base guidance plus any user-configured custom rules appended for this session. */
+  private buildSystemPromptAppend(clusterName: string): string {
+    const base =
+      `You are operating on the Kubernetes cluster "${clusterName}" through kube_ tools. ` +
+      "Read-only tools (list/get resources, pod logs, warning events, cluster version) run freely. " +
+      "Mutating tools (create, update, patch/scale, delete, delete pod, rollout restart) exist, but every " +
+      "mutation requires explicit user approval, and all mutations are denied while the chat is in read-only " +
+      "mode. Prefer reads to discover current state before proposing any mutation, and never retry a denied " +
+      "action unless the user asks you to.";
+    const rules = this.preferences.customAgentRules.trim();
+    return rules ? `${base}\n\nAdditional user rules:\n${rules}` : base;
   }
 
   /** SDK approval callback. Read-only tools are pre-allowed; only mutating tools reach the broker. */
@@ -336,12 +427,25 @@ class ClusterSession {
     if (!isKnownToolName(toolName)) {
       return { behavior: "deny", message: `Tool "${toolName}" is not permitted in this cluster chat.` };
     }
-    // Read-only tools are in allowedTools and normally never reach here; allow, echoing input.
+    const shortName = unqualifyToolName(toolName);
+
+    // Pod logs are a read, but may be gated behind an approval preference.
+    if (shortName === POD_LOGS_TOOL) {
+      if (!this.preferences.podLogsRequireApproval) {
+        return { behavior: "allow", updatedInput: input };
+      }
+      const decision = await this.broker.decideReadWithConsent(shortName, input, extra.signal);
+      return decision.behavior === "allow"
+        ? { behavior: "allow", updatedInput: input }
+        : { behavior: "deny", message: decision.message ?? "The user denied the action." };
+    }
+
+    // Other read-only tools are in allowedTools and normally never reach here; allow, echoing input.
     if (!isMutatingToolName(toolName)) {
       return { behavior: "allow", updatedInput: input };
     }
 
-    const decision = await this.broker.decideMutating(unqualifyToolName(toolName), input, extra.signal);
+    const decision = await this.broker.decideMutating(shortName, input, extra.signal);
     return decision.behavior === "allow"
       ? { behavior: "allow", updatedInput: input }
       : { behavior: "deny", message: decision.message ?? "The user denied the action." };
@@ -377,7 +481,7 @@ class ClusterSession {
         this.resumed = false;
         this.sessionId = undefined;
         this.store.writeSessionId(this.clusterId, undefined);
-        this.emit(sessionEvent("session_meta", { permissionMode: this.broker.getMode(), resumed: false }));
+        this.emit(this.sessionMetaEvent());
         this.startQuery(undefined);
         await this.consume();
         return;
@@ -386,6 +490,7 @@ class ClusterSession {
           sessionEvent("error", {
             message: error instanceof Error ? error.message : String(error),
             kind: "other",
+            canRetry: this.lastUserText != null,
           }),
         );
       }
@@ -393,6 +498,18 @@ class ClusterSession {
       this.broker.denyAllPending("the session ended");
       this.setWorking(false);
     }
+  }
+
+  /** Emit a per-turn `usage` event from the SDK `result` message; missing usage emits nothing. */
+  private emitUsage(usage: UsageTotals | undefined): void {
+    if (!usage) return;
+    this.emit(
+      sessionEvent("usage", {
+        inputTokens: (usage.input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0),
+        cachedInputTokens: usage.cache_read_input_tokens ?? 0,
+        outputTokens: usage.output_tokens ?? 0,
+      }),
+    );
   }
 
   /** Persist the Claude Code session id reported by the SDK for later resume. */
@@ -405,9 +522,25 @@ class ClusterSession {
   private handleMessage(message: SDKMessage): void {
     switch (message.type) {
       case "system": {
-        const system = message as { subtype?: string; session_id?: string };
-        if (system.subtype === "init" && system.session_id) {
-          this.captureSessionId(system.session_id);
+        const system = message as {
+          subtype?: string;
+          session_id?: string;
+          model?: string;
+          compact_metadata?: { trigger?: "manual" | "auto"; pre_tokens?: number };
+        };
+        if (system.subtype === "init") {
+          if (system.session_id) this.captureSessionId(system.session_id);
+          if (system.model && system.model !== this.resolvedModel) {
+            this.resolvedModel = system.model;
+            this.emit(this.sessionMetaEvent());
+          }
+        } else if (system.subtype === "compact_boundary") {
+          this.emit(
+            sessionEvent("compaction", {
+              trigger: system.compact_metadata?.trigger ?? "auto",
+              preTokens: system.compact_metadata?.pre_tokens ?? 0,
+            }),
+          );
         }
         break;
       }
@@ -433,7 +566,13 @@ class ClusterSession {
             this.emit(sessionEvent("assistant_message", { text: block.text }));
           } else if (block.type === "tool_use") {
             if (block.id && block.name) this.toolNames.set(block.id, block.name);
-            this.emit(sessionEvent("tool_call", { toolName: block.name ?? "tool", input: block.input }));
+            this.emit(
+              sessionEvent("tool_call", {
+                toolName: unqualifyToolName(block.name ?? "tool"),
+                input: block.input,
+                callId: block.id,
+              }),
+            );
           }
         }
         break;
@@ -446,8 +585,9 @@ class ClusterSession {
             const toolName = (block.tool_use_id && this.toolNames.get(block.tool_use_id)) || "tool";
             this.emit(
               sessionEvent("tool_result", {
-                toolName,
+                toolName: unqualifyToolName(toolName),
                 summary: summarizeToolResult(block.content).slice(0, 2000),
+                callId: block.tool_use_id,
               }),
             );
           }
@@ -460,9 +600,11 @@ class ClusterSession {
             sessionEvent("error", {
               message: `The turn ended without completing (${message.subtype}).`,
               kind: "other",
+              canRetry: this.lastUserText != null,
             }),
           );
         }
+        this.emitUsage((message as { usage?: UsageTotals }).usage);
         this.setWorking(false);
         this.emit(sessionEvent("turn_complete", {}));
         break;
@@ -521,12 +663,13 @@ export class SessionManager {
     private readonly resolveClaudeCodePath: () => string | undefined,
     private readonly baseDir: string,
     private readonly store: ChatSessionState,
+    private readonly preferences: PreferencesState,
   ) {}
 
   private getOrCreate(clusterId: string): ClusterSession {
     let session = this.sessions.get(clusterId);
     if (!session) {
-      session = new ClusterSession(clusterId, this.resolveClaudeCodePath, this.baseDir, this.store);
+      session = new ClusterSession(clusterId, this.resolveClaudeCodePath, this.baseDir, this.store, this.preferences);
       this.sessions.set(clusterId, session);
     }
     return session;
@@ -552,6 +695,16 @@ export class SessionManager {
   /** Set the per-cluster permission mode, creating the session state if needed. */
   setPermissionMode(clusterId: string, mode: PermissionMode): void {
     this.getOrCreate(clusterId).setPermissionMode(mode);
+  }
+
+  /** Set the per-cluster model, creating the session state if needed. */
+  setModel(clusterId: string, model: string | undefined): void {
+    this.getOrCreate(clusterId).setModel(model);
+  }
+
+  /** Re-run the last user turn after a failure; reports whether it was accepted. */
+  async retry(clusterId: string): Promise<"accepted" | "nothing_to_retry"> {
+    return this.getOrCreate(clusterId).retry();
   }
 
   /** Resolve a pending approval identified only by its request id. */

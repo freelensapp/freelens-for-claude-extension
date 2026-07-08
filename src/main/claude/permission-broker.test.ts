@@ -133,4 +133,28 @@ describe("PermissionBroker", () => {
     const meta = events.find((e) => e.type === "session_meta") as Extract<SessionEvent, { type: "session_meta" }>;
     expect(meta.data.permissionMode).toBe("readOnly");
   });
+
+  const podLogsInput = { namespace: "default", name: "web" };
+
+  it("consent-required read tool prompts in readOnly mode instead of being denied", async () => {
+    const { broker, events } = makeBroker();
+    broker.setMode("readOnly");
+    const decision = broker.decideReadWithConsent("kube_pod_logs", podLogsInput);
+    await Promise.resolve();
+    const request = events.find((e) => e.type === "permission_request") as Extract<
+      SessionEvent,
+      { type: "permission_request" }
+    >;
+    expect(request).toBeDefined();
+    broker.resolve(request.data.requestId, "allow");
+    expect(await decision).toEqual({ behavior: "allow" });
+  });
+
+  it("acceptAll auto-approves a consent-required read tool", async () => {
+    const { broker, events } = makeBroker();
+    broker.setMode("acceptAll");
+    const decision = await broker.decideReadWithConsent("kube_pod_logs", podLogsInput);
+    expect(decision).toEqual({ behavior: "allow" });
+    expect(events.filter((e) => e.type === "permission_request")).toHaveLength(1);
+  });
 });

@@ -96,6 +96,10 @@ export function describeApproval(toolName: string, input: unknown): ApprovalDesc
         target: targetOf(RESTARTABLE_API_VERSION, args.kind, args.namespace, args.name),
       };
     }
+    case "kube_pod_logs": {
+      // A read has no target to back up; the input itself is the whole proposal.
+      return { actionTitle: "READ POD LOGS", proposedValue: input };
+    }
     default:
       return {
         actionTitle: `${toolName

@@ -4,7 +4,7 @@
  */
 
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { encodeSseEvent, SSE_HEARTBEAT, type StatusResponse } from "../../common/protocol";
+import { encodeSseEvent, isModelChoice, SSE_HEARTBEAT, type StatusResponse } from "../../common/protocol";
 
 import type { SessionManager } from "../claude/session-manager";
 
@@ -155,6 +155,29 @@ export class BridgeServer {
       }
       this.deps.sessionManager.setPermissionMode(modeId, body.mode);
       sendJson(res, 200, { mode: body.mode });
+      return;
+    }
+
+    const modelId = matchCluster(pathname, "model");
+    if (req.method === "POST" && modelId) {
+      const body = (await readJsonBody(req)) as { model?: unknown };
+      if (body.model !== null && !isModelChoice(body.model)) {
+        sendJson(res, 400, { error: "Invalid model" });
+        return;
+      }
+      this.deps.sessionManager.setModel(modelId, body.model ?? undefined);
+      sendJson(res, 200, { model: body.model });
+      return;
+    }
+
+    const retryId = matchCluster(pathname, "retry");
+    if (req.method === "POST" && retryId) {
+      const result = await this.deps.sessionManager.retry(retryId);
+      if (result === "nothing_to_retry") {
+        sendJson(res, 409, { error: "Nothing to retry" });
+        return;
+      }
+      sendJson(res, 202, { accepted: true });
       return;
     }
 

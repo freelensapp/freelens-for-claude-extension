@@ -431,6 +431,22 @@ describe("runPodLogs", () => {
     expect(readNamespacedPodLog).toHaveBeenCalledWith(expect.objectContaining({ previous: true, timestamps: true }));
   });
 
+  it("uses the configurable default tail lines when the model does not request an amount", async () => {
+    const readNamespacedPodLog = vi.fn(async () => "line");
+    await runPodLogs(podLogsClient({ readNamespacedPodLog }), { namespace: "default", name: "web" }, 500);
+    expect(readNamespacedPodLog).toHaveBeenCalledWith(expect.objectContaining({ tailLines: 500 }));
+  });
+
+  it("prefers an explicit tailLines argument over the configured default", async () => {
+    const readNamespacedPodLog = vi.fn(async () => "line");
+    await runPodLogs(
+      podLogsClient({ readNamespacedPodLog }),
+      { namespace: "default", name: "web", tailLines: 42 },
+      500,
+    );
+    expect(readNamespacedPodLog).toHaveBeenCalledWith(expect.objectContaining({ tailLines: 42 }));
+  });
+
   it("returns a friendly message when there is no previous container instance", async () => {
     const readNamespacedPodLog = vi.fn(async () => {
       throw new Error('previous terminated container "web" in pod "web" not found');

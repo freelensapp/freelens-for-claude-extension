@@ -104,9 +104,37 @@ export function candidatePaths(env: NodeJS.ProcessEnv): string[] {
 /**
  * Locate the user's Claude Code binary and read its version. Never throws;
  * failures are reported through the returned `DetectionResult`.
+ *
+ * When `overridePath` is set (the `claudeCodePath` preference), detection
+ * validates exactly that path and reports its failure as the error, rather than
+ * falling through to auto-detection: a misconfigured override must be visible.
  */
-export async function detectClaudeCode(overrides: Partial<DetectDeps> = {}): Promise<DetectionResult> {
+export async function detectClaudeCode(
+  overrides: Partial<DetectDeps> = {},
+  overridePath?: string,
+): Promise<DetectionResult> {
   const deps = { ...defaultDeps(), ...overrides };
+
+  const trimmedOverride = overridePath?.trim();
+  if (trimmedOverride) {
+    if (!(await deps.isExecutable(trimmedOverride))) {
+      return {
+        found: false,
+        path: trimmedOverride,
+        error: `The configured Claude Code path "${trimmedOverride}" is not an executable file.`,
+      };
+    }
+    try {
+      const output = await deps.runVersion(trimmedOverride);
+      return { found: true, path: trimmedOverride, version: parseVersion(output) };
+    } catch {
+      return {
+        found: false,
+        path: trimmedOverride,
+        error: `Could not run \`claude --version\` at the configured path "${trimmedOverride}".`,
+      };
+    }
+  }
 
   const candidates = candidatePaths(deps.env);
   let firstFoundPath: string | undefined;
