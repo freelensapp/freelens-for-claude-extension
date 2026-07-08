@@ -16,12 +16,20 @@ const status: StatusResponse = {
   claudeCode: { found: true, path: "/usr/bin/claude", version: "1.0.0" },
 };
 
+const resolvePermission = vi.fn((requestId: string) => {
+  if (requestId === "known") return "ok" as const;
+  if (requestId === "done") return "already_resolved" as const;
+  return "not_found" as const;
+});
+
 const sessionManager = {
   subscribe: vi.fn(() => () => {}),
   sendMessage: vi.fn(async () => {}),
   interrupt: vi.fn(async () => {}),
   dispose: vi.fn(async () => {}),
   disposeAll: vi.fn(async () => {}),
+  setPermissionMode: vi.fn(() => {}),
+  resolvePermission,
 } as unknown as SessionManager;
 
 let server: BridgeServer;
@@ -77,5 +85,46 @@ describe("bridge auth", () => {
       headers: { Authorization: `Bearer ${TOKEN}` },
     });
     expect(response.status).toBe(404);
+  });
+});
+
+const authedPost = (path: string, body: unknown) =>
+  fetch(`${baseUrl}${path}`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${TOKEN}`, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+describe("permission routes", () => {
+  it("resolves a known permission request", async () => {
+    const response = await authedPost("/permissions/known", { behavior: "allow" });
+    expect(response.status).toBe(200);
+    expect(resolvePermission).toHaveBeenCalledWith("known", "allow");
+  });
+
+  it("returns 404 for an unknown permission request", async () => {
+    const response = await authedPost("/permissions/missing", { behavior: "deny" });
+    expect(response.status).toBe(404);
+  });
+
+  it("returns 409 for an already-resolved permission request", async () => {
+    const response = await authedPost("/permissions/done", { behavior: "allow" });
+    expect(response.status).toBe(409);
+  });
+
+  it("rejects an invalid behavior", async () => {
+    const response = await authedPost("/permissions/known", { behavior: "maybe" });
+    expect(response.status).toBe(400);
+  });
+
+  it("accepts a valid permission mode", async () => {
+    const response = await authedPost("/clusters/c1/permission-mode", { mode: "acceptAll" });
+    expect(response.status).toBe(200);
+    expect(sessionManager.setPermissionMode).toHaveBeenCalledWith("c1", "acceptAll");
+  });
+
+  it("rejects an invalid permission mode", async () => {
+    const response = await authedPost("/clusters/c1/permission-mode", { mode: "bogus" });
+    expect(response.status).toBe(400);
   });
 });

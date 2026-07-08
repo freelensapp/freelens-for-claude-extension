@@ -3,15 +3,33 @@
  * Licensed under MIT License. See LICENSE in root directory for more information.
  */
 
+import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { Common } from "@freelensapp/extensions";
-import { type SessionErrorKind, type SessionEvent, sessionEvent } from "../../common/protocol";
-import { disposeKubeClient, getKubeClient } from "../tools/kube-client";
-import { ALLOWED_TOOL_NAMES, createKubeMcpServer, MCP_SERVER_NAME } from "../tools/mcp-server";
+import {
+  type PermissionBehavior,
+  type PermissionMode,
+  type SessionErrorKind,
+  type SessionEvent,
+  sessionEvent,
+} from "../../common/protocol";
+import { disposeKubeClient, getKubeClient, type KubeClient } from "../tools/kube-client";
+import { stripManagedFields, toYaml } from "../tools/kube-format";
+import {
+  ALLOWED_TOOL_NAMES,
+  createKubeMcpServer,
+  isKnownToolName,
+  isMutatingToolName,
+  MCP_SERVER_NAME,
+  unqualifyToolName,
+} from "../tools/mcp-server";
+import { PermissionBroker, type ResolveResult } from "./permission-broker";
 
 import type { Query, SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+
+import type { ApprovalTarget } from "../tools/approval";
 
 /** Claude Code built-in tools that must never run against a cluster chat. */
 const DISALLOWED_BUILTIN_TOOLS = [
@@ -35,6 +53,8 @@ const PERSISTED_EVENTS = new Set<SessionEvent["type"]>([
   "tool_call",
   "tool_result",
   "error",
+  "permission_request",
+  "permission_resolved",
 ]);
 
 type SessionListener = (event: SessionEvent) => void;
@@ -105,6 +125,9 @@ class ClusterSession {
   private readonly input = new MessageQueue();
   private readonly abort = new AbortController();
   private readonly toolNames = new Map<string, string>();
+  private readonly broker: PermissionBroker;
+  private client?: KubeClient;
+  private resumed = false;
   private queryHandle?: Query;
   private working = false;
   private started = false;
@@ -113,15 +136,36 @@ class ClusterSession {
     private readonly clusterId: string,
     private readonly resolveClaudeCodePath: () => string | undefined,
     private readonly baseDir: string,
-  ) {}
+  ) {
+    this.broker = new PermissionBroker(
+      (event) => this.emit(event),
+      (target) => this.captureBackup(target),
+      () => randomUUID(),
+      () => this.resumed,
+    );
+  }
 
   subscribe(listener: SessionListener): () => void {
     this.subscribers.add(listener);
     listener(sessionEvent("status", { state: this.working ? "working" : "idle" }));
+    listener(sessionEvent("session_meta", { permissionMode: this.broker.getMode(), resumed: this.resumed }));
     for (const event of this.transcript) listener(event);
     return () => {
       this.subscribers.delete(listener);
     };
+  }
+
+  getPermissionMode(): PermissionMode {
+    return this.broker.getMode();
+  }
+
+  setPermissionMode(mode: PermissionMode): void {
+    this.broker.setMode(mode);
+  }
+
+  /** Resolve a pending approval; reports whether it was found or already settled. */
+  resolvePermission(requestId: string, behavior: PermissionBehavior): ResolveResult {
+    return this.broker.resolve(requestId, behavior);
   }
 
   private emit(event: SessionEvent): void {
@@ -176,6 +220,7 @@ class ClusterSession {
     }
 
     const client = getKubeClient(this.clusterId);
+    this.client = client;
 
     this.queryHandle = query({
       prompt: this.input,
@@ -188,19 +233,57 @@ class ClusterSession {
         disallowedTools: DISALLOWED_BUILTIN_TOOLS,
         settingSources: [],
         includePartialMessages: true,
-        canUseTool: async (toolName) =>
-          ALLOWED_TOOL_NAMES.includes(toolName)
-            ? { behavior: "allow", updatedInput: {} }
-            : { behavior: "deny", message: `Tool "${toolName}" is not permitted in this read-only cluster chat.` },
+        canUseTool: (toolName, input, extra) => this.canUseTool(toolName, input, extra),
         systemPrompt: {
           type: "preset",
           preset: "claude_code",
-          append: `You are operating on the Kubernetes cluster "${client.clusterName}" through read-only tools. You cannot modify the cluster; only inspect it. Prefer the kube_ tools to answer questions about cluster state.`,
+          append:
+            `You are operating on the Kubernetes cluster "${client.clusterName}" through kube_ tools. ` +
+            "Read-only tools (list/get resources, pod logs, warning events, cluster version) run freely. " +
+            "Mutating tools (create, update, patch/scale, delete, delete pod, rollout restart) exist, but every " +
+            "mutation requires explicit user approval, and all mutations are denied while the chat is in read-only " +
+            "mode. Prefer reads to discover current state before proposing any mutation, and never retry a denied " +
+            "action unless the user asks you to.",
         },
       },
     });
 
     void this.consume();
+  }
+
+  /** SDK approval callback. Read-only tools are pre-allowed; only mutating tools reach the broker. */
+  private async canUseTool(
+    toolName: string,
+    input: Record<string, unknown>,
+    extra: { signal?: AbortSignal },
+  ): Promise<{ behavior: "allow"; updatedInput: Record<string, unknown> } | { behavior: "deny"; message: string }> {
+    if (!isKnownToolName(toolName)) {
+      return { behavior: "deny", message: `Tool "${toolName}" is not permitted in this cluster chat.` };
+    }
+    // Read-only tools are in allowedTools and normally never reach here; allow, echoing input.
+    if (!isMutatingToolName(toolName)) {
+      return { behavior: "allow", updatedInput: input };
+    }
+
+    const decision = await this.broker.decideMutating(unqualifyToolName(toolName), input, extra.signal);
+    return decision.behavior === "allow"
+      ? { behavior: "allow", updatedInput: input }
+      : { behavior: "deny", message: decision.message ?? "The user denied the action." };
+  }
+
+  /** Best-effort read of the target resource for the approval backup; never throws. */
+  private async captureBackup(target: ApprovalTarget): Promise<string | undefined> {
+    if (!this.client) return undefined;
+    try {
+      const current = await this.client.objects.read({
+        apiVersion: target.apiVersion,
+        kind: target.kind,
+        metadata: { name: target.name, namespace: target.namespace },
+      });
+      return toYaml(stripManagedFields(current));
+    } catch {
+      return undefined;
+    }
   }
 
   private async consume(): Promise<void> {
@@ -219,6 +302,7 @@ class ClusterSession {
         );
       }
     } finally {
+      this.broker.denyAllPending("the session ended");
       this.setWorking(false);
     }
   }
@@ -287,6 +371,7 @@ class ClusterSession {
   }
 
   async interrupt(): Promise<void> {
+    this.broker.denyAllPending("the turn was interrupted");
     try {
       await this.queryHandle?.interrupt();
     } catch {
@@ -296,6 +381,7 @@ class ClusterSession {
   }
 
   async dispose(): Promise<void> {
+    this.broker.denyAllPending("the session was disposed");
     this.input.close();
     this.abort.abort();
     try {
@@ -340,6 +426,22 @@ export class SessionManager {
 
   async interrupt(clusterId: string): Promise<void> {
     await this.sessions.get(clusterId)?.interrupt();
+  }
+
+  /** Set the per-cluster permission mode, creating the session state if needed. */
+  setPermissionMode(clusterId: string, mode: PermissionMode): void {
+    this.getOrCreate(clusterId).setPermissionMode(mode);
+  }
+
+  /** Resolve a pending approval identified only by its request id. */
+  resolvePermission(requestId: string, behavior: PermissionBehavior): ResolveResult {
+    let sawResolved = false;
+    for (const session of this.sessions.values()) {
+      const result = session.resolvePermission(requestId, behavior);
+      if (result === "ok") return "ok";
+      if (result === "already_resolved") sawResolved = true;
+    }
+    return sawResolved ? "already_resolved" : "not_found";
   }
 
   async dispose(clusterId: string): Promise<void> {

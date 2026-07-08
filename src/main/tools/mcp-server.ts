@@ -15,10 +15,54 @@ import type { KubeClient } from "./kube-client";
 /** MCP server name; combined with tool names to form `mcp__<server>__<tool>`. */
 export const MCP_SERVER_NAME = "freelens-kube";
 
-const TOOL_NAMES = ["kube_resources", "kube_pod_logs", "kube_warning_events"] as const;
+/** Read-only tools: auto-allowed, listed in the SDK `allowedTools` option. */
+export const READ_ONLY_TOOL_NAMES = [
+  "kube_resources",
+  "kube_pod_logs",
+  "kube_warning_events",
+  "kube_cluster_version",
+] as const;
 
-/** Fully-qualified tool names for the SDK `allowedTools` option. */
-export const ALLOWED_TOOL_NAMES = TOOL_NAMES.map((name) => `mcp__${MCP_SERVER_NAME}__${name}`);
+/** Mutating tools: routed through `canUseTool` for approval. */
+export const MUTATING_TOOL_NAMES = [
+  "kube_create_resource",
+  "kube_update_resource",
+  "kube_patch_resource",
+  "kube_delete_resource",
+  "kube_delete_pod",
+  "kube_rollout_restart",
+] as const;
+
+/** Qualify a short tool name to its `mcp__<server>__<tool>` form. */
+export function qualifyToolName(name: string): string {
+  return `mcp__${MCP_SERVER_NAME}__${name}`;
+}
+
+/** The short tool name from a fully-qualified `mcp__<server>__<tool>`, or the input unchanged. */
+export function unqualifyToolName(name: string): string {
+  const prefix = `mcp__${MCP_SERVER_NAME}__`;
+  return name.startsWith(prefix) ? name.slice(prefix.length) : name;
+}
+
+/** Fully-qualified read-only tool names for the SDK `allowedTools` option. */
+export const ALLOWED_TOOL_NAMES = READ_ONLY_TOOL_NAMES.map(qualifyToolName);
+
+/** Fully-qualified mutating tool names (never in `allowedTools`). */
+export const MUTATING_QUALIFIED_TOOL_NAMES = MUTATING_TOOL_NAMES.map(qualifyToolName);
+
+/** Whether a fully-qualified or short tool name is one of ours. */
+export function isKnownToolName(name: string): boolean {
+  const short = unqualifyToolName(name);
+  return (
+    (READ_ONLY_TOOL_NAMES as readonly string[]).includes(short) ||
+    (MUTATING_TOOL_NAMES as readonly string[]).includes(short)
+  );
+}
+
+/** Whether a fully-qualified or short tool name is a mutating tool. */
+export function isMutatingToolName(name: string): boolean {
+  return (MUTATING_TOOL_NAMES as readonly string[]).includes(unqualifyToolName(name));
+}
 
 function textResult(text: string) {
   return { content: [{ type: "text" as const, text }] };
