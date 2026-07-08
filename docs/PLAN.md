@@ -3,8 +3,8 @@
 Status: **approved** — all open questions were resolved by the maintainer in
 issue [#7](https://github.com/freelensapp/freelens-for-claude-extension/issues/7);
 see [Resolved questions](#resolved-questions) at the end of this document.
-**M0 is delivered** and confirmed working by the maintainer.
-Next step: implement **M1** as specified in [M1.md](./M1.md).
+**M0 and M1 are delivered** and confirmed working by the maintainer.
+Next step: implement **M2** as specified in [M2.md](./M2.md).
 
 Process note: planning and analysis run on issues (Fable model);
 implementation runs on pull requests (Opus model).
@@ -289,20 +289,21 @@ Not used: LangChain, LangGraph, Vercel AI SDK, OpenAI SDK.
 
 ## Milestones
 
-**M0 — proof of concept.** Claude Code detection + onboarding panel; HTTP/SSE
+**M0 — proof of concept (delivered).** Claude Code detection + onboarding panel; HTTP/SSE
 bridge; minimal chat page for the active cluster; three read-only MCP tools
 (list/get resources, pod logs, warning events); built-in tools disallowed.
 Success criterion: with a subscription-authenticated Claude Code, ask "what
 pods are failing in this cluster and why?" and get an answer grounded in tool
 calls. Detailed implementation specification: [M0.md](./M0.md).
 
-**M1 — tool and safety parity.** Full 12-tool set, approval dialog with YAML
-diff, permission modes, session persistence and resume, per-cluster session
-management (new chat, stop — delivered in M0). Detailed implementation
-specification: [M1.md](./M1.md).
+**M1 — tool and safety parity (delivered).** Full 12-tool set, approval
+dialog with YAML diff, permission modes, session persistence and resume,
+per-cluster session management (new chat, stop — delivered in M0). Detailed
+implementation specification: [M1.md](./M1.md).
 
 **M2 — UX parity.** Usage display, retry, model picker, tool-call cards,
-"Ask Claude" on resources, preferences page.
+"Ask Claude" on resources, preferences page. Detailed implementation
+specification: [M2.md](./M2.md).
 
 **M3 — beyond parity.** User MCP-server passthrough, Claude Code subagents
 for analysis workflows, prompt shortcuts/slash commands, Kubectl tool running
