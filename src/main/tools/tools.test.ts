@@ -4,7 +4,7 @@
  */
 
 import { describe, expect, it, vi } from "vitest";
-import { LOG_BYTE_CAP, stripManagedFields, truncateBytes } from "./kube-format";
+import { LOG_BYTE_CAP, selectFields, stripManagedFields, truncateBytes } from "./kube-format";
 import { type PodLogsClient, runPodLogs } from "./pod-logs";
 import { type ResourcesClient, runResources } from "./resources";
 import { runWarningEvents, type WarningEventsClient } from "./warning-events";
@@ -47,6 +47,61 @@ describe("kube-format", () => {
   });
 });
 
+describe("selectFields", () => {
+  const object = {
+    metadata: {
+      name: "web",
+      namespace: "default",
+      labels: { "app.kubernetes.io/name": "nginx" },
+    },
+    spec: {
+      containers: [
+        { name: "c1", image: "nginx:1" },
+        { name: "c2", image: "nginx:2" },
+      ],
+    },
+    status: { conditions: [{ type: "Initialized" }, { type: "Ready" }] },
+  };
+
+  it("selects a dot path and drops siblings", () => {
+    expect(selectFields(object, ["metadata.name"])).toEqual({ metadata: { name: "web" } });
+  });
+
+  it("merges multiple selectors", () => {
+    expect(selectFields(object, ["metadata.name", "metadata.namespace"])).toEqual({
+      metadata: { name: "web", namespace: "default" },
+    });
+  });
+
+  it("supports the [*] array wildcard", () => {
+    expect(selectFields(object, ["spec.containers[*].image"])).toEqual({
+      spec: { containers: [{ image: "nginx:1" }, { image: "nginx:2" }] },
+    });
+  });
+
+  it("supports numeric and negative indexes", () => {
+    expect(selectFields(object, ["spec.containers[0].name"])).toEqual({ spec: { containers: [{ name: "c1" }] } });
+    expect(selectFields(object, ["status.conditions[-1].type"])).toEqual({
+      status: { conditions: [{ type: "Ready" }] },
+    });
+  });
+
+  it("supports bracketed quoted keys for dotted labels", () => {
+    expect(selectFields(object, ["metadata.labels['app.kubernetes.io/name']"])).toEqual({
+      metadata: { labels: { "app.kubernetes.io/name": "nginx" } },
+    });
+  });
+
+  it("tolerates a leading $. and a {...} wrapper", () => {
+    expect(selectFields(object, ["$.metadata.name"])).toEqual({ metadata: { name: "web" } });
+    expect(selectFields(object, ["{.metadata.name}"])).toEqual({ metadata: { name: "web" } });
+  });
+
+  it("throws a readable error on a malformed selector", () => {
+    expect(() => selectFields(object, ["metadata[oops"])).toThrow(/Invalid field selector "metadata\[oops"/);
+  });
+});
+
 describe("runResources", () => {
   it("reads a single named resource as YAML with managedFields stripped", async () => {
     const read = vi.fn(async () => ({
@@ -84,6 +139,39 @@ describe("runResources", () => {
     });
     expect(out).toContain("No Pod resources found");
   });
+
+  it("projects a single resource to the requested fields", async () => {
+    const read = vi.fn(async () => ({
+      apiVersion: "v1",
+      kind: "Pod",
+      metadata: { name: "web", namespace: "default", labels: { app: "nginx" } },
+      spec: { nodeName: "node-1" },
+    }));
+    const out = await runResources(resourcesClient({ read, list: vi.fn() }), {
+      apiVersion: "v1",
+      kind: "Pod",
+      name: "web",
+      fields: ["metadata.name"],
+    });
+    expect(out).toContain("name: web");
+    expect(out).not.toContain("nodeName");
+    expect(out).not.toContain("namespace");
+  });
+
+  it("keeps managedFields when includeManagedFields is set", async () => {
+    const read = vi.fn(async () => ({
+      apiVersion: "v1",
+      kind: "Pod",
+      metadata: { name: "web", managedFields: [{ manager: "kubelet" }] },
+    }));
+    const out = await runResources(resourcesClient({ read, list: vi.fn() }), {
+      apiVersion: "v1",
+      kind: "Pod",
+      name: "web",
+      includeManagedFields: true,
+    });
+    expect(out).toContain("managedFields");
+  });
 });
 
 describe("runPodLogs", () => {
@@ -110,6 +198,29 @@ describe("runPodLogs", () => {
       grep: "(",
     });
     expect(out).toContain("Invalid grep pattern");
+  });
+
+  it("forwards previous and timestamps to the API", async () => {
+    const readNamespacedPodLog = vi.fn(async () => "line");
+    await runPodLogs(podLogsClient({ readNamespacedPodLog }), {
+      namespace: "default",
+      name: "web",
+      previous: true,
+      timestamps: true,
+    });
+    expect(readNamespacedPodLog).toHaveBeenCalledWith(expect.objectContaining({ previous: true, timestamps: true }));
+  });
+
+  it("returns a friendly message when there is no previous container instance", async () => {
+    const readNamespacedPodLog = vi.fn(async () => {
+      throw new Error('previous terminated container "web" in pod "web" not found');
+    });
+    const out = await runPodLogs(podLogsClient({ readNamespacedPodLog }), {
+      namespace: "default",
+      name: "web",
+      previous: true,
+    });
+    expect(out).toContain("No previous (terminated) container instance");
   });
 });
 
