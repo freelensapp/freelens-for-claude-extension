@@ -302,6 +302,12 @@ When asked to implement a change on a PR:
    separately. Do not batch multiple independent fixes into a single
    commit. This keeps the history bisectable and makes each change easy
    to revert individually.
+5. **Push after every commit** — run a `git push` immediately after each
+   commit, never batch several commits into a single push at the end. The
+   workflow has a total timeout of 60 minutes; a long task can be
+   interrupted mid-run. Pushing each commit as it lands means a later
+   `@claude resume after timeout` run picks up from the last pushed commit
+   with no lost work. Unpushed commits are lost when the session times out.
 
 ### Branch Naming Conventions
 
