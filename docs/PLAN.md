@@ -180,11 +180,13 @@ Claude Code built-in tools policy (safety default):
   path (this also namespaces Claude Code's own session transcripts per
   cluster).
 
-Instead of ever enabling the built-in `Bash` tool, a later milestone adds a
-dedicated **Kubectl tool** that runs `kubectl` through Freelens' own terminal
-(visible to the user, using the cluster's kubeconfig). Maintainer decision:
-built-in `Bash`/filesystem tools stay disallowed; the Kubectl-via-Freelens-
-terminal tool is deferred (skipped for now).
+Instead of ever enabling the built-in `Bash` tool, a later milestone adds
+dedicated **Kubectl and Helm tools** that spawn the Freelens-bundled
+binaries directly (non-tty, using the cluster's kubeconfig and context —
+the same way Freelens itself runs them internally). Maintainer decision:
+built-in `Bash`/filesystem tools stay disallowed; the kubectl/helm tools
+are deferred to M3 (originally planned as a terminal round-trip, revised
+during M3 specification to direct spawning).
 
 ### D5. Sessions and persistence: one Claude Code session per cluster
 
@@ -306,10 +308,10 @@ tool-call cards, "Ask Claude" on resources, preferences page. Detailed
 implementation specification: [M2.md](./M2.md).
 
 **M3 — beyond parity.** User MCP-server passthrough, Claude Code subagents
-for analysis workflows, prompt shortcuts/slash commands, Kubectl tool running
-through Freelens' terminal (D4), plus the Available Tools panel and reasoning
-fold deferred from M2. Detailed implementation specification:
-[M3.md](./M3.md).
+for analysis workflows, prompt shortcuts/slash commands, kubectl and helm
+tools spawning the bundled binaries directly (D4), plus the Available Tools
+panel and reasoning fold deferred from M2. Detailed implementation
+specification: [M3.md](./M3.md).
 
 ## Resolved questions
 
