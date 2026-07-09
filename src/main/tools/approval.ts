@@ -36,7 +36,7 @@ function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
 }
 
-/** apiVersion for the workload kinds `kube_rollout_restart` accepts. */
+/** apiVersion for the workload kinds `freelens_rollout_restart` accepts. */
 const RESTARTABLE_API_VERSION = "apps/v1";
 
 /**
@@ -48,12 +48,12 @@ export function describeApproval(toolName: string, input: unknown): ApprovalDesc
   const args = asRecord(input);
 
   switch (toolName) {
-    case "kube_create_resource": {
+    case "freelens_create_resource": {
       const manifest = asRecord(args.manifest);
       // A create has no current object to back up or diff against.
       return { actionTitle: `CREATE ${upper(manifest.kind)}`, proposedValue: manifest };
     }
-    case "kube_update_resource": {
+    case "freelens_update_resource": {
       const manifest = asRecord(args.manifest);
       const metadata = asRecord(manifest.metadata);
       const target = targetOf(manifest.apiVersion, manifest.kind, metadata.namespace, metadata.name);
@@ -64,7 +64,7 @@ export function describeApproval(toolName: string, input: unknown): ApprovalDesc
         wantsDiff: target != null,
       };
     }
-    case "kube_patch_resource": {
+    case "freelens_patch_resource": {
       const subresource = typeof args.subresource === "string" ? args.subresource.trim().toLowerCase() : "";
       const title = subresource ? `PATCH ${upper(args.kind)} (${subresource})` : `PATCH ${upper(args.kind)}`;
       return {
@@ -73,7 +73,7 @@ export function describeApproval(toolName: string, input: unknown): ApprovalDesc
         target: targetOf(args.apiVersion, args.kind, args.namespace, args.name),
       };
     }
-    case "kube_delete_resource": {
+    case "freelens_delete_resource": {
       const mode = typeof args.mode === "string" ? args.mode : "delete";
       return {
         actionTitle: `DELETE ${upper(args.kind)} (${mode})`,
@@ -81,7 +81,7 @@ export function describeApproval(toolName: string, input: unknown): ApprovalDesc
         target: targetOf(args.apiVersion, args.kind, args.namespace, args.name),
       };
     }
-    case "kube_delete_pod": {
+    case "freelens_delete_pod": {
       const mode = typeof args.mode === "string" ? args.mode : "delete";
       return {
         actionTitle: `DELETE POD (${mode})`,
@@ -89,21 +89,21 @@ export function describeApproval(toolName: string, input: unknown): ApprovalDesc
         target: targetOf("v1", "Pod", args.namespace, args.name),
       };
     }
-    case "kube_rollout_restart": {
+    case "freelens_rollout_restart": {
       return {
         actionTitle: `RESTART ${upper(args.kind)}`,
         proposedValue: input,
         target: targetOf(RESTARTABLE_API_VERSION, args.kind, args.namespace, args.name),
       };
     }
-    case "kube_pod_logs": {
+    case "freelens_pod_logs": {
       // A read has no target to back up; the input itself is the whole proposal.
       return { actionTitle: "READ POD LOGS", proposedValue: input };
     }
     default:
       return {
         actionTitle: `${toolName
-          .replace(/^kube_/, "")
+          .replace(/^freelens_/, "")
           .replace(/_/g, " ")
           .toUpperCase()}`,
         proposedValue: input,

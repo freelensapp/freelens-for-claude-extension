@@ -32,7 +32,7 @@ const patchInput = {
 describe("PermissionBroker", () => {
   it("approve mode: allow resolves the request and reports the requestId", async () => {
     const { broker, events } = makeBroker();
-    const decision = broker.decideMutating("kube_patch_resource", patchInput);
+    const decision = broker.decideMutating("freelens_patch_resource", patchInput);
     // The request is emitted synchronously before the await settles.
     await Promise.resolve();
     const request = events.find((e) => e.type === "permission_request");
@@ -46,7 +46,7 @@ describe("PermissionBroker", () => {
 
   it("approve mode: deny returns the exact denial message", async () => {
     const { broker, events } = makeBroker();
-    const decision = broker.decideMutating("kube_delete_pod", { namespace: "default", name: "web", mode: "evict" });
+    const decision = broker.decideMutating("freelens_delete_pod", { namespace: "default", name: "web", mode: "evict" });
     await Promise.resolve();
     const requestId = (
       events.find((e) => e.type === "permission_request") as Extract<SessionEvent, { type: "permission_request" }>
@@ -59,7 +59,7 @@ describe("PermissionBroker", () => {
   it("readOnly mode denies without emitting a request", async () => {
     const { broker, events } = makeBroker();
     broker.setMode("readOnly");
-    const decision = await broker.decideMutating("kube_patch_resource", patchInput);
+    const decision = await broker.decideMutating("freelens_patch_resource", patchInput);
     expect(decision.behavior).toBe("deny");
     expect(events.some((e) => e.type === "permission_request")).toBe(false);
   });
@@ -67,7 +67,7 @@ describe("PermissionBroker", () => {
   it("acceptAll mode emits a request+resolved pair and auto-allows", async () => {
     const { broker, events } = makeBroker();
     broker.setMode("acceptAll");
-    const decision = await broker.decideMutating("kube_rollout_restart", {
+    const decision = await broker.decideMutating("freelens_rollout_restart", {
       kind: "Deployment",
       namespace: "default",
       name: "nginx",
@@ -83,7 +83,7 @@ describe("PermissionBroker", () => {
 
   it("captures a backup and computes a diff only for updates", async () => {
     const { broker, events } = makeBroker(async () => "kind: Service\nspec: {}\n");
-    void broker.decideMutating("kube_update_resource", {
+    void broker.decideMutating("freelens_update_resource", {
       manifest: { apiVersion: "v1", kind: "Service", metadata: { name: "web", namespace: "default" } },
     });
     await Promise.resolve();
@@ -97,7 +97,7 @@ describe("PermissionBroker", () => {
 
   it("denies all pending requests when the turn is interrupted", async () => {
     const { broker, events } = makeBroker();
-    const decision = broker.decideMutating("kube_delete_resource", {
+    const decision = broker.decideMutating("freelens_delete_resource", {
       apiVersion: "v1",
       kind: "ConfigMap",
       namespace: "default",
@@ -115,7 +115,7 @@ describe("PermissionBroker", () => {
 
   it("rejects double resolution of the same request", async () => {
     const { broker, events } = makeBroker();
-    const decision = broker.decideMutating("kube_delete_pod", { namespace: "default", name: "web", mode: "evict" });
+    const decision = broker.decideMutating("freelens_delete_pod", { namespace: "default", name: "web", mode: "evict" });
     await Promise.resolve();
     const requestId = (
       events.find((e) => e.type === "permission_request") as Extract<SessionEvent, { type: "permission_request" }>
@@ -139,7 +139,7 @@ describe("PermissionBroker", () => {
   it("consent-required read tool prompts in readOnly mode instead of being denied", async () => {
     const { broker, events } = makeBroker();
     broker.setMode("readOnly");
-    const decision = broker.decideReadWithConsent("kube_pod_logs", podLogsInput);
+    const decision = broker.decideReadWithConsent("freelens_pod_logs", podLogsInput);
     await Promise.resolve();
     const request = events.find((e) => e.type === "permission_request") as Extract<
       SessionEvent,
@@ -153,7 +153,7 @@ describe("PermissionBroker", () => {
   it("acceptAll auto-approves a consent-required read tool", async () => {
     const { broker, events } = makeBroker();
     broker.setMode("acceptAll");
-    const decision = await broker.decideReadWithConsent("kube_pod_logs", podLogsInput);
+    const decision = await broker.decideReadWithConsent("freelens_pod_logs", podLogsInput);
     expect(decision).toEqual({ behavior: "allow" });
     expect(events.filter((e) => e.type === "permission_request")).toHaveLength(1);
   });

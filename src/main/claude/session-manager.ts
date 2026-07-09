@@ -35,7 +35,7 @@ import type { ChatSessionState } from "../../common/session-store";
 import type { ApprovalTarget } from "../tools/approval";
 
 /** The read tool that may be gated behind an approval preference. */
-const POD_LOGS_TOOL = "kube_pod_logs";
+const POD_LOGS_TOOL = "freelens_pod_logs";
 
 /** Claude Code built-in tools that must never run against a cluster chat. */
 const DISALLOWED_BUILTIN_TOOLS = [
@@ -408,7 +408,7 @@ class ClusterSession {
   /** Base guidance plus any user-configured custom rules appended for this session. */
   private buildSystemPromptAppend(clusterName: string): string {
     const base =
-      `You are operating on the Kubernetes cluster "${clusterName}" through kube_ tools. ` +
+      `You are operating on the Kubernetes cluster "${clusterName}" through freelens_ tools. ` +
       "Read-only tools (list/get resources, pod logs, warning events, cluster version) run freely. " +
       "Mutating tools (create, update, patch/scale, delete, delete pod, rollout restart) exist, but every " +
       "mutation requires explicit user approval, and all mutations are denied while the chat is in read-only " +

@@ -25,20 +25,20 @@ export const MCP_SERVER_NAME = "freelens-kube";
 
 /** Read-only tools: auto-allowed, listed in the SDK `allowedTools` option. */
 export const READ_ONLY_TOOL_NAMES = [
-  "kube_resources",
-  "kube_pod_logs",
-  "kube_warning_events",
-  "kube_cluster_version",
+  "freelens_resources",
+  "freelens_pod_logs",
+  "freelens_warning_events",
+  "freelens_cluster_version",
 ] as const;
 
 /** Mutating tools: routed through `canUseTool` for approval. */
 export const MUTATING_TOOL_NAMES = [
-  "kube_create_resource",
-  "kube_update_resource",
-  "kube_patch_resource",
-  "kube_delete_resource",
-  "kube_delete_pod",
-  "kube_rollout_restart",
+  "freelens_create_resource",
+  "freelens_update_resource",
+  "freelens_patch_resource",
+  "freelens_delete_resource",
+  "freelens_delete_pod",
+  "freelens_rollout_restart",
 ] as const;
 
 /** Qualify a short tool name to its `mcp__<server>__<tool>` form. */
@@ -100,62 +100,62 @@ export function createKubeMcpServer(
     version: "0.1.0",
     tools: [
       tool(
-        "kube_resources",
+        "freelens_resources",
         "List or get Kubernetes resources of any kind (built-in or CRD). Returns YAML with managedFields stripped.",
         resourcesSchema,
         (args: ResourcesInput) => guard(() => runResources(client, args)),
       ),
       tool(
-        "kube_pod_logs",
+        "freelens_pod_logs",
         "Fetch a snapshot of a pod's logs, optionally filtered by a regex.",
         podLogsSchema,
         (args: PodLogsInput) => guard(() => runPodLogs(client, args, podLogsTailLines())),
       ),
       tool(
-        "kube_warning_events",
+        "freelens_warning_events",
         "List Warning-type events across the cluster or a namespace, most recent first.",
         warningEventsSchema,
         (args: WarningEventsInput) => guard(() => runWarningEvents(client, args)),
       ),
       tool(
-        "kube_cluster_version",
+        "freelens_cluster_version",
         "Report the Kubernetes API server version (gitVersion, major/minor, platform, buildDate).",
         clusterVersionSchema,
         () => guard(() => runClusterVersion(client)),
       ),
       tool(
-        "kube_create_resource",
+        "freelens_create_resource",
         "Create a Kubernetes resource from a full manifest. Requires user approval.",
         createResourceSchema,
         (args: CreateResourceInput) => guard(() => runCreateResource(client, args)),
       ),
       tool(
-        "kube_update_resource",
+        "freelens_update_resource",
         "Replace a Kubernetes resource with a full manifest. Requires user approval.",
         updateResourceSchema,
         (args: UpdateResourceInput) => guard(() => runUpdateResource(client, args)),
       ),
       tool(
-        "kube_patch_resource",
+        "freelens_patch_resource",
         'Patch a Kubernetes resource (JSON merge patch), or a subresource like "scale" with a strategic-merge ' +
           "patch to scale a workload via { spec: { replicas: N } }. Requires user approval.",
         patchResourceSchema,
         (args: PatchResourceInput) => guard(() => runPatchResource(client, args)),
       ),
       tool(
-        "kube_delete_resource",
+        "freelens_delete_resource",
         "Delete a Kubernetes resource (normal, force, or finalizer-clearing). Requires user approval.",
         deleteResourceSchema,
         (args: DeleteResourceInput) => guard(() => runDeleteResource(client, args)),
       ),
       tool(
-        "kube_delete_pod",
+        "freelens_delete_pod",
         "Evict or delete a pod (evict, force_delete, or delete_with_finalizers). Requires user approval.",
         deletePodSchema,
         (args: DeletePodInput) => guard(() => runDeletePod(client, args)),
       ),
       tool(
-        "kube_rollout_restart",
+        "freelens_rollout_restart",
         "Trigger a rolling restart of a Deployment, DaemonSet, or StatefulSet. Requires user approval.",
         rolloutRestartSchema,
         (args: RolloutRestartInput) => guard(() => runRolloutRestart(client, args)),
