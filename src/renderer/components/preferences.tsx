@@ -28,6 +28,7 @@ export function PreferencesInput() {
   const [mcpEnabled, setMcpEnabled] = useState(prefs.mcpEnabled);
   const [mcpConfiguration, setMcpConfiguration] = useState(prefs.mcpConfiguration);
   const [subagentsEnabled, setSubagentsEnabled] = useState(prefs.subagentsEnabled);
+  const [promptShortcuts, setPromptShortcuts] = useState(prefs.promptShortcuts);
 
   const onPathChange = (value: string) => {
     setClaudeCodePath(value);
@@ -69,6 +70,11 @@ export function PreferencesInput() {
   const onSubagentsEnabledChange = (checked: boolean) => {
     setSubagentsEnabled(checked);
     prefs.subagentsEnabled = checked;
+  };
+
+  const onPromptShortcutsBlur = () => {
+    // Commit the draft only on blur to avoid caret jumps while typing.
+    prefs.promptShortcuts = promptShortcuts;
   };
 
   return (
@@ -155,6 +161,20 @@ export function PreferencesInput() {
         </Switch>
         <div className={styles.hint}>
           Lets Claude delegate deep read-only investigations to a separate context. Applied at the next new chat.
+        </div>
+      </div>
+
+      <div className={styles.field}>
+        <SubTitle title="Prompt shortcuts" />
+        <textarea
+          className={`${styles.textarea} ${styles.mono}`}
+          value={promptShortcuts}
+          rows={4}
+          onChange={(event) => setPromptShortcuts(event.target.value)}
+          onBlur={onPromptShortcutsBlur}
+        />
+        <div className={styles.hint}>
+          JSON array of {'{ "title", "prompt" }'} shown as chips above the message input.
         </div>
       </div>
     </section>

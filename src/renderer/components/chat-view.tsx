@@ -4,6 +4,8 @@
  */
 
 import { useEffect, useReducer, useRef, useState } from "react";
+import { PreferencesStore } from "../../common/preferences-store";
+import { BUILTIN_PROMPT_SHORTCUTS, parsePromptShortcuts } from "../../common/prompt-shortcuts";
 import { MODEL_CHOICES } from "../../common/protocol";
 import { pendingPrompt } from "../api/pending-prompt";
 import styles from "./chat-view.module.scss";
@@ -391,6 +393,14 @@ export function ChatView({ clusterId, client }: ChatViewProps) {
   const lastIndex = state.items.length - 1;
   const defaultLabel = state.resolvedModel ? `Default (${state.resolvedModel})` : "Default";
 
+  // Quick-prompt chips: the built-ins plus any user-defined entries. Shown only
+  // when the input is empty and no turn is in flight.
+  const shortcuts = [
+    ...BUILTIN_PROMPT_SHORTCUTS,
+    ...parsePromptShortcuts(PreferencesStore.getInstanceOrCreate<PreferencesStore>().promptShortcuts),
+  ];
+  const showShortcuts = input.trim().length === 0 && !state.working;
+
   return (
     <div className={styles.chatView}>
       <div className={styles.transcript} ref={scrollRef}>
@@ -532,6 +542,21 @@ export function ChatView({ clusterId, client }: ChatViewProps) {
           </button>
         </div>
       </div>
+
+      {showShortcuts ? (
+        <div className={styles.shortcuts}>
+          {shortcuts.map((shortcut, index) => (
+            <button
+              key={`${index}-${shortcut.title}`}
+              type="button"
+              className={styles.chip}
+              onClick={() => void sendText(shortcut.prompt)}
+            >
+              {shortcut.title}
+            </button>
+          ))}
+        </div>
+      ) : null}
 
       <div className={styles.inputRow}>
         <div className={styles.inputWrap}>

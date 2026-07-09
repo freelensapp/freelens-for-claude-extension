@@ -31,6 +31,8 @@ export interface PreferencesStoreModel {
   mcpConfiguration: string;
   /** Let Claude delegate deep read-only investigations to the cluster-analyzer subagent. */
   subagentsEnabled: boolean;
+  /** JSON array of { "title", "prompt" } rendered as quick-prompt chips above the input. */
+  promptShortcuts: string;
 }
 
 /**
@@ -47,6 +49,7 @@ export interface PreferencesState {
   readonly mcpEnabled: boolean;
   readonly mcpConfiguration: string;
   readonly subagentsEnabled: boolean;
+  readonly promptShortcuts: string;
 }
 
 /** Default MCP configuration: an empty Claude-Desktop-style `mcpServers` object. */
@@ -61,6 +64,7 @@ const defaults: PreferencesStoreModel = {
   mcpEnabled: false,
   mcpConfiguration: DEFAULT_MCP_CONFIGURATION,
   subagentsEnabled: true,
+  promptShortcuts: "[]",
 };
 
 export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesStoreModel> implements PreferencesState {
@@ -72,6 +76,7 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesSto
   mcpEnabled = defaults.mcpEnabled;
   mcpConfiguration = defaults.mcpConfiguration;
   subagentsEnabled = defaults.subagentsEnabled;
+  promptShortcuts = defaults.promptShortcuts;
 
   constructor() {
     super({
@@ -87,6 +92,7 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesSto
       mcpEnabled: observable,
       mcpConfiguration: observable,
       subagentsEnabled: observable,
+      promptShortcuts: observable,
     });
   }
 
@@ -99,6 +105,7 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesSto
     this.mcpEnabled = model.mcpEnabled ?? defaults.mcpEnabled;
     this.mcpConfiguration = model.mcpConfiguration ?? defaults.mcpConfiguration;
     this.subagentsEnabled = model.subagentsEnabled ?? defaults.subagentsEnabled;
+    this.promptShortcuts = model.promptShortcuts ?? defaults.promptShortcuts;
   }
 
   toJSON(): PreferencesStoreModel {
@@ -111,6 +118,7 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesSto
       mcpEnabled: this.mcpEnabled,
       mcpConfiguration: this.mcpConfiguration,
       subagentsEnabled: this.subagentsEnabled,
+      promptShortcuts: this.promptShortcuts,
     };
   }
 }

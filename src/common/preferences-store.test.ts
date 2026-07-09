@@ -17,6 +17,7 @@ describe("PreferencesStore", () => {
     expect(store.mcpEnabled).toBe(false);
     expect(store.mcpConfiguration).toBe(DEFAULT_MCP_CONFIGURATION);
     expect(store.subagentsEnabled).toBe(true);
+    expect(store.promptShortcuts).toBe("[]");
   });
 
   it("round-trips through toJSON/fromStore", () => {
@@ -29,6 +30,7 @@ describe("PreferencesStore", () => {
     store.mcpEnabled = true;
     store.mcpConfiguration = '{ "mcpServers": { "x": { "command": "foo" } } }';
     store.subagentsEnabled = false;
+    store.promptShortcuts = '[{ "title": "Nodes", "prompt": "List nodes" }]';
 
     const restored = new PreferencesStore();
     restored.fromStore(store.toJSON());
@@ -40,6 +42,7 @@ describe("PreferencesStore", () => {
     expect(restored.mcpEnabled).toBe(true);
     expect(restored.mcpConfiguration).toBe('{ "mcpServers": { "x": { "command": "foo" } } }');
     expect(restored.subagentsEnabled).toBe(false);
+    expect(restored.promptShortcuts).toBe('[{ "title": "Nodes", "prompt": "List nodes" }]');
   });
 
   it("fromStore fills missing fields with defaults", () => {

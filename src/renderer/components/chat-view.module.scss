@@ -166,6 +166,28 @@
   }
 }
 
+.shortcuts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  padding: 0 1rem 0.2rem;
+}
+
+.chip {
+  padding: 0.3em 0.8em;
+  cursor: pointer;
+  border: 1px solid rgba(127, 127, 127, 0.4);
+  border-radius: 999px;
+  background: rgba(127, 127, 127, 0.08);
+  color: inherit;
+  font: inherit;
+  font-size: 0.85em;
+
+  &:hover {
+    background: rgba(127, 127, 127, 0.18);
+  }
+}
+
 .inputRow {
   display: flex;
   gap: 0.5rem;

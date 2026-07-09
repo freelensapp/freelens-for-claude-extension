@@ -95,6 +95,7 @@ function makeManager(prefs: Partial<PreferencesState> = {}) {
     mcpEnabled: false,
     mcpConfiguration: '{ "mcpServers": {} }',
     subagentsEnabled: true,
+    promptShortcuts: "[]",
     ...prefs,
   };
   const store: ChatSessionState = {
