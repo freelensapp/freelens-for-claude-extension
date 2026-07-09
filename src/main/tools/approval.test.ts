@@ -29,6 +29,13 @@ describe("describeApproval", () => {
     expect(descriptor.target).toBeUndefined();
   });
 
+  it("describes freelens_helm with RUN HELM and the shell-quoted command line", () => {
+    const descriptor = describeApproval("freelens_helm", { args: ["list", "-A"] });
+    expect(descriptor.actionTitle).toBe("RUN HELM");
+    expect(descriptor.proposedValue).toBe("helm list -A");
+    expect(descriptor.target).toBeUndefined();
+  });
+
   it("builds a title from a built-in mutating tool name", () => {
     const descriptor = describeApproval("freelens_update_resource", {
       manifest: { apiVersion: "v1", kind: "Service", metadata: { name: "web", namespace: "default" } },

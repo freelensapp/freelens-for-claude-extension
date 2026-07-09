@@ -118,6 +118,12 @@ export function describeApproval(toolName: string, input: unknown): ApprovalDesc
       const kubectlArgs = Array.isArray(args.args) ? (args.args as unknown[]).map(String) : [];
       return { actionTitle: "RUN KUBECTL", proposedValue: quoteCommand("kubectl", kubectlArgs) };
     }
+    case "freelens_helm": {
+      // No target to back up; the whole proposal is the shell-quoted command line
+      // the model supplied (the injected --kubeconfig/--kube-context are omitted).
+      const helmArgs = Array.isArray(args.args) ? (args.args as unknown[]).map(String) : [];
+      return { actionTitle: "RUN HELM", proposedValue: quoteCommand("helm", helmArgs) };
+    }
     default: {
       // External MCP tools cannot be classified: name the server and tool, and
       // show the raw input as the whole proposal.

@@ -11,6 +11,7 @@ import { clusterVersionSchema, runClusterVersion } from "./cluster-version";
 import { type CreateResourceInput, createResourceSchema, runCreateResource } from "./create-resource";
 import { type DeletePodInput, deletePodSchema, runDeletePod } from "./delete-pod";
 import { type DeleteResourceInput, deleteResourceSchema, runDeleteResource } from "./delete-resource";
+import { type HelmInput, helmSchema, runHelm } from "./helm";
 import { type KubectlInput, kubectlSchema, runKubectl } from "./kubectl";
 import { type PatchResourceInput, patchResourceSchema, runPatchResource } from "./patch-resource";
 import { type PodLogsInput, podLogsSchema, runPodLogs } from "./pod-logs";
@@ -43,6 +44,7 @@ export const MUTATING_TOOL_NAMES = [
   "freelens_delete_pod",
   "freelens_rollout_restart",
   "freelens_kubectl",
+  "freelens_helm",
 ] as const;
 
 /** Qualify a short tool name to its `mcp__<server>__<tool>` form. */
@@ -100,6 +102,9 @@ const TOOL_DESCRIPTIONS: Record<string, string> = {
     "Trigger a rolling restart of a Deployment, DaemonSet, or StatefulSet. Requires user approval.",
   freelens_kubectl:
     "Run kubectl against this cluster (argv array, no shell) as a fallback for actions the dedicated freelens_ " +
+    "tools do not cover. Prefer the dedicated tools; requires user approval.",
+  freelens_helm:
+    "Run helm against this cluster (argv array, no shell) as a fallback for actions the dedicated freelens_ " +
     "tools do not cover. Prefer the dedicated tools; requires user approval.",
 };
 
@@ -205,6 +210,11 @@ export function createKubeMcpServer(
       tool("freelens_kubectl", TOOL_DESCRIPTIONS.freelens_kubectl, kubectlSchema, (args: KubectlInput) =>
         guard(() =>
           runKubectl({ kubeConfigPath: client.kubeConfigPath, contextName: client.contextName, registry }, args),
+        ),
+      ),
+      tool("freelens_helm", TOOL_DESCRIPTIONS.freelens_helm, helmSchema, (args: HelmInput) =>
+        guard(() =>
+          runHelm({ kubeConfigPath: client.kubeConfigPath, contextName: client.contextName, registry }, args),
         ),
       ),
     ],

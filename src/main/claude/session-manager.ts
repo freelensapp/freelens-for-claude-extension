@@ -488,9 +488,9 @@ class ClusterSession {
       "Mutating tools (create, update, patch/scale, delete, delete pod, rollout restart) exist, but every " +
       "mutation requires explicit user approval, and all mutations are denied while the chat is in read-only " +
       "mode. Prefer reads to discover current state before proposing any mutation, and never retry a denied " +
-      "action unless the user asks you to. A freelens_kubectl escape-hatch tool can run kubectl directly for " +
-      "anything the dedicated tools do not cover, but always prefer the dedicated freelens_ tools; it is the " +
-      "fallback and needs the same approval as any mutation.";
+      "action unless the user asks you to. The freelens_kubectl and freelens_helm escape-hatch tools can run " +
+      "kubectl or helm directly for anything the dedicated tools do not cover, but always prefer the dedicated " +
+      "freelens_ tools; they are the fallback and need the same approval as any mutation.";
     const rules = this.preferences.customAgentRules.trim();
     return rules ? `${base}\n\nAdditional user rules:\n${rules}` : base;
   }
