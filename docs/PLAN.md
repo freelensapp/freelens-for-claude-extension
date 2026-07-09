@@ -3,8 +3,8 @@
 Status: **approved** — all open questions were resolved by the maintainer in
 issue [#7](https://github.com/freelensapp/freelens-for-claude-extension/issues/7);
 see [Resolved questions](#resolved-questions) at the end of this document.
-**M0 and M1 are delivered** and confirmed working by the maintainer.
-Next step: implement **M2** as specified in [M2.md](./M2.md).
+**M0, M1 and M2 are delivered** and confirmed working by the maintainer.
+Next step: implement **M3** as specified in [M3.md](./M3.md).
 
 Process note: planning and analysis run on issues (Fable model);
 implementation runs on pull requests (Opus model).
@@ -284,7 +284,7 @@ Not used: LangChain, LangGraph, Vercel AI SDK, OpenAI SDK.
 | Token counter | Yes; cost display dropped (D8) |
 | Retry on failure | Yes (D7) |
 | Explain/analyze resource from context menu | Later milestone (D7) |
-| MCP servers configured by the user | Later milestone — opt-in passthrough |
+| MCP servers configured by the user | M3 — opt-in passthrough |
 | Multiple AI providers / API keys | Intentionally out of scope |
 
 ## Milestones
@@ -301,13 +301,15 @@ dialog with YAML diff, permission modes, session persistence and resume,
 per-cluster session management (new chat, stop — delivered in M0). Detailed
 implementation specification: [M1.md](./M1.md).
 
-**M2 — UX parity.** Usage display, retry, model picker, tool-call cards,
-"Ask Claude" on resources, preferences page. Detailed implementation
-specification: [M2.md](./M2.md).
+**M2 — UX parity (delivered).** Usage display, retry, model picker,
+tool-call cards, "Ask Claude" on resources, preferences page. Detailed
+implementation specification: [M2.md](./M2.md).
 
 **M3 — beyond parity.** User MCP-server passthrough, Claude Code subagents
 for analysis workflows, prompt shortcuts/slash commands, Kubectl tool running
-through Freelens' terminal (D4).
+through Freelens' terminal (D4), plus the Available Tools panel and reasoning
+fold deferred from M2. Detailed implementation specification:
+[M3.md](./M3.md).
 
 ## Resolved questions
 
