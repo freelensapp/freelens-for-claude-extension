@@ -1,7 +1,8 @@
 {
   "name": "@freelensapp/for-claude-extension",
   "version": "0.1.0",
-  "description": "Freelens extension for Claude",
+  "description": "Claude-powered chat for Freelens that drives the user's own Claude Code installation with permission-gated Kubernetes tools",
+  "homepage": "https://github.com/freelensapp/freelens-for-claude-extension",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/freelensapp/freelens-for-claude-extension.git",
@@ -14,7 +15,7 @@
   ],
   "engines": {
     "node": ">= 22.0.0",
-    "freelens": "^1.8.0"
+    "freelens": "^1.10.0"
   },
   "copyright": "© 2025-2026 Freelens Authors",
   "license": "MIT",
@@ -87,7 +88,12 @@
     "lens",
     "openlens",
     "freelens",
-    "claude"
+    "claude",
+    "claude-code",
+    "ai",
+    "chat",
+    "kubernetes",
+    "anthropic"
   ],
   "packageManager": "pnpm@10.34.4+sha512.8768be55200ae3f2226b6527fcca2687e14bc4e5f12d7721a0f25da3df47915177058648db4177baf348120fa0ba2752d8d8d93f6beaf1fe64ae18da8de961af",
   "dependencies": {
