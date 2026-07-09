@@ -51,53 +51,64 @@ the Claude Agent SDK (which spawns the user's own Claude Code) and exposes a
 local HTTP/SSE bridge; the renderer is a per-cluster chat page. See the approved
 plan in [docs/PLAN.md](./docs/PLAN.md), the M0 spec in
 [docs/M0.md](./docs/M0.md), the M1 spec (tool and safety parity) in
-[docs/M1.md](./docs/M1.md), and the M2 spec (UX parity) in
-[docs/M2.md](./docs/M2.md).
+[docs/M1.md](./docs/M1.md), the M2 spec (UX parity) in
+[docs/M2.md](./docs/M2.md), and the M3 spec (user MCP passthrough,
+cluster-analyzer subagent, slash commands, prompt shortcuts, direct
+kubectl/helm tools, Available Tools panel, reasoning fold) in
+[docs/M3.md](./docs/M3.md).
 
 ```text
 src/
   common/
     bridge-store.ts        # ExtensionStore: { port, token } synced main -> renderer
     session-store.ts       # ChatSessionStore: per-cluster sessionId + permission mode + model
-    preferences-store.ts   # PreferencesStore: pod logs, agent rules, path override, default model
-    protocol.ts            # shared request/response and SSE event types (usage, compaction, model, retry)
+    preferences-store.ts   # PreferencesStore: pod logs, agent rules, path override, default model, MCP config, subagents, prompt shortcuts
+    prompt-shortcuts.ts    # built-in quick-prompt chips + parser for the promptShortcuts preference (renderer-free)
+    protocol.ts            # shared request/response and SSE event types (usage, compaction, model, retry, thinking, local command output, parentCallId, mcp/slash meta, tools route)
   main/
     index.ts               # onActivate: start bridge + stores (incl. preferences); onDeactivate: stop it
     claude/
       detect.ts            # locate Claude Code binary (or validate an explicit path override), read version
-      session-manager.ts   # session lifecycle, resume, transcript, usage/compaction, model, retry, pod-logs gating
-      permission-broker.ts # permission modes + approval request/resolve (mutating + consent-required reads)
+      session-manager.ts   # session lifecycle, resume, transcript, usage/compaction, model, retry, pod-logs gating, user MCP + subagent wiring, thinking + local-command + nested tool events
+      permission-broker.ts # permission modes + approval request/resolve (mutating + consent-required reads + external MCP tools)
+      mcp-config.ts        # parse/validate Claude-Desktop-style user MCP JSON into SDK server configs (never throws)
+      subagents.ts         # cluster-analyzer definition: read-only investigator subagent
     bridge/
-      server.ts            # node:http server, routing, bearer auth, CORS, SSE, permission/model/retry routes
+      server.ts            # node:http server, routing, bearer auth, CORS, SSE, permission/model/retry/tools routes
     tools/
       kube-client.ts       # KubeConfig + typed API surface from the cluster catalog entity
       kube-format.ts       # YAML, managedFields stripping, truncation, selectFields, toDiff
-      mcp-server.ts        # createSdkMcpServer; read-only vs mutating tool name sets; pod-logs tail-lines getter
-      approval.ts          # describeApproval: action title + backup target (incl. READ POD LOGS)
-      resources.ts         # kube_resources tool (field selection, managedFields opt-in)
-      pod-logs.ts          # kube_pod_logs tool (previous, timestamps, configurable tail-lines default)
-      warning-events.ts    # kube_warning_events tool
-      cluster-version.ts   # kube_cluster_version tool
-      create-resource.ts   # kube_create_resource tool
-      update-resource.ts   # kube_update_resource tool (backup + diff)
-      patch-resource.ts    # kube_patch_resource tool (incl. scale subresource)
-      delete-resource.ts   # kube_delete_resource tool (delete / force / finalize)
-      delete-pod.ts        # kube_delete_pod tool (evict / force / finalizers)
-      rollout-restart.ts   # kube_rollout_restart tool (Deployment/DaemonSet/StatefulSet)
+      mcp-server.ts        # createSdkMcpServer; read-only vs mutating tool name sets (freelens_ prefix, incl. kubectl/helm); pod-logs tail-lines getter; tools-panel descriptors
+      approval.ts          # describeApproval: action title + backup target (incl. READ POD LOGS, RUN KUBECTL, RUN HELM, USE MCP TOOL)
+      cli-exec.ts          # shared spawn helper: binary resolution, env hygiene, timeout, non-tty capture, process registry
+      resources.ts         # freelens_resources tool (field selection, managedFields opt-in)
+      pod-logs.ts          # freelens_pod_logs tool (previous, timestamps, configurable tail-lines default)
+      warning-events.ts    # freelens_warning_events tool
+      cluster-version.ts   # freelens_cluster_version tool
+      create-resource.ts   # freelens_create_resource tool
+      update-resource.ts   # freelens_update_resource tool (backup + diff)
+      patch-resource.ts    # freelens_patch_resource tool (incl. scale subresource)
+      delete-resource.ts   # freelens_delete_resource tool (delete / force / finalize)
+      delete-pod.ts        # freelens_delete_pod tool (evict / force / finalizers)
+      rollout-restart.ts   # freelens_rollout_restart tool (Deployment/DaemonSet/StatefulSet)
+      kubectl.ts           # freelens_kubectl tool (argv contract, direct spawn via cli-exec)
+      helm.ts              # freelens_helm tool (argv contract, direct spawn via cli-exec)
   renderer/
     index.tsx              # clusterPages, clusterPageMenus, appPreferences, kubeObjectMenuItems
     api/
-      bridge-client.ts     # fetch wrapper + SSE reader; resolvePermission, setPermissionMode, setModel, retry
+      bridge-client.ts     # fetch wrapper + SSE reader; resolvePermission, setPermissionMode, setModel, retry, getTools
       pending-prompt.ts    # module-scoped handoff between "Ask Claude" menu entries and the chat page
     components/
       chat-page.tsx        # page: onboarding gate or chat view
-      chat-view.tsx        # transcript + input + status strip (token counter, model + mode selectors, retry)
+      chat-view.tsx        # transcript + input + status strip (token counter, model + mode selectors, retry, slash popup, shortcut chips, reasoning fold, nested tool cards, tools panel toggle)
       tool-card.tsx        # collapsible tool call/result card
       permission-dialog.tsx # inline approval card (proposed YAML, backup, diff)
       menu-entry.tsx       # "Ask Claude" kube object menu item
-      preferences.tsx      # preferences page body + hint
+      preferences.tsx      # preferences page body + hint (incl. MCP switch/textarea, subagent toggle, shortcuts textarea)
       markdown.tsx         # react-markdown wrapper (code blocks, links)
       onboarding.tsx       # Claude Code missing / not detected panel
+      slash-menu.tsx       # slash-command autocomplete popup shown above the input
+      tools-panel.tsx      # Available Tools popover (built-in tools + connected MCP servers)
       *.module.scss        # component styles (SCSS modules)
     icons/
       claude-icon.tsx      # cluster page menu icon
