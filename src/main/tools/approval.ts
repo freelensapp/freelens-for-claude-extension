@@ -3,6 +3,8 @@
  * Licensed under MIT License. See LICENSE in root directory for more information.
  */
 
+import { quoteCommand } from "./cli-exec";
+
 // Metadata the permission broker needs to render an approval dialog for a
 // mutating tool call: a human action title, the value to preview as YAML, the
 // target resource to read back for the "current resource (backup)" block, and
@@ -20,12 +22,22 @@ export interface ApprovalTarget {
 export interface ApprovalDescriptor {
   /** Short human header, e.g. `UPDATE SERVICE` or `DELETE POD (evict)`. */
   actionTitle: string;
+  /** Secondary line, e.g. `<server> / <tool>` for an external MCP tool. */
+  subtitle?: string;
   /** The object rendered as `proposedYaml` in the dialog. */
   proposedValue: unknown;
   /** Resource to read for the backup/diff; omitted when there is nothing to back up. */
   target?: ApprovalTarget;
   /** Whether the proposed result is a known full manifest (diff-able). */
   wantsDiff?: boolean;
+}
+
+/** Split a qualified `mcp__<server>__<tool>` name into its server and tool parts. */
+function splitMcpName(qualified: string): { server: string; tool: string } {
+  const rest = qualified.slice("mcp__".length);
+  const separator = rest.indexOf("__");
+  if (separator === -1) return { server: rest, tool: "" };
+  return { server: rest.slice(0, separator), tool: rest.slice(separator + 2) };
 }
 
 function upper(value: unknown): string {
@@ -36,7 +48,7 @@ function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
 }
 
-/** apiVersion for the workload kinds `kube_rollout_restart` accepts. */
+/** apiVersion for the workload kinds `freelens_rollout_restart` accepts. */
 const RESTARTABLE_API_VERSION = "apps/v1";
 
 /**
@@ -48,12 +60,12 @@ export function describeApproval(toolName: string, input: unknown): ApprovalDesc
   const args = asRecord(input);
 
   switch (toolName) {
-    case "kube_create_resource": {
+    case "freelens_create_resource": {
       const manifest = asRecord(args.manifest);
       // A create has no current object to back up or diff against.
       return { actionTitle: `CREATE ${upper(manifest.kind)}`, proposedValue: manifest };
     }
-    case "kube_update_resource": {
+    case "freelens_update_resource": {
       const manifest = asRecord(args.manifest);
       const metadata = asRecord(manifest.metadata);
       const target = targetOf(manifest.apiVersion, manifest.kind, metadata.namespace, metadata.name);
@@ -64,7 +76,7 @@ export function describeApproval(toolName: string, input: unknown): ApprovalDesc
         wantsDiff: target != null,
       };
     }
-    case "kube_patch_resource": {
+    case "freelens_patch_resource": {
       const subresource = typeof args.subresource === "string" ? args.subresource.trim().toLowerCase() : "";
       const title = subresource ? `PATCH ${upper(args.kind)} (${subresource})` : `PATCH ${upper(args.kind)}`;
       return {
@@ -73,7 +85,7 @@ export function describeApproval(toolName: string, input: unknown): ApprovalDesc
         target: targetOf(args.apiVersion, args.kind, args.namespace, args.name),
       };
     }
-    case "kube_delete_resource": {
+    case "freelens_delete_resource": {
       const mode = typeof args.mode === "string" ? args.mode : "delete";
       return {
         actionTitle: `DELETE ${upper(args.kind)} (${mode})`,
@@ -81,7 +93,7 @@ export function describeApproval(toolName: string, input: unknown): ApprovalDesc
         target: targetOf(args.apiVersion, args.kind, args.namespace, args.name),
       };
     }
-    case "kube_delete_pod": {
+    case "freelens_delete_pod": {
       const mode = typeof args.mode === "string" ? args.mode : "delete";
       return {
         actionTitle: `DELETE POD (${mode})`,
@@ -89,25 +101,44 @@ export function describeApproval(toolName: string, input: unknown): ApprovalDesc
         target: targetOf("v1", "Pod", args.namespace, args.name),
       };
     }
-    case "kube_rollout_restart": {
+    case "freelens_rollout_restart": {
       return {
         actionTitle: `RESTART ${upper(args.kind)}`,
         proposedValue: input,
         target: targetOf(RESTARTABLE_API_VERSION, args.kind, args.namespace, args.name),
       };
     }
-    case "kube_pod_logs": {
+    case "freelens_pod_logs": {
       // A read has no target to back up; the input itself is the whole proposal.
       return { actionTitle: "READ POD LOGS", proposedValue: input };
     }
-    default:
+    case "freelens_kubectl": {
+      // No target to back up; the whole proposal is the shell-quoted command line
+      // the model supplied (the injected --kubeconfig/--context are omitted).
+      const kubectlArgs = Array.isArray(args.args) ? (args.args as unknown[]).map(String) : [];
+      return { actionTitle: "RUN KUBECTL", proposedValue: quoteCommand("kubectl", kubectlArgs) };
+    }
+    case "freelens_helm": {
+      // No target to back up; the whole proposal is the shell-quoted command line
+      // the model supplied (the injected --kubeconfig/--kube-context are omitted).
+      const helmArgs = Array.isArray(args.args) ? (args.args as unknown[]).map(String) : [];
+      return { actionTitle: "RUN HELM", proposedValue: quoteCommand("helm", helmArgs) };
+    }
+    default: {
+      // External MCP tools cannot be classified: name the server and tool, and
+      // show the raw input as the whole proposal.
+      if (toolName.startsWith("mcp__")) {
+        const { server, tool } = splitMcpName(toolName);
+        return { actionTitle: "USE MCP TOOL", subtitle: `${server} / ${tool}`, proposedValue: input };
+      }
       return {
         actionTitle: `${toolName
-          .replace(/^kube_/, "")
+          .replace(/^freelens_/, "")
           .replace(/_/g, " ")
           .toUpperCase()}`,
         proposedValue: input,
       };
+    }
   }
 }
 

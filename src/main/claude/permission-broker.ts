@@ -105,11 +105,17 @@ export class PermissionBroker {
         ? createTwoFilesPatch("current", "proposed", currentYaml, proposedYaml, "", "")
         : undefined;
 
+    // The wire protocol carries a single title line, so fold any subtitle
+    // (e.g. an external MCP tool's `<server> / <tool>`) into the action title.
+    const actionTitle = descriptor.subtitle
+      ? `${descriptor.actionTitle}: ${descriptor.subtitle}`
+      : descriptor.actionTitle;
+
     this.emit(
       sessionEvent("permission_request", {
         requestId,
         toolName: shortName,
-        actionTitle: descriptor.actionTitle,
+        actionTitle,
         input,
         proposedYaml,
         currentYaml,

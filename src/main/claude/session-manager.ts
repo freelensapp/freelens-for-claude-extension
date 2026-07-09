@@ -10,32 +10,37 @@ import { join } from "node:path";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { Common } from "@freelensapp/extensions";
 import {
+  type ClusterToolsResponse,
   type PermissionBehavior,
   type PermissionMode,
   type SessionErrorKind,
   type SessionEvent,
   sessionEvent,
 } from "../../common/protocol";
+import { ProcessRegistry } from "../tools/cli-exec";
 import { disposeKubeClient, getKubeClient, type KubeClient } from "../tools/kube-client";
 import { stripManagedFields, toYaml } from "../tools/kube-format";
 import {
   ALLOWED_TOOL_NAMES,
+  BUILTIN_TOOL_DESCRIPTORS,
   createKubeMcpServer,
   isKnownToolName,
   isMutatingToolName,
   MCP_SERVER_NAME,
   unqualifyToolName,
 } from "../tools/mcp-server";
+import { parseUserMcpConfig } from "./mcp-config";
 import { PermissionBroker, type ResolveResult } from "./permission-broker";
+import { buildAgents } from "./subagents";
 
-import type { Query, SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+import type { McpServerConfig, Query, SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 
 import type { PreferencesState } from "../../common/preferences-store";
 import type { ChatSessionState } from "../../common/session-store";
 import type { ApprovalTarget } from "../tools/approval";
 
 /** The read tool that may be gated behind an approval preference. */
-const POD_LOGS_TOOL = "kube_pod_logs";
+const POD_LOGS_TOOL = "freelens_pod_logs";
 
 /** Claude Code built-in tools that must never run against a cluster chat. */
 const DISALLOWED_BUILTIN_TOOLS = [
@@ -63,6 +68,7 @@ const PERSISTED_EVENTS = new Set<SessionEvent["type"]>([
   "error",
   "permission_request",
   "permission_resolved",
+  "local_command_output",
 ]);
 
 /** Read-only tools that the SDK may run without hitting `canUseTool`; pod logs are gated separately. */
@@ -157,6 +163,8 @@ class ClusterSession {
   private readonly input = new MessageQueue();
   private readonly abort = new AbortController();
   private readonly toolNames = new Map<string, string>();
+  /** In-flight kubectl/helm children, killed on interrupt, new chat, and dispose. */
+  private readonly cliRegistry = new ProcessRegistry();
   private readonly broker: PermissionBroker;
   private readonly dir: string;
   private readonly transcriptFile: string;
@@ -173,6 +181,10 @@ class ClusterSession {
   private selectedModel?: string;
   /** The model id the SDK `init` message reported (for the Default label). */
   private resolvedModel?: string;
+  /** External MCP servers (never the built-in one) reported by the SDK `init` message. */
+  private externalMcpServers?: { name: string; status: string }[];
+  /** Slash commands offered by Claude Code, reported by the SDK `init` message. */
+  private slashCommands?: string[];
   /** The last user prompt, kept so a failed turn can be retried without re-adding the bubble. */
   private lastUserText?: string;
 
@@ -229,11 +241,37 @@ class ClusterSession {
       resumed: this.resumed,
       model: this.selectedModel,
       resolvedModel: this.resolvedModel,
+      ...(this.slashCommands ? { slashCommands: this.slashCommands } : {}),
+      ...(this.externalMcpServers ? { mcpServers: this.externalMcpServers } : {}),
     });
   }
 
   getPermissionMode(): PermissionMode {
     return this.broker.getMode();
+  }
+
+  /**
+   * Live external MCP servers (never the built-in one) with their status and
+   * discovered tools, for the Available Tools panel. Returns `[]` when no query
+   * is live or the SDK cannot report status.
+   */
+  async getMcpServers(): Promise<ClusterToolsResponse["mcp"]> {
+    if (!this.queryHandle) return [];
+    try {
+      const statuses = await this.queryHandle.mcpServerStatus();
+      return statuses
+        .filter((server) => server.name !== MCP_SERVER_NAME)
+        .map((server) => ({
+          name: server.name,
+          status: server.status,
+          tools: (server.tools ?? []).map((entry) => ({
+            name: entry.name,
+            ...(entry.description ? { description: entry.description } : {}),
+          })),
+        }));
+    } catch {
+      return [];
+    }
   }
 
   setPermissionMode(mode: PermissionMode): void {
@@ -378,19 +416,29 @@ class ClusterSession {
   private startQuery(resume?: string): void {
     const client = this.client;
     if (!client || !this.claudeCodePath) return;
+    // With the subagent enabled, delegation itself is safe (every tool the
+    // subagent calls is still individually gated), so `Task`/`Agent` are let
+    // through; with it off both stay disallowed exactly as before.
+    const subagentsEnabled = this.preferences.subagentsEnabled;
+    const disallowedTools = subagentsEnabled
+      ? DISALLOWED_BUILTIN_TOOLS.filter((name) => name !== "Task")
+      : DISALLOWED_BUILTIN_TOOLS;
+    const allowedTools = subagentsEnabled ? [...AUTO_ALLOWED_TOOL_NAMES, "Agent"] : AUTO_ALLOWED_TOOL_NAMES;
     this.queryHandle = query({
       prompt: this.input,
       options: {
         abortController: this.abort,
         pathToClaudeCodeExecutable: this.claudeCodePath,
         cwd: this.dir,
-        mcpServers: {
-          [MCP_SERVER_NAME]: createKubeMcpServer(client, () => this.preferences.podLogsTailLines),
-        },
+        mcpServers: this.buildMcpServers(client),
+        // Only the `mcpServers` option counts; ignore any MCP config from
+        // settings files, plugins, or agent frontmatter.
+        strictMcpConfig: true,
         // Pod logs are omitted so `canUseTool` fires for them and the approval
         // preference can be enforced live.
-        allowedTools: AUTO_ALLOWED_TOOL_NAMES,
-        disallowedTools: DISALLOWED_BUILTIN_TOOLS,
+        allowedTools,
+        disallowedTools,
+        ...(subagentsEnabled ? { agents: buildAgents() } : {}),
         settingSources: [],
         includePartialMessages: true,
         canUseTool: (toolName, input, extra) => this.canUseTool(toolName, input, extra),
@@ -405,15 +453,44 @@ class ClusterSession {
     });
   }
 
+  /**
+   * The MCP servers for this session: always the built-in `freelens-kube`
+   * server, plus any user-configured servers when the preference is enabled.
+   * Parse errors are reported once as a non-fatal error event; a bad entry is
+   * simply skipped. Config changes apply from the next session start.
+   */
+  private buildMcpServers(client: KubeClient): Record<string, McpServerConfig> {
+    const servers: Record<string, McpServerConfig> = {
+      [MCP_SERVER_NAME]: createKubeMcpServer(client, () => this.preferences.podLogsTailLines, this.cliRegistry),
+    };
+    if (!this.preferences.mcpEnabled) return servers;
+
+    const { servers: userServers, errors } = parseUserMcpConfig(this.preferences.mcpConfiguration);
+    for (const [name, config] of Object.entries(userServers)) {
+      servers[name] = config;
+    }
+    if (errors.length > 0) {
+      this.emit(
+        sessionEvent("error", {
+          message: `MCP configuration ignored: ${errors.join("; ")}`,
+          kind: "other",
+        }),
+      );
+    }
+    return servers;
+  }
+
   /** Base guidance plus any user-configured custom rules appended for this session. */
   private buildSystemPromptAppend(clusterName: string): string {
     const base =
-      `You are operating on the Kubernetes cluster "${clusterName}" through kube_ tools. ` +
+      `You are operating on the Kubernetes cluster "${clusterName}" through freelens_ tools. ` +
       "Read-only tools (list/get resources, pod logs, warning events, cluster version) run freely. " +
       "Mutating tools (create, update, patch/scale, delete, delete pod, rollout restart) exist, but every " +
       "mutation requires explicit user approval, and all mutations are denied while the chat is in read-only " +
       "mode. Prefer reads to discover current state before proposing any mutation, and never retry a denied " +
-      "action unless the user asks you to.";
+      "action unless the user asks you to. The freelens_kubectl and freelens_helm escape-hatch tools can run " +
+      "kubectl or helm directly for anything the dedicated tools do not cover, but always prefer the dedicated " +
+      "freelens_ tools; they are the fallback and need the same approval as any mutation.";
     const rules = this.preferences.customAgentRules.trim();
     return rules ? `${base}\n\nAdditional user rules:\n${rules}` : base;
   }
@@ -425,6 +502,14 @@ class ClusterSession {
     extra: { signal?: AbortSignal },
   ): Promise<{ behavior: "allow"; updatedInput: Record<string, unknown> } | { behavior: "deny"; message: string }> {
     if (!isKnownToolName(toolName)) {
+      // External MCP tools (from a user-configured server) cannot be classified,
+      // so they are treated as mutating: denied in read-only, approved per call.
+      if (toolName.startsWith("mcp__")) {
+        const decision = await this.broker.decideMutating(toolName, input, extra.signal);
+        return decision.behavior === "allow"
+          ? { behavior: "allow", updatedInput: input }
+          : { behavior: "deny", message: decision.message ?? "The user denied the action." };
+      }
       return { behavior: "deny", message: `Tool "${toolName}" is not permitted in this cluster chat.` };
     }
     const shortName = unqualifyToolName(toolName);
@@ -526,14 +611,44 @@ class ClusterSession {
           subtype?: string;
           session_id?: string;
           model?: string;
+          mcp_servers?: { name?: string; status?: string }[];
+          slash_commands?: string[];
+          content?: string;
           compact_metadata?: { trigger?: "manual" | "auto"; pre_tokens?: number };
         };
         if (system.subtype === "init") {
           if (system.session_id) this.captureSessionId(system.session_id);
+          let metaChanged = false;
           if (system.model && system.model !== this.resolvedModel) {
             this.resolvedModel = system.model;
-            this.emit(this.sessionMetaEvent());
+            metaChanged = true;
           }
+          // Capture the native slash commands so the input autocomplete can list them.
+          if (Array.isArray(system.slash_commands) && system.slash_commands.length > 0) {
+            this.slashCommands = system.slash_commands.map(String);
+            metaChanged = true;
+          }
+          // Keep only external servers (never the built-in one) for the panel and
+          // flag any that failed to connect.
+          const external = (Array.isArray(system.mcp_servers) ? system.mcp_servers : [])
+            .filter((server) => server.name && server.name !== MCP_SERVER_NAME)
+            .map((server) => ({ name: String(server.name), status: String(server.status ?? "unknown") }));
+          this.externalMcpServers = external;
+          if (external.length > 0) metaChanged = true;
+          if (metaChanged) this.emit(this.sessionMetaEvent());
+          for (const server of external) {
+            if (server.status !== "connected") {
+              this.emit(
+                sessionEvent("error", {
+                  message: `MCP server "${server.name}" is ${server.status}.`,
+                  kind: "other",
+                }),
+              );
+            }
+          }
+        } else if (system.subtype === "local_command_output") {
+          // Printable output of a native slash command (e.g. `/compact`).
+          this.emit(sessionEvent("local_command_output", { content: String(system.content ?? "") }));
         } else if (system.subtype === "compact_boundary") {
           this.emit(
             sessionEvent("compaction", {
@@ -544,10 +659,26 @@ class ClusterSession {
         }
         break;
       }
+      case "conversation_reset": {
+        // Fallback for `/clear` typed in a way the renderer did not intercept; the
+        // renderer's own New chat action resets the transcript and session id.
+        this.emit(sessionEvent("local_command_output", { content: "Conversation cleared by /clear" }));
+        break;
+      }
       case "stream_event": {
-        const event = message.event as { type?: string; delta?: { type?: string; text?: string } };
+        const event = message.event as {
+          type?: string;
+          delta?: { type?: string; text?: string; thinking?: string };
+        };
         if (event.type === "content_block_delta" && event.delta?.type === "text_delta" && event.delta.text) {
           this.emit(sessionEvent("assistant_delta", { text: event.delta.text }));
+        } else if (
+          event.type === "content_block_delta" &&
+          event.delta?.type === "thinking_delta" &&
+          event.delta.thinking
+        ) {
+          // Live-only reasoning; deliberately not persisted, so it is absent on replay.
+          this.emit(sessionEvent("assistant_thinking", { delta: event.delta.thinking }));
         }
         break;
       }
@@ -560,9 +691,14 @@ class ClusterSession {
             }),
           );
         }
+        // A non-null parent means this is subagent activity; its tool calls are
+        // rendered indented under the `Agent` delegation card, and its prose is
+        // deliberately not forwarded (the SDK default).
+        const parentCallId = message.parent_tool_use_id ?? undefined;
         const blocks = (message.message?.content ?? []) as ContentBlock[];
         for (const block of blocks) {
           if (block.type === "text" && block.text) {
+            if (parentCallId) continue;
             this.emit(sessionEvent("assistant_message", { text: block.text }));
           } else if (block.type === "tool_use") {
             if (block.id && block.name) this.toolNames.set(block.id, block.name);
@@ -571,6 +707,7 @@ class ClusterSession {
                 toolName: unqualifyToolName(block.name ?? "tool"),
                 input: block.input,
                 callId: block.id,
+                ...(parentCallId ? { parentCallId } : {}),
               }),
             );
           }
@@ -578,6 +715,7 @@ class ClusterSession {
         break;
       }
       case "user": {
+        const parentCallId = message.parent_tool_use_id ?? undefined;
         const blocks = (message.message?.content ?? []) as ContentBlock[];
         if (!Array.isArray(blocks)) break;
         for (const block of blocks) {
@@ -588,6 +726,7 @@ class ClusterSession {
                 toolName: unqualifyToolName(toolName),
                 summary: summarizeToolResult(block.content).slice(0, 2000),
                 callId: block.tool_use_id,
+                ...(parentCallId ? { parentCallId } : {}),
               }),
             );
           }
@@ -616,6 +755,7 @@ class ClusterSession {
 
   async interrupt(): Promise<void> {
     this.broker.denyAllPending("the turn was interrupted");
+    this.cliRegistry.killAll();
     try {
       await this.queryHandle?.interrupt();
     } catch {
@@ -644,6 +784,7 @@ class ClusterSession {
       }
     }
     this.broker.denyAllPending("the session was disposed");
+    this.cliRegistry.killAll();
     this.input.close();
     this.abort.abort();
     try {
@@ -705,6 +846,17 @@ export class SessionManager {
   /** Re-run the last user turn after a failure; reports whether it was accepted. */
   async retry(clusterId: string): Promise<"accepted" | "nothing_to_retry"> {
     return this.getOrCreate(clusterId).retry();
+  }
+
+  /**
+   * Available Tools panel data: the static built-in descriptors plus, when a
+   * query is live for the cluster, the external MCP servers and their tools.
+   */
+  async getClusterTools(clusterId: string): Promise<ClusterToolsResponse> {
+    const builtin = BUILTIN_TOOL_DESCRIPTORS.map((descriptor) => ({ ...descriptor }));
+    const session = this.sessions.get(clusterId);
+    const mcp = session ? await session.getMcpServers() : [];
+    return { builtin, mcp };
   }
 
   /** Resolve a pending approval identified only by its request id. */

@@ -25,6 +25,14 @@ export interface PreferencesStoreModel {
   claudeCodePath: string;
   /** Default model alias for clusters that have not picked one; empty means default. */
   defaultModel: string;
+  /** Start user-configured MCP servers alongside the built-in cluster tools. */
+  mcpEnabled: boolean;
+  /** Claude-Desktop-style MCP configuration JSON; applied at the next new session. */
+  mcpConfiguration: string;
+  /** Let Claude delegate deep read-only investigations to the cluster-analyzer subagent. */
+  subagentsEnabled: boolean;
+  /** JSON array of { "title", "prompt" } rendered as quick-prompt chips above the input. */
+  promptShortcuts: string;
 }
 
 /**
@@ -38,7 +46,14 @@ export interface PreferencesState {
   readonly customAgentRules: string;
   readonly claudeCodePath: string;
   readonly defaultModel: string;
+  readonly mcpEnabled: boolean;
+  readonly mcpConfiguration: string;
+  readonly subagentsEnabled: boolean;
+  readonly promptShortcuts: string;
 }
+
+/** Default MCP configuration: an empty Claude-Desktop-style `mcpServers` object. */
+export const DEFAULT_MCP_CONFIGURATION = '{\n  "mcpServers": {}\n}';
 
 const defaults: PreferencesStoreModel = {
   podLogsRequireApproval: true,
@@ -46,6 +61,10 @@ const defaults: PreferencesStoreModel = {
   customAgentRules: "",
   claudeCodePath: "",
   defaultModel: "",
+  mcpEnabled: false,
+  mcpConfiguration: DEFAULT_MCP_CONFIGURATION,
+  subagentsEnabled: true,
+  promptShortcuts: "[]",
 };
 
 export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesStoreModel> implements PreferencesState {
@@ -54,6 +73,10 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesSto
   customAgentRules = defaults.customAgentRules;
   claudeCodePath = defaults.claudeCodePath;
   defaultModel = defaults.defaultModel;
+  mcpEnabled = defaults.mcpEnabled;
+  mcpConfiguration = defaults.mcpConfiguration;
+  subagentsEnabled = defaults.subagentsEnabled;
+  promptShortcuts = defaults.promptShortcuts;
 
   constructor() {
     super({
@@ -66,6 +89,10 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesSto
       customAgentRules: observable,
       claudeCodePath: observable,
       defaultModel: observable,
+      mcpEnabled: observable,
+      mcpConfiguration: observable,
+      subagentsEnabled: observable,
+      promptShortcuts: observable,
     });
   }
 
@@ -75,6 +102,10 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesSto
     this.customAgentRules = model.customAgentRules ?? defaults.customAgentRules;
     this.claudeCodePath = model.claudeCodePath ?? defaults.claudeCodePath;
     this.defaultModel = model.defaultModel ?? defaults.defaultModel;
+    this.mcpEnabled = model.mcpEnabled ?? defaults.mcpEnabled;
+    this.mcpConfiguration = model.mcpConfiguration ?? defaults.mcpConfiguration;
+    this.subagentsEnabled = model.subagentsEnabled ?? defaults.subagentsEnabled;
+    this.promptShortcuts = model.promptShortcuts ?? defaults.promptShortcuts;
   }
 
   toJSON(): PreferencesStoreModel {
@@ -84,6 +115,10 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesSto
       customAgentRules: this.customAgentRules,
       claudeCodePath: this.claudeCodePath,
       defaultModel: this.defaultModel,
+      mcpEnabled: this.mcpEnabled,
+      mcpConfiguration: this.mcpConfiguration,
+      subagentsEnabled: this.subagentsEnabled,
+      promptShortcuts: this.promptShortcuts,
     };
   }
 }

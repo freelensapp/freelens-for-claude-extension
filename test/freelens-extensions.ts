@@ -54,6 +54,11 @@ export const Common = {
     warn: vi.fn(),
     error: vi.fn(),
   },
+  App: {
+    Preferences: {
+      getKubectlPath: vi.fn<() => string | undefined>(() => undefined),
+    },
+  },
   Store: {
     ExtensionStore,
   },

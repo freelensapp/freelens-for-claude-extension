@@ -4,7 +4,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { DEFAULT_POD_LOGS_TAIL_LINES, PreferencesStore } from "./preferences-store";
+import { DEFAULT_MCP_CONFIGURATION, DEFAULT_POD_LOGS_TAIL_LINES, PreferencesStore } from "./preferences-store";
 
 describe("PreferencesStore", () => {
   it("starts with the documented defaults", () => {
@@ -14,6 +14,10 @@ describe("PreferencesStore", () => {
     expect(store.customAgentRules).toBe("");
     expect(store.claudeCodePath).toBe("");
     expect(store.defaultModel).toBe("");
+    expect(store.mcpEnabled).toBe(false);
+    expect(store.mcpConfiguration).toBe(DEFAULT_MCP_CONFIGURATION);
+    expect(store.subagentsEnabled).toBe(true);
+    expect(store.promptShortcuts).toBe("[]");
   });
 
   it("round-trips through toJSON/fromStore", () => {
@@ -23,6 +27,10 @@ describe("PreferencesStore", () => {
     store.customAgentRules = "be concise";
     store.claudeCodePath = "/usr/local/bin/claude";
     store.defaultModel = "haiku";
+    store.mcpEnabled = true;
+    store.mcpConfiguration = '{ "mcpServers": { "x": { "command": "foo" } } }';
+    store.subagentsEnabled = false;
+    store.promptShortcuts = '[{ "title": "Nodes", "prompt": "List nodes" }]';
 
     const restored = new PreferencesStore();
     restored.fromStore(store.toJSON());
@@ -31,6 +39,10 @@ describe("PreferencesStore", () => {
     expect(restored.customAgentRules).toBe("be concise");
     expect(restored.claudeCodePath).toBe("/usr/local/bin/claude");
     expect(restored.defaultModel).toBe("haiku");
+    expect(restored.mcpEnabled).toBe(true);
+    expect(restored.mcpConfiguration).toBe('{ "mcpServers": { "x": { "command": "foo" } } }');
+    expect(restored.subagentsEnabled).toBe(false);
+    expect(restored.promptShortcuts).toBe('[{ "title": "Nodes", "prompt": "List nodes" }]');
   });
 
   it("fromStore fills missing fields with defaults", () => {

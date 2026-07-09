@@ -39,6 +39,40 @@
   font-style: italic;
 }
 
+.reasoning {
+  margin: 0.2em 0 0.4em;
+  font-size: 0.85em;
+  opacity: 0.75;
+}
+
+.reasoningSummary {
+  cursor: pointer;
+  font-style: italic;
+  user-select: none;
+}
+
+.reasoningBody {
+  margin-top: 0.3em;
+  padding-left: 0.6em;
+  border-left: 2px solid rgba(127, 127, 127, 0.35);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.localCommand {
+  align-self: stretch;
+  margin: 0;
+  padding: 0.5em 0.7em;
+  border-radius: 4px;
+  background: rgba(127, 127, 127, 0.12);
+  font-family: var(--font-monospace, monospace);
+  font-size: 0.8em;
+  opacity: 0.8;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-x: auto;
+}
+
 .errorBanner {
   margin: 0 1rem;
   padding: 0.6em 0.8em;
@@ -152,11 +186,39 @@
   }
 }
 
+.shortcuts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  padding: 0 1rem 0.2rem;
+}
+
+.chip {
+  padding: 0.3em 0.8em;
+  cursor: pointer;
+  border: 1px solid rgba(127, 127, 127, 0.4);
+  border-radius: 999px;
+  background: rgba(127, 127, 127, 0.08);
+  color: inherit;
+  font: inherit;
+  font-size: 0.85em;
+
+  &:hover {
+    background: rgba(127, 127, 127, 0.18);
+  }
+}
+
 .inputRow {
   display: flex;
   gap: 0.5rem;
   padding: 0.6rem 1rem 1rem;
   align-items: flex-end;
+}
+
+.inputWrap {
+  position: relative;
+  flex: 1 1 auto;
+  display: flex;
 }
 
 .input {

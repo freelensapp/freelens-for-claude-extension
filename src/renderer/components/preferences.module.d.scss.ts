@@ -1,6 +1,7 @@
 declare const classNames: {
   readonly preferences: "preferences";
   readonly field: "field";
+  readonly dimmed: "dimmed";
   readonly hint: "hint";
   readonly mono: "mono";
   readonly number: "number";

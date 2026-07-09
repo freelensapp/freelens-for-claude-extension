@@ -5,12 +5,25 @@
 
 import styles from "./tool-card.module.scss";
 
+/** A subagent tool call rendered indented under the delegation card. */
+export interface ToolChild {
+  callId: string;
+  toolName: string;
+  input: unknown;
+  result?: string;
+}
+
 interface ToolCardProps {
   toolName: string;
   input: unknown;
   /** The tool result summary; absent while the call is still running. */
   result?: string;
+  /** Nested subagent tool calls, rendered indented inside this card. */
+  childCalls?: ToolChild[];
 }
+
+/** The `Agent` delegation tool: renders its subagent description rather than a kube summary. */
+const SUBAGENT_TOOL_NAME = "Agent";
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
@@ -47,13 +60,16 @@ function renderInput(input: unknown): string {
  * short tool name, a compact argument summary, and an animated dot while the
  * call is still running; expanded it shows the input and the result summary.
  */
-export function ToolCard({ toolName, input, result }: ToolCardProps) {
+export function ToolCard({ toolName, input, result, childCalls }: ToolCardProps) {
   const running = result === undefined;
-  const summary = summarizeArgs(input);
+  const isSubagent = toolName === SUBAGENT_TOOL_NAME;
+  const description = isSubagent ? String(asRecord(input).description ?? "") : "";
+  const summary = isSubagent ? description : summarizeArgs(input);
   return (
     <details className={styles.card}>
       <summary className={styles.header}>
         <span className={styles.toolName}>{toolName}</span>
+        {isSubagent ? <span className={styles.subagentTag}>subagent</span> : null}
         {summary ? <span className={styles.args}>{summary}</span> : null}
         {running ? <span className={styles.runningDot} aria-label="running" /> : null}
       </summary>
@@ -65,6 +81,13 @@ export function ToolCard({ toolName, input, result }: ToolCardProps) {
             <div className={styles.sectionLabel}>Result</div>
             <pre className={styles.code}>{result || "(no output)"}</pre>
           </>
+        ) : null}
+        {childCalls && childCalls.length > 0 ? (
+          <div className={styles.children}>
+            {childCalls.map((child) => (
+              <ToolCard key={child.callId} toolName={child.toolName} input={child.input} result={child.result} />
+            ))}
+          </div>
         ) : null}
       </div>
     </details>

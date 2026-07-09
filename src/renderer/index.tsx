@@ -21,7 +21,7 @@ function coordsOf(object: KubeObject): { kind: string; namespace?: string; name:
   return { kind: object.kind, namespace: meta.namespace, name: meta.name };
 }
 
-/** Prompt for a workload/resource: let the model fetch live state through the kube_ tools. */
+/** Prompt for a workload/resource: let the model fetch live state through the freelens_ tools. */
 function analyzePrompt(object: KubeObject): string {
   const { kind, namespace, name } = coordsOf(object);
   const ref = namespace ? `${kind} ${namespace}/${name}` : `${kind} ${name}`;

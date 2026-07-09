@@ -9,6 +9,7 @@ import {
   encodeSseEvent,
   isModelChoice,
   MODEL_CHOICES,
+  RESERVED_MCP_SERVER_NAME,
   type SessionEvent,
   sessionEvent,
 } from "./protocol";
@@ -23,11 +24,25 @@ describe("protocol SSE round-trip", () => {
     sessionEvent("status", { state: "working" }),
     sessionEvent("user_message", { text: "what pods are failing?" }),
     sessionEvent("assistant_delta", { text: "partial " }),
+    sessionEvent("assistant_thinking", { delta: "let me think " }),
     sessionEvent("assistant_message", { text: "Here is the answer.\nWith a newline." }),
-    sessionEvent("tool_call", { toolName: "kube_resources", input: { kind: "Pod" } }),
-    sessionEvent("tool_call", { toolName: "kube_resources", input: { kind: "Pod" }, callId: "toolu_1" }),
-    sessionEvent("tool_result", { toolName: "kube_resources", summary: "3 pods" }),
-    sessionEvent("tool_result", { toolName: "kube_resources", summary: "3 pods", callId: "toolu_1" }),
+    sessionEvent("local_command_output", { content: "Compacted 12 messages.\n" }),
+    sessionEvent("tool_call", { toolName: "freelens_resources", input: { kind: "Pod" } }),
+    sessionEvent("tool_call", { toolName: "freelens_resources", input: { kind: "Pod" }, callId: "toolu_1" }),
+    sessionEvent("tool_call", {
+      toolName: "freelens_resources",
+      input: { kind: "Pod" },
+      callId: "toolu_2",
+      parentCallId: "toolu_agent_1",
+    }),
+    sessionEvent("tool_result", { toolName: "freelens_resources", summary: "3 pods" }),
+    sessionEvent("tool_result", { toolName: "freelens_resources", summary: "3 pods", callId: "toolu_1" }),
+    sessionEvent("tool_result", {
+      toolName: "freelens_resources",
+      summary: "3 pods",
+      callId: "toolu_2",
+      parentCallId: "toolu_agent_1",
+    }),
     sessionEvent("usage", { inputTokens: 1200, cachedInputTokens: 800, outputTokens: 345 }),
     sessionEvent("compaction", { trigger: "auto", preTokens: 120000 }),
     sessionEvent("turn_complete", {}),
@@ -35,7 +50,7 @@ describe("protocol SSE round-trip", () => {
     sessionEvent("error", { message: "flaky", kind: "other", canRetry: true }),
     sessionEvent("permission_request", {
       requestId: "req-1",
-      toolName: "kube_update_resource",
+      toolName: "freelens_update_resource",
       actionTitle: "UPDATE SERVICE",
       input: { manifest: { kind: "Service" } },
       proposedYaml: "kind: Service\n",
@@ -49,6 +64,12 @@ describe("protocol SSE round-trip", () => {
       resumed: false,
       model: "haiku",
       resolvedModel: "claude-haiku-4-5",
+    }),
+    sessionEvent("session_meta", {
+      permissionMode: "approve",
+      resumed: false,
+      slashCommands: ["compact", "clear"],
+      mcpServers: [{ name: "github", status: "connected" }],
     }),
   ];
 
@@ -65,6 +86,12 @@ describe("protocol SSE round-trip", () => {
 
   it("returns null for frames without data", () => {
     expect(decodeSseFrame("event: status")).toBeNull();
+  });
+});
+
+describe("reserved MCP server name", () => {
+  it("is the built-in freelens-kube server name", () => {
+    expect(RESERVED_MCP_SERVER_NAME).toBe("freelens-kube");
   });
 });
 

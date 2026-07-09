@@ -24,6 +24,10 @@ export interface SubresourcePatchArgs {
 export interface KubeClient {
   clusterId: string;
   clusterName: string;
+  /** The cluster's kubeconfig file path, passed to spawned CLI tools as `--kubeconfig`. */
+  kubeConfigPath: string;
+  /** The selected context name, passed to spawned CLI tools as `--context`/`--kube-context`. */
+  contextName?: string;
   config: KubeConfig;
   objects: KubernetesObjectApi;
   core: CoreV1Api;
@@ -106,6 +110,8 @@ export function getKubeClient(clusterId: string): KubeClient {
   const client: KubeClient = {
     clusterId,
     clusterName: cluster.name,
+    kubeConfigPath: cluster.kubeConfigPath,
+    contextName: cluster.contextName,
     config,
     objects: KubernetesObjectApi.makeApiClient(config),
     core: config.makeApiClient(CoreV1Api),
