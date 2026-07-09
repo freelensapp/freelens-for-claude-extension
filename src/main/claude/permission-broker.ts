@@ -45,6 +45,7 @@ export class PermissionBroker {
     private readonly captureBackup: (target: ApprovalTarget) => Promise<string | undefined>,
     private readonly newId: () => string,
     private readonly getResumed: () => boolean = () => false,
+    private readonly getModelMeta: () => { model?: string; resolvedModel?: string } = () => ({}),
   ) {}
 
   getMode(): PermissionMode {
@@ -53,7 +54,9 @@ export class PermissionBroker {
 
   setMode(mode: PermissionMode): void {
     this.mode = mode;
-    this.emit(sessionEvent("session_meta", { permissionMode: mode, resumed: this.getResumed() }));
+    this.emit(
+      sessionEvent("session_meta", { permissionMode: mode, resumed: this.getResumed(), ...this.getModelMeta() }),
+    );
   }
 
   /**
@@ -65,7 +68,31 @@ export class PermissionBroker {
     input: Record<string, unknown>,
     signal?: AbortSignal,
   ): Promise<PermissionDecision> {
-    if (this.mode === "readOnly") {
+    return this.decide(shortName, input, signal, false);
+  }
+
+  /**
+   * Decide whether a consent-required read tool (e.g. pod logs) may proceed.
+   * Reading is permitted in `readOnly` mode; it still needs the user's consent,
+   * so this shares the request/approval machinery with mutations but never
+   * short-circuits to a read-only denial.
+   */
+  async decideReadWithConsent(
+    shortName: string,
+    input: Record<string, unknown>,
+    signal?: AbortSignal,
+  ): Promise<PermissionDecision> {
+    return this.decide(shortName, input, signal, true);
+  }
+
+  private async decide(
+    shortName: string,
+    input: Record<string, unknown>,
+    signal: AbortSignal | undefined,
+    requiresConsentOnly: boolean,
+  ): Promise<PermissionDecision> {
+    // Mutations are blocked in read-only mode; consent-required reads are not.
+    if (this.mode === "readOnly" && !requiresConsentOnly) {
       return { behavior: "deny", message: READ_ONLY_MESSAGE };
     }
 

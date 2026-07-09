@@ -74,4 +74,44 @@ describe("detectClaudeCode", () => {
     expect(result.found).toBe(true);
     expect(result.version).toBe("3.0.0");
   });
+
+  it("uses the explicit override path when set and never falls back to auto-detection", async () => {
+    const isExecutable = vi.fn(async (path: string) => path === "/opt/claude");
+    const runVersion = vi.fn(async () => "4.0.0");
+
+    const result = await detectClaudeCode({ env: { PATH: "/usr/bin" }, isExecutable, runVersion }, "/opt/claude");
+
+    expect(result).toEqual({ found: true, path: "/opt/claude", version: "4.0.0" });
+    // Only the override was probed, not any PATH candidate.
+    expect(isExecutable).toHaveBeenCalledTimes(1);
+    expect(isExecutable).toHaveBeenCalledWith("/opt/claude");
+  });
+
+  it("reports the override as the error instead of silently skipping it", async () => {
+    const result = await detectClaudeCode(
+      { env: { PATH: "/usr/bin" }, isExecutable: async () => false, runVersion: async () => "" },
+      "/bad/claude",
+    );
+
+    expect(result.found).toBe(false);
+    expect(result.path).toBe("/bad/claude");
+    expect(result.error).toContain("/bad/claude");
+  });
+
+  it("reports an override that exists but cannot run", async () => {
+    const result = await detectClaudeCode(
+      {
+        env: { PATH: "/usr/bin" },
+        isExecutable: async () => true,
+        runVersion: async () => {
+          throw new Error("nope");
+        },
+      },
+      "/opt/claude",
+    );
+
+    expect(result.found).toBe(false);
+    expect(result.path).toBe("/opt/claude");
+    expect(result.error).toContain("claude --version");
+  });
 });

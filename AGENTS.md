@@ -50,30 +50,32 @@ The extension embeds a Claude-powered chat in Freelens. The main process runs
 the Claude Agent SDK (which spawns the user's own Claude Code) and exposes a
 local HTTP/SSE bridge; the renderer is a per-cluster chat page. See the approved
 plan in [docs/PLAN.md](./docs/PLAN.md), the M0 spec in
-[docs/M0.md](./docs/M0.md), and the M1 spec (tool and safety parity) in
-[docs/M1.md](./docs/M1.md).
+[docs/M0.md](./docs/M0.md), the M1 spec (tool and safety parity) in
+[docs/M1.md](./docs/M1.md), and the M2 spec (UX parity) in
+[docs/M2.md](./docs/M2.md).
 
 ```text
 src/
   common/
     bridge-store.ts        # ExtensionStore: { port, token } synced main -> renderer
-    session-store.ts       # ChatSessionStore: per-cluster sessionId + permission mode
-    protocol.ts            # shared request/response and SSE event types (incl. permission events)
+    session-store.ts       # ChatSessionStore: per-cluster sessionId + permission mode + model
+    preferences-store.ts   # PreferencesStore: pod logs, agent rules, path override, default model
+    protocol.ts            # shared request/response and SSE event types (usage, compaction, model, retry)
   main/
-    index.ts               # onActivate: start bridge + stores; onDeactivate: stop it
+    index.ts               # onActivate: start bridge + stores (incl. preferences); onDeactivate: stop it
     claude/
-      detect.ts            # locate Claude Code binary, read version
-      session-manager.ts   # per-cluster session lifecycle, resume, transcript persistence
-      permission-broker.ts # per-session permission modes + approval request/resolve
+      detect.ts            # locate Claude Code binary (or validate an explicit path override), read version
+      session-manager.ts   # session lifecycle, resume, transcript, usage/compaction, model, retry, pod-logs gating
+      permission-broker.ts # permission modes + approval request/resolve (mutating + consent-required reads)
     bridge/
-      server.ts            # node:http server, routing, bearer auth, CORS, SSE, permission routes
+      server.ts            # node:http server, routing, bearer auth, CORS, SSE, permission/model/retry routes
     tools/
       kube-client.ts       # KubeConfig + typed API surface from the cluster catalog entity
       kube-format.ts       # YAML, managedFields stripping, truncation, selectFields, toDiff
-      mcp-server.ts        # createSdkMcpServer; read-only vs mutating tool name sets
-      approval.ts          # describeApproval: action title + backup target per mutating tool
+      mcp-server.ts        # createSdkMcpServer; read-only vs mutating tool name sets; pod-logs tail-lines getter
+      approval.ts          # describeApproval: action title + backup target (incl. READ POD LOGS)
       resources.ts         # kube_resources tool (field selection, managedFields opt-in)
-      pod-logs.ts          # kube_pod_logs tool (previous, timestamps)
+      pod-logs.ts          # kube_pod_logs tool (previous, timestamps, configurable tail-lines default)
       warning-events.ts    # kube_warning_events tool
       cluster-version.ts   # kube_cluster_version tool
       create-resource.ts   # kube_create_resource tool
@@ -83,13 +85,17 @@ src/
       delete-pod.ts        # kube_delete_pod tool (evict / force / finalizers)
       rollout-restart.ts   # kube_rollout_restart tool (Deployment/DaemonSet/StatefulSet)
   renderer/
-    index.tsx              # clusterPages + clusterPageMenus registration
+    index.tsx              # clusterPages, clusterPageMenus, appPreferences, kubeObjectMenuItems
     api/
-      bridge-client.ts     # fetch wrapper + SSE reader; resolvePermission, setPermissionMode
+      bridge-client.ts     # fetch wrapper + SSE reader; resolvePermission, setPermissionMode, setModel, retry
+      pending-prompt.ts    # module-scoped handoff between "Ask Claude" menu entries and the chat page
     components/
       chat-page.tsx        # page: onboarding gate or chat view
-      chat-view.tsx        # message list + input + status strip + permission-mode selector
+      chat-view.tsx        # transcript + input + status strip (token counter, model + mode selectors, retry)
+      tool-card.tsx        # collapsible tool call/result card
       permission-dialog.tsx # inline approval card (proposed YAML, backup, diff)
+      menu-entry.tsx       # "Ask Claude" kube object menu item
+      preferences.tsx      # preferences page body + hint
       markdown.tsx         # react-markdown wrapper (code blocks, links)
       onboarding.tsx       # Claude Code missing / not detected panel
       *.module.scss        # component styles (SCSS modules)
@@ -100,10 +106,10 @@ src/
 Build output goes to `out/`. The Agent SDK and `@kubernetes/client-node` are
 bundled but must only be imported from `src/main/**` (never the renderer).
 
-### CRD KubeObject template (not used by M0/M1)
+### CRD KubeObject template (not used by M0/M1/M2)
 
 The `## CRD KubeObject Pattern` and gateway-api sections below document the
-upstream extension template's example CRD layout. M0/M1 do not ship any CRD
+upstream extension template's example CRD layout. M0/M1/M2 do not ship any CRD
 models; keep the pattern notes for reference if CRD views are added later.
 
 ## CRD KubeObject Pattern

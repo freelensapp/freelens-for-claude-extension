@@ -6,6 +6,7 @@
 import { randomBytes } from "node:crypto";
 import { Common, Main } from "@freelensapp/extensions";
 import { BridgeStore } from "../common/bridge-store";
+import { PreferencesStore } from "../common/preferences-store";
 import { ChatSessionStore } from "../common/session-store";
 import { BridgeServer } from "./bridge/server";
 import { type DetectionResult, detectClaudeCode } from "./claude/detect";
@@ -16,6 +17,7 @@ import type { StatusResponse } from "../common/protocol";
 export default class ForClaudeMain extends Main.LensExtension {
   private server?: BridgeServer;
   private sessionManager?: SessionManager;
+  private preferences?: PreferencesStore;
   private detection: DetectionResult = { found: false };
   private ready = false;
 
@@ -27,14 +29,19 @@ export default class ForClaudeMain extends Main.LensExtension {
       const sessionStore = ChatSessionStore.createInstance<ChatSessionStore>();
       sessionStore.loadExtension(this);
 
+      const preferences = PreferencesStore.createInstance<PreferencesStore>();
+      preferences.loadExtension(this);
+      this.preferences = preferences;
+
       const token = randomBytes(32).toString("hex");
-      this.detection = await detectClaudeCode();
+      this.detection = await detectClaudeCode({}, preferences.claudeCodePath);
 
       const baseDir = await this.getExtensionFileFolder();
       this.sessionManager = new SessionManager(
         () => (this.detection.found ? this.detection.path : undefined),
         baseDir,
         sessionStore,
+        preferences,
       );
 
       this.server = new BridgeServer({
@@ -61,7 +68,7 @@ export default class ForClaudeMain extends Main.LensExtension {
 
   private async buildStatus(refresh: boolean): Promise<StatusResponse> {
     if (refresh) {
-      this.detection = await detectClaudeCode();
+      this.detection = await detectClaudeCode({}, this.preferences?.claudeCodePath);
     }
     return {
       ready: this.ready,

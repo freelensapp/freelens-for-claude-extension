@@ -55,4 +55,21 @@ describe("ChatSessionStore", () => {
     store.writeSessionId("c1", "sess-123");
     expect(store.read("c1")?.permissionMode).toBe("approve");
   });
+
+  it("persists and clears the per-cluster model", () => {
+    const store = new ChatSessionStore();
+    store.writeModel("c1", "haiku");
+    expect(store.read("c1")?.model).toBe("haiku");
+    // A model write on a fresh cluster defaults the permission mode.
+    expect(store.read("c1")?.permissionMode).toBe("approve");
+
+    store.writeModel("c1", undefined);
+    expect(store.read("c1")?.model).toBeUndefined();
+  });
+
+  it("clearing the model on an unknown cluster does not create an entry", () => {
+    const store = new ChatSessionStore();
+    store.writeModel("ghost", undefined);
+    expect(store.read("ghost")).toBeUndefined();
+  });
 });

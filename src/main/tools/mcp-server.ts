@@ -4,6 +4,7 @@
  */
 
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
+import { DEFAULT_POD_LOGS_TAIL_LINES } from "../../common/preferences-store";
 import { clusterVersionSchema, runClusterVersion } from "./cluster-version";
 import { type CreateResourceInput, createResourceSchema, runCreateResource } from "./create-resource";
 import { type DeletePodInput, deletePodSchema, runDeletePod } from "./delete-pod";
@@ -86,10 +87,14 @@ async function guard(run: () => Promise<string>) {
 }
 
 /**
- * Build an in-process MCP server exposing the three read-only Kubernetes tools,
- * bound to a single cluster's kube client.
+ * Build an in-process MCP server exposing the Kubernetes tools, bound to a
+ * single cluster's kube client. `podLogsTailLines` is read lazily on each call
+ * so a preference change applies without rebuilding the server.
  */
-export function createKubeMcpServer(client: KubeClient): McpSdkServerConfigWithInstance {
+export function createKubeMcpServer(
+  client: KubeClient,
+  podLogsTailLines: () => number = () => DEFAULT_POD_LOGS_TAIL_LINES,
+): McpSdkServerConfigWithInstance {
   return createSdkMcpServer({
     name: MCP_SERVER_NAME,
     version: "0.1.0",
@@ -104,7 +109,7 @@ export function createKubeMcpServer(client: KubeClient): McpSdkServerConfigWithI
         "kube_pod_logs",
         "Fetch a snapshot of a pod's logs, optionally filtered by a regex.",
         podLogsSchema,
-        (args: PodLogsInput) => guard(() => runPodLogs(client, args)),
+        (args: PodLogsInput) => guard(() => runPodLogs(client, args, podLogsTailLines())),
       ),
       tool(
         "kube_warning_events",

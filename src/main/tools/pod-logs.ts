@@ -4,11 +4,10 @@
  */
 
 import { z } from "zod";
+import { DEFAULT_POD_LOGS_TAIL_LINES } from "../../common/preferences-store";
 import { LOG_BYTE_CAP, truncateBytes } from "./kube-format";
 
 import type { CoreV1Api } from "@kubernetes/client-node";
-
-const DEFAULT_TAIL_LINES = 200;
 
 export const podLogsSchema = {
   namespace: z.string().describe("Namespace of the pod."),
@@ -19,7 +18,7 @@ export const podLogsSchema = {
     .int()
     .positive()
     .optional()
-    .describe(`Number of lines from the end of the log to fetch (default ${DEFAULT_TAIL_LINES}).`),
+    .describe("Number of lines from the end of the log to fetch. Defaults to the configured preference."),
   grep: z.string().optional().describe("JavaScript regular expression; only matching log lines are returned."),
   previous: z
     .boolean()
@@ -38,11 +37,16 @@ export interface PodLogsClient {
 
 /**
  * Fetch a snapshot of a pod's logs, optionally filtered by a regex applied
- * line-by-line, capped to {@link LOG_BYTE_CAP} bytes.
+ * line-by-line, capped to {@link LOG_BYTE_CAP} bytes. `defaultTailLines`
+ * supplies the tail length when the model does not request one.
  */
-export async function runPodLogs(client: PodLogsClient, input: PodLogsInput): Promise<string> {
+export async function runPodLogs(
+  client: PodLogsClient,
+  input: PodLogsInput,
+  defaultTailLines = DEFAULT_POD_LOGS_TAIL_LINES,
+): Promise<string> {
   const { namespace, name, container, grep, previous, timestamps } = input;
-  const tailLines = input.tailLines ?? DEFAULT_TAIL_LINES;
+  const tailLines = input.tailLines ?? defaultTailLines;
 
   let regex: RegExp | undefined;
   if (grep) {

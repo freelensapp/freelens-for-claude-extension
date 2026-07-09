@@ -4,9 +4,12 @@
  */
 
 import { useEffect, useReducer, useRef, useState } from "react";
+import { MODEL_CHOICES } from "../../common/protocol";
+import { pendingPrompt } from "../api/pending-prompt";
 import styles from "./chat-view.module.scss";
 import { Markdown } from "./markdown";
 import { PermissionDialog } from "./permission-dialog";
+import { ToolCard } from "./tool-card";
 
 import type { ChangeEvent, KeyboardEvent } from "react";
 
@@ -29,8 +32,11 @@ type PermissionRequest = SessionEventMap["permission_request"];
 type ChatItem =
   | { kind: "user"; text: string }
   | { kind: "assistant"; text: string }
+  | { kind: "tool"; callId: string; toolName: string; input: unknown; result?: string }
   | { kind: "tool_call"; toolName: string }
   | { kind: "tool_result"; toolName: string; summary: string }
+  | { kind: "notice"; text: string }
+  | { kind: "session_error"; message: string; errorKind: SessionErrorKind; canRetry: boolean }
   | {
       kind: "permission";
       requestId: string;
@@ -38,12 +44,21 @@ type ChatItem =
       resolution?: { behavior: PermissionBehavior; reason?: string };
     };
 
+interface UsageTotals {
+  input: number;
+  cached: number;
+  output: number;
+}
+
 interface ChatState {
   items: ChatItem[];
   draft: string;
   working: boolean;
   mode: PermissionMode;
   resumed: boolean;
+  model?: string;
+  resolvedModel?: string;
+  usage?: UsageTotals;
   error?: { message: string; kind: SessionErrorKind };
 }
 
@@ -58,17 +73,60 @@ function reducer(state: ChatState, action: ChatAction): ChatState {
     case "status":
       return { ...state, working: action.data.state === "working" };
     case "user_message":
-      return { ...state, items: [...state.items, { kind: "user", text: action.data.text }], draft: "" };
+      // A new user turn clears any stale banner error.
+      return {
+        ...state,
+        items: [...state.items, { kind: "user", text: action.data.text }],
+        draft: "",
+        error: undefined,
+      };
     case "assistant_delta":
       return { ...state, draft: state.draft + action.data.text };
     case "assistant_message":
       return { ...state, items: [...state.items, { kind: "assistant", text: action.data.text }], draft: "" };
     case "tool_call":
+      if (action.data.callId) {
+        return {
+          ...state,
+          items: [
+            ...state.items,
+            { kind: "tool", callId: action.data.callId, toolName: action.data.toolName, input: action.data.input },
+          ],
+        };
+      }
+      // Replayed M1 transcript event: keep the one-line notice.
       return { ...state, items: [...state.items, { kind: "tool_call", toolName: action.data.toolName }] };
-    case "tool_result":
+    case "tool_result": {
+      if (action.data.callId) {
+        const callId = action.data.callId;
+        const summary = action.data.summary;
+        return {
+          ...state,
+          items: state.items.map((item) =>
+            item.kind === "tool" && item.callId === callId ? { ...item, result: summary } : item,
+          ),
+        };
+      }
       return {
         ...state,
         items: [...state.items, { kind: "tool_result", toolName: action.data.toolName, summary: action.data.summary }],
+      };
+    }
+    case "usage": {
+      const usage: UsageTotals = state.usage ?? { input: 0, cached: 0, output: 0 };
+      return {
+        ...state,
+        usage: {
+          input: usage.input + action.data.inputTokens,
+          cached: usage.cached + action.data.cachedInputTokens,
+          output: usage.output + action.data.outputTokens,
+        },
+      };
+    }
+    case "compaction":
+      return {
+        ...state,
+        items: [...state.items, { kind: "notice", text: "Conversation compacted to save context" }],
       };
     case "permission_request":
       return {
@@ -85,12 +143,29 @@ function reducer(state: ChatState, action: ChatAction): ChatState {
         ),
       };
     case "session_meta":
-      return { ...state, mode: action.data.permissionMode, resumed: action.data.resumed };
+      return {
+        ...state,
+        mode: action.data.permissionMode,
+        resumed: action.data.resumed,
+        model: action.data.model,
+        resolvedModel: action.data.resolvedModel,
+      };
     case "turn_complete": {
       const items = state.draft ? [...state.items, { kind: "assistant" as const, text: state.draft }] : state.items;
       return { ...state, items, draft: "", working: false };
     }
     case "error":
+      // Retryable errors become transcript items; others stay in the banner.
+      if (action.data.canRetry) {
+        return {
+          ...state,
+          items: [
+            ...state.items,
+            { kind: "session_error", message: action.data.message, errorKind: action.data.kind, canRetry: true },
+          ],
+          working: false,
+        };
+      }
       return { ...state, error: { message: action.data.message, kind: action.data.kind }, working: false };
     default:
       return state;
@@ -107,16 +182,41 @@ function ToolNotice({ label }: { label: string }) {
   return <div className={styles.toolNotice}>{label}</div>;
 }
 
+function formatUsage(usage: UsageTotals): string {
+  const n = (value: number) => value.toLocaleString("en-US");
+  return `in:${n(usage.input)} (cached:${n(usage.cached)}) + out:${n(usage.output)}`;
+}
+
 export function ChatView({ clusterId, client }: ChatViewProps) {
   const [state, dispatch] = useReducer(reducer, initialState);
   const [input, setInput] = useState("");
   const [epoch, setEpoch] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const workingRef = useRef(state.working);
+  workingRef.current = state.working;
+
+  const sendText = async (text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed || workingRef.current) return;
+    try {
+      await client.sendMessage(clusterId, trimmed);
+    } catch (error) {
+      dispatch({
+        type: "error",
+        data: { message: `Failed to send message: ${String(error)}`, kind: "other" },
+      });
+    }
+  };
 
   useEffect(() => {
     dispatch({ type: "reset" });
     const close = client.streamEvents(clusterId, {
-      onOpen: () => dispatch({ type: "reset" }),
+      onOpen: () => {
+        dispatch({ type: "reset" });
+        // Pick up an "Ask Claude" prompt handed off by a kube object menu entry.
+        const prompt = pendingPrompt.consume();
+        if (prompt) void sendText(prompt);
+      },
       onEvent: (event) => dispatch(event),
     });
     return close;
@@ -130,14 +230,7 @@ export function ChatView({ clusterId, client }: ChatViewProps) {
     const text = input.trim();
     if (!text || state.working) return;
     setInput("");
-    try {
-      await client.sendMessage(clusterId, text);
-    } catch (error) {
-      dispatch({
-        type: "error",
-        data: { message: `Failed to send message: ${String(error)}`, kind: "other" },
-      });
-    }
+    await sendText(text);
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -155,6 +248,15 @@ export function ChatView({ clusterId, client }: ChatViewProps) {
     await client.disposeSession(clusterId);
     setInput("");
     setEpoch((value) => value + 1);
+  };
+
+  const retry = () => {
+    void client.retry(clusterId).catch((error) => {
+      dispatch({
+        type: "error",
+        data: { message: `Failed to retry: ${String(error)}`, kind: "other" },
+      });
+    });
   };
 
   const resolvePermission = (requestId: string, behavior: PermissionBehavior) => {
@@ -176,6 +278,19 @@ export function ChatView({ clusterId, client }: ChatViewProps) {
     });
   };
 
+  const changeModel = (event: ChangeEvent<HTMLSelectElement>) => {
+    const value = event.target.value;
+    void client.setModel(clusterId, value || null).catch((error) => {
+      dispatch({
+        type: "error",
+        data: { message: `Failed to change model: ${String(error)}`, kind: "other" },
+      });
+    });
+  };
+
+  const lastIndex = state.items.length - 1;
+  const defaultLabel = state.resolvedModel ? `Default (${state.resolvedModel})` : "Default";
+
   return (
     <div className={styles.chatView}>
       <div className={styles.transcript} ref={scrollRef}>
@@ -195,8 +310,31 @@ export function ChatView({ clusterId, client }: ChatViewProps) {
               </div>
             );
           }
+          if (item.kind === "tool") {
+            return <ToolCard key={item.callId} toolName={item.toolName} input={item.input} result={item.result} />;
+          }
           if (item.kind === "tool_call") {
             return <ToolNotice key={key} label={`Calling ${item.toolName}...`} />;
+          }
+          if (item.kind === "notice") {
+            return <ToolNotice key={key} label={item.text} />;
+          }
+          if (item.kind === "session_error") {
+            return (
+              <div key={key} className={styles.errorItem}>
+                <div>{item.message}</div>
+                {item.errorKind === "auth" ? (
+                  <div className={styles.errorHint}>
+                    Run <code>claude</code> in a terminal to log in, then start a new chat.
+                  </div>
+                ) : null}
+                {item.canRetry && index === lastIndex && !state.working ? (
+                  <button type="button" className={styles.retryButton} onClick={retry}>
+                    Retry
+                  </button>
+                ) : null}
+              </div>
+            );
           }
           if (item.kind === "permission") {
             return (
@@ -233,8 +371,27 @@ export function ChatView({ clusterId, client }: ChatViewProps) {
         <div className={styles.statusLeft}>
           {state.working ? <span className={styles.workingIndicator}>Working...</span> : null}
           {state.resumed ? <span className={styles.resumedNotice}>conversation resumed</span> : null}
+          {state.usage ? (
+            <span
+              className={styles.usage}
+              title="Tokens used this session (input, cached input, output). Resets when the chat is cleared."
+            >
+              {formatUsage(state.usage)}
+            </span>
+          ) : null}
         </div>
         <div className={styles.actions}>
+          <label className={styles.modeSelector}>
+            Model:
+            <select className={styles.modeSelect} value={state.model ?? ""} onChange={changeModel}>
+              <option value="">{defaultLabel}</option>
+              {MODEL_CHOICES.map((model) => (
+                <option key={model} value={model}>
+                  {model}
+                </option>
+              ))}
+            </select>
+          </label>
           <label className={styles.modeSelector}>
             Mode:
             <select

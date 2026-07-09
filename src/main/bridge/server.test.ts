@@ -22,6 +22,10 @@ const resolvePermission = vi.fn((requestId: string) => {
   return "not_found" as const;
 });
 
+const retry = vi.fn(async (clusterId: string) =>
+  clusterId === "busy" ? ("nothing_to_retry" as const) : ("accepted" as const),
+);
+
 const sessionManager = {
   subscribe: vi.fn(() => () => {}),
   sendMessage: vi.fn(async () => {}),
@@ -29,6 +33,8 @@ const sessionManager = {
   dispose: vi.fn(async () => {}),
   disposeAll: vi.fn(async () => {}),
   setPermissionMode: vi.fn(() => {}),
+  setModel: vi.fn(() => {}),
+  retry,
   resolvePermission,
 } as unknown as SessionManager;
 
@@ -126,5 +132,37 @@ describe("permission routes", () => {
   it("rejects an invalid permission mode", async () => {
     const response = await authedPost("/clusters/c1/permission-mode", { mode: "bogus" });
     expect(response.status).toBe(400);
+  });
+});
+
+describe("model route", () => {
+  it("accepts a known model alias", async () => {
+    const response = await authedPost("/clusters/c1/model", { model: "haiku" });
+    expect(response.status).toBe(200);
+    expect(sessionManager.setModel).toHaveBeenCalledWith("c1", "haiku");
+  });
+
+  it("accepts null to restore the default", async () => {
+    const response = await authedPost("/clusters/c1/model", { model: null });
+    expect(response.status).toBe(200);
+    expect(sessionManager.setModel).toHaveBeenCalledWith("c1", undefined);
+  });
+
+  it("rejects garbage", async () => {
+    const response = await authedPost("/clusters/c1/model", { model: "gpt" });
+    expect(response.status).toBe(400);
+  });
+});
+
+describe("retry route", () => {
+  it("returns 202 when a turn is queued", async () => {
+    const response = await authedPost("/clusters/c1/retry", {});
+    expect(response.status).toBe(202);
+    expect(retry).toHaveBeenCalledWith("c1");
+  });
+
+  it("returns 409 when there is nothing to retry", async () => {
+    const response = await authedPost("/clusters/busy/retry", {});
+    expect(response.status).toBe(409);
   });
 });
