@@ -661,9 +661,19 @@ class ClusterSession {
         break;
       }
       case "stream_event": {
-        const event = message.event as { type?: string; delta?: { type?: string; text?: string } };
+        const event = message.event as {
+          type?: string;
+          delta?: { type?: string; text?: string; thinking?: string };
+        };
         if (event.type === "content_block_delta" && event.delta?.type === "text_delta" && event.delta.text) {
           this.emit(sessionEvent("assistant_delta", { text: event.delta.text }));
+        } else if (
+          event.type === "content_block_delta" &&
+          event.delta?.type === "thinking_delta" &&
+          event.delta.thinking
+        ) {
+          // Live-only reasoning; deliberately not persisted, so it is absent on replay.
+          this.emit(sessionEvent("assistant_thinking", { delta: event.delta.thinking }));
         }
         break;
       }

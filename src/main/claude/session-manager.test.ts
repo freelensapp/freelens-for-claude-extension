@@ -230,3 +230,38 @@ describe("slash commands", () => {
     expect(output?.type === "local_command_output" && output.data.content).toBe("Conversation cleared by /clear");
   });
 });
+
+describe("reasoning fold", () => {
+  it("emits assistant_thinking on a thinking_delta stream event", async () => {
+    const manager = makeManager();
+    const events: SessionEvent[] = [];
+    manager.subscribe("t1", (event) => events.push(event));
+    await manager.sendMessage("t1", "hello");
+    const q = sdk.queries.at(-1);
+    q?.emit({
+      type: "stream_event",
+      event: { type: "content_block_delta", delta: { type: "thinking_delta", thinking: "let me think" } },
+    });
+    await flush();
+    const thinking = events.find((event) => event.type === "assistant_thinking");
+    expect(thinking?.type === "assistant_thinking" && thinking.data.delta).toBe("let me think");
+  });
+
+  it("does not persist assistant_thinking for replay", async () => {
+    const manager = makeManager();
+    manager.subscribe("t2", () => {});
+    await manager.sendMessage("t2", "hello");
+    const q = sdk.queries.at(-1);
+    q?.emit({
+      type: "stream_event",
+      event: { type: "content_block_delta", delta: { type: "thinking_delta", thinking: "ephemeral" } },
+    });
+    await flush();
+
+    // A late subscriber replays the persisted transcript; live-only thinking
+    // must not appear there.
+    const replay: SessionEvent[] = [];
+    manager.subscribe("t2", (event) => replay.push(event));
+    expect(replay.some((event) => event.type === "assistant_thinking")).toBe(false);
+  });
+});

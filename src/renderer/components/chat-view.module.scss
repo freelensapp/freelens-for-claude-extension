@@ -39,6 +39,26 @@
   font-style: italic;
 }
 
+.reasoning {
+  margin: 0.2em 0 0.4em;
+  font-size: 0.85em;
+  opacity: 0.75;
+}
+
+.reasoningSummary {
+  cursor: pointer;
+  font-style: italic;
+  user-select: none;
+}
+
+.reasoningBody {
+  margin-top: 0.3em;
+  padding-left: 0.6em;
+  border-left: 2px solid rgba(127, 127, 127, 0.35);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .localCommand {
   align-self: stretch;
   margin: 0;

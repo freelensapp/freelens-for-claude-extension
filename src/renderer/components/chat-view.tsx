@@ -59,6 +59,8 @@ interface UsageTotals {
 interface ChatState {
   items: ChatItem[];
   draft: string;
+  /** Live-only reasoning accumulated for the streaming answer; cleared each turn. */
+  draftReasoning: string;
   working: boolean;
   mode: PermissionMode;
   resumed: boolean;
@@ -69,7 +71,14 @@ interface ChatState {
   slashCommands?: string[];
 }
 
-const initialState: ChatState = { items: [], draft: "", working: false, mode: "approve", resumed: false };
+const initialState: ChatState = {
+  items: [],
+  draft: "",
+  draftReasoning: "",
+  working: false,
+  mode: "approve",
+  resumed: false,
+};
 
 type ChatAction = SessionEvent | { type: "reset" };
 
@@ -85,12 +94,21 @@ function reducer(state: ChatState, action: ChatAction): ChatState {
         ...state,
         items: [...state.items, { kind: "user", text: action.data.text }],
         draft: "",
+        draftReasoning: "",
         error: undefined,
       };
     case "assistant_delta":
       return { ...state, draft: state.draft + action.data.text };
+    case "assistant_thinking":
+      // Accumulate live reasoning for the streaming answer's collapsible fold.
+      return { ...state, draftReasoning: state.draftReasoning + action.data.delta };
     case "assistant_message":
-      return { ...state, items: [...state.items, { kind: "assistant", text: action.data.text }], draft: "" };
+      return {
+        ...state,
+        items: [...state.items, { kind: "assistant", text: action.data.text }],
+        draft: "",
+        draftReasoning: "",
+      };
     case "tool_call":
       if (action.data.callId) {
         const callId = action.data.callId;
@@ -200,7 +218,7 @@ function reducer(state: ChatState, action: ChatAction): ChatState {
       };
     case "turn_complete": {
       const items = state.draft ? [...state.items, { kind: "assistant" as const, text: state.draft }] : state.items;
-      return { ...state, items, draft: "", working: false };
+      return { ...state, items, draft: "", draftReasoning: "", working: false };
     }
     case "error":
       // Retryable errors become transcript items; others stay in the banner.
@@ -228,6 +246,28 @@ const MODE_LABELS: Record<PermissionMode, string> = {
 
 function ToolNotice({ label }: { label: string }) {
   return <div className={styles.toolNotice}>{label}</div>;
+}
+
+/**
+ * The live "Reasoning" fold shown above the streaming answer. It auto-opens
+ * while reasoning is the only content and folds once answer text arrives; once
+ * the user toggles it manually, their choice is respected.
+ */
+function ReasoningFold({ reasoning, hasAnswer }: { reasoning: string; hasAnswer: boolean }) {
+  const [override, setOverride] = useState<boolean | null>(null);
+  const open = override ?? !hasAnswer;
+  const onToggle = (event: React.SyntheticEvent<HTMLDetailsElement>) => {
+    // Only a user-driven change (differing from the derived state) records a
+    // manual override; our own programmatic open/close is a no-op here.
+    const next = event.currentTarget.open;
+    if (next !== open) setOverride(next);
+  };
+  return (
+    <details className={styles.reasoning} open={open} onToggle={onToggle}>
+      <summary className={styles.reasoningSummary}>Reasoning</summary>
+      <div className={styles.reasoningBody}>{reasoning}</div>
+    </details>
+  );
 }
 
 function formatUsage(usage: UsageTotals): string {
@@ -298,7 +338,7 @@ export function ChatView({ clusterId, client }: ChatViewProps) {
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
-  }, [state.items, state.draft]);
+  }, [state.items, state.draft, state.draftReasoning]);
 
   const newChat = async () => {
     await client.disposeSession(clusterId);
@@ -474,9 +514,12 @@ export function ChatView({ clusterId, client }: ChatViewProps) {
           return <ToolNotice key={key} label={`${item.toolName} returned`} />;
         })}
 
-        {state.draft ? (
+        {state.draft || state.draftReasoning ? (
           <div className={styles.assistantBubble}>
-            <Markdown>{state.draft}</Markdown>
+            {state.draftReasoning ? (
+              <ReasoningFold reasoning={state.draftReasoning} hasAnswer={state.draft.length > 0} />
+            ) : null}
+            {state.draft ? <Markdown>{state.draft}</Markdown> : null}
           </div>
         ) : null}
       </div>
