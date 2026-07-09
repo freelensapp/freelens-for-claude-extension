@@ -3,8 +3,9 @@
 Status: **approved** — all open questions were resolved by the maintainer in
 issue [#7](https://github.com/freelensapp/freelens-for-claude-extension/issues/7);
 see [Resolved questions](#resolved-questions) at the end of this document.
-**M0, M1 and M2 are delivered** and confirmed working by the maintainer.
-Next step: implement **M3** as specified in [M3.md](./M3.md).
+**M0 through M3 are delivered** and confirmed working by the maintainer.
+Next step: implement **M4** (documentation and release readiness) as
+specified in [M4.md](./M4.md).
 
 Process note: planning and analysis run on issues (Fable model);
 implementation runs on pull requests (Opus model).
@@ -285,8 +286,8 @@ Not used: LangChain, LangGraph, Vercel AI SDK, OpenAI SDK.
 | Automatic context compaction | Yes — native (D5) |
 | Token counter | Yes; cost display dropped (D8) |
 | Retry on failure | Yes (D7) |
-| Explain/analyze resource from context menu | Later milestone (D7) |
-| MCP servers configured by the user | M3 — opt-in passthrough |
+| Explain/analyze resource from context menu | Yes — "Ask Claude" menu (M2) |
+| MCP servers configured by the user | Yes — opt-in passthrough (M3) |
 | Multiple AI providers / API keys | Intentionally out of scope |
 
 ## Milestones
@@ -307,11 +308,37 @@ implementation specification: [M1.md](./M1.md).
 tool-call cards, "Ask Claude" on resources, preferences page. Detailed
 implementation specification: [M2.md](./M2.md).
 
-**M3 — beyond parity.** User MCP-server passthrough, Claude Code subagents
-for analysis workflows, prompt shortcuts/slash commands, kubectl and helm
-tools spawning the bundled binaries directly (D4), plus the Available Tools
-panel and reasoning fold deferred from M2. Detailed implementation
-specification: [M3.md](./M3.md).
+**M3 — beyond parity (delivered).** User MCP-server passthrough, Claude
+Code subagents for analysis workflows, prompt shortcuts/slash commands,
+kubectl and helm tools spawning the bundled binaries directly (D4), plus
+the Available Tools panel and reasoning fold deferred from M2. Detailed
+implementation specification: [M3.md](./M3.md).
+
+**M4 — documentation and release readiness.** README rewrite with full
+user documentation, package metadata polish with a verified minimum
+Freelens version, and a release process document covering the existing
+version/tag/publish automation and the pre-release checklist (including
+the D2 contact with Anthropic before any announcement). Detailed
+implementation specification: [M4.md](./M4.md).
+
+## Post-1.0 backlog
+
+Features consciously deferred beyond the milestones above; none blocks a
+first release:
+
+- Per-cluster "always allow" tool lists.
+- User-defined subagents (a preferences surface over the SDK `agents`
+  option; only the built-in `cluster-analyzer` ships).
+- Editing the proposed input in the approval card, and MCP tool search.
+- A visible-Freelens-terminal variant of the kubectl and helm tools.
+- Hooks passthrough (the SDK `hooks` option stays unused; `PreToolUse`
+  denials would bypass `canUseTool`, so the broker must remain the only
+  gate).
+- Bridging tool execution to the renderer's `Renderer.K8sApi` (D4 path 2)
+  — retained as a design option, not needed by any shipped tool.
+- README screenshots (need a live app; maintainer-supplied).
+- Marketplace submission and public announcement — maintainer actions
+  gated on the D2 legal contact.
 
 ## Resolved questions
 
