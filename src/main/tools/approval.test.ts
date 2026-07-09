@@ -5,7 +5,13 @@
 
 import { describe, expect, it } from "vitest";
 import { describeApproval } from "./approval";
-import { isKnownToolName, isMutatingToolName } from "./mcp-server";
+import {
+  BUILTIN_TOOL_DESCRIPTORS,
+  isKnownToolName,
+  isMutatingToolName,
+  MUTATING_TOOL_NAMES,
+  READ_ONLY_TOOL_NAMES,
+} from "./mcp-server";
 
 describe("describeApproval", () => {
   it("describes an external MCP tool with USE MCP TOOL and a server/tool subtitle", () => {
@@ -40,5 +46,24 @@ describe("tool-name gating classification", () => {
     expect(isKnownToolName("freelens_delete_pod")).toBe(true);
     expect(isMutatingToolName("freelens_delete_pod")).toBe(true);
     expect(isMutatingToolName("freelens_resources")).toBe(false);
+  });
+});
+
+describe("BUILTIN_TOOL_DESCRIPTORS", () => {
+  it("covers every read-only and mutating tool with the right flag and a non-empty description", () => {
+    const byName = new Map(BUILTIN_TOOL_DESCRIPTORS.map((descriptor) => [descriptor.name, descriptor]));
+    expect(BUILTIN_TOOL_DESCRIPTORS).toHaveLength(READ_ONLY_TOOL_NAMES.length + MUTATING_TOOL_NAMES.length);
+    for (const name of READ_ONLY_TOOL_NAMES) {
+      expect(byName.get(name)?.mutating).toBe(false);
+      expect(byName.get(name)?.description.length).toBeGreaterThan(0);
+    }
+    for (const name of MUTATING_TOOL_NAMES) {
+      expect(byName.get(name)?.mutating).toBe(true);
+    }
+  });
+
+  it("uses only the first sentence of each description", () => {
+    const resources = BUILTIN_TOOL_DESCRIPTORS.find((descriptor) => descriptor.name === "freelens_resources");
+    expect(resources?.description).toBe("List or get Kubernetes resources of any kind (built-in or CRD).");
   });
 });

@@ -10,6 +10,7 @@ import styles from "./chat-view.module.scss";
 import { Markdown } from "./markdown";
 import { PermissionDialog } from "./permission-dialog";
 import { ToolCard } from "./tool-card";
+import { ToolsPanel } from "./tools-panel";
 
 import type { ChangeEvent, KeyboardEvent } from "react";
 
@@ -406,6 +407,7 @@ export function ChatView({ clusterId, client }: ChatViewProps) {
               ))}
             </select>
           </label>
+          <ToolsPanel clusterId={clusterId} client={client} />
           {state.working ? (
             <button type="button" className={styles.secondaryButton} onClick={stop}>
               Stop

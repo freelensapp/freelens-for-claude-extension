@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { Common } from "@freelensapp/extensions";
 import {
+  type ClusterToolsResponse,
   type PermissionBehavior,
   type PermissionMode,
   type SessionErrorKind,
@@ -20,6 +21,7 @@ import { disposeKubeClient, getKubeClient, type KubeClient } from "../tools/kube
 import { stripManagedFields, toYaml } from "../tools/kube-format";
 import {
   ALLOWED_TOOL_NAMES,
+  BUILTIN_TOOL_DESCRIPTORS,
   createKubeMcpServer,
   isKnownToolName,
   isMutatingToolName,
@@ -238,6 +240,30 @@ class ClusterSession {
 
   getPermissionMode(): PermissionMode {
     return this.broker.getMode();
+  }
+
+  /**
+   * Live external MCP servers (never the built-in one) with their status and
+   * discovered tools, for the Available Tools panel. Returns `[]` when no query
+   * is live or the SDK cannot report status.
+   */
+  async getMcpServers(): Promise<ClusterToolsResponse["mcp"]> {
+    if (!this.queryHandle) return [];
+    try {
+      const statuses = await this.queryHandle.mcpServerStatus();
+      return statuses
+        .filter((server) => server.name !== MCP_SERVER_NAME)
+        .map((server) => ({
+          name: server.name,
+          status: server.status,
+          tools: (server.tools ?? []).map((entry) => ({
+            name: entry.name,
+            ...(entry.description ? { description: entry.description } : {}),
+          })),
+        }));
+    } catch {
+      return [];
+    }
   }
 
   setPermissionMode(mode: PermissionMode): void {
@@ -765,6 +791,17 @@ export class SessionManager {
   /** Re-run the last user turn after a failure; reports whether it was accepted. */
   async retry(clusterId: string): Promise<"accepted" | "nothing_to_retry"> {
     return this.getOrCreate(clusterId).retry();
+  }
+
+  /**
+   * Available Tools panel data: the static built-in descriptors plus, when a
+   * query is live for the cluster, the external MCP servers and their tools.
+   */
+  async getClusterTools(clusterId: string): Promise<ClusterToolsResponse> {
+    const builtin = BUILTIN_TOOL_DESCRIPTORS.map((descriptor) => ({ ...descriptor }));
+    const session = this.sessions.get(clusterId);
+    const mcp = session ? await session.getMcpServers() : [];
+    return { builtin, mcp };
   }
 
   /** Resolve a pending approval identified only by its request id. */
