@@ -26,9 +26,10 @@ import {
   MCP_SERVER_NAME,
   unqualifyToolName,
 } from "../tools/mcp-server";
+import { parseUserMcpConfig } from "./mcp-config";
 import { PermissionBroker, type ResolveResult } from "./permission-broker";
 
-import type { Query, SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+import type { McpServerConfig, Query, SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 
 import type { PreferencesState } from "../../common/preferences-store";
 import type { ChatSessionState } from "../../common/session-store";
@@ -173,6 +174,8 @@ class ClusterSession {
   private selectedModel?: string;
   /** The model id the SDK `init` message reported (for the Default label). */
   private resolvedModel?: string;
+  /** External MCP servers (never the built-in one) reported by the SDK `init` message. */
+  private externalMcpServers?: { name: string; status: string }[];
   /** The last user prompt, kept so a failed turn can be retried without re-adding the bubble. */
   private lastUserText?: string;
 
@@ -229,6 +232,7 @@ class ClusterSession {
       resumed: this.resumed,
       model: this.selectedModel,
       resolvedModel: this.resolvedModel,
+      ...(this.externalMcpServers ? { mcpServers: this.externalMcpServers } : {}),
     });
   }
 
@@ -384,9 +388,10 @@ class ClusterSession {
         abortController: this.abort,
         pathToClaudeCodeExecutable: this.claudeCodePath,
         cwd: this.dir,
-        mcpServers: {
-          [MCP_SERVER_NAME]: createKubeMcpServer(client, () => this.preferences.podLogsTailLines),
-        },
+        mcpServers: this.buildMcpServers(client),
+        // Only the `mcpServers` option counts; ignore any MCP config from
+        // settings files, plugins, or agent frontmatter.
+        strictMcpConfig: true,
         // Pod logs are omitted so `canUseTool` fires for them and the approval
         // preference can be enforced live.
         allowedTools: AUTO_ALLOWED_TOOL_NAMES,
@@ -403,6 +408,33 @@ class ClusterSession {
         },
       },
     });
+  }
+
+  /**
+   * The MCP servers for this session: always the built-in `freelens-kube`
+   * server, plus any user-configured servers when the preference is enabled.
+   * Parse errors are reported once as a non-fatal error event; a bad entry is
+   * simply skipped. Config changes apply from the next session start.
+   */
+  private buildMcpServers(client: KubeClient): Record<string, McpServerConfig> {
+    const servers: Record<string, McpServerConfig> = {
+      [MCP_SERVER_NAME]: createKubeMcpServer(client, () => this.preferences.podLogsTailLines),
+    };
+    if (!this.preferences.mcpEnabled) return servers;
+
+    const { servers: userServers, errors } = parseUserMcpConfig(this.preferences.mcpConfiguration);
+    for (const [name, config] of Object.entries(userServers)) {
+      servers[name] = config;
+    }
+    if (errors.length > 0) {
+      this.emit(
+        sessionEvent("error", {
+          message: `MCP configuration ignored: ${errors.join("; ")}`,
+          kind: "other",
+        }),
+      );
+    }
+    return servers;
   }
 
   /** Base guidance plus any user-configured custom rules appended for this session. */
@@ -425,6 +457,14 @@ class ClusterSession {
     extra: { signal?: AbortSignal },
   ): Promise<{ behavior: "allow"; updatedInput: Record<string, unknown> } | { behavior: "deny"; message: string }> {
     if (!isKnownToolName(toolName)) {
+      // External MCP tools (from a user-configured server) cannot be classified,
+      // so they are treated as mutating: denied in read-only, approved per call.
+      if (toolName.startsWith("mcp__")) {
+        const decision = await this.broker.decideMutating(toolName, input, extra.signal);
+        return decision.behavior === "allow"
+          ? { behavior: "allow", updatedInput: input }
+          : { behavior: "deny", message: decision.message ?? "The user denied the action." };
+      }
       return { behavior: "deny", message: `Tool "${toolName}" is not permitted in this cluster chat.` };
     }
     const shortName = unqualifyToolName(toolName);
@@ -526,13 +566,33 @@ class ClusterSession {
           subtype?: string;
           session_id?: string;
           model?: string;
+          mcp_servers?: { name?: string; status?: string }[];
           compact_metadata?: { trigger?: "manual" | "auto"; pre_tokens?: number };
         };
         if (system.subtype === "init") {
           if (system.session_id) this.captureSessionId(system.session_id);
+          let metaChanged = false;
           if (system.model && system.model !== this.resolvedModel) {
             this.resolvedModel = system.model;
-            this.emit(this.sessionMetaEvent());
+            metaChanged = true;
+          }
+          // Keep only external servers (never the built-in one) for the panel and
+          // flag any that failed to connect.
+          const external = (Array.isArray(system.mcp_servers) ? system.mcp_servers : [])
+            .filter((server) => server.name && server.name !== MCP_SERVER_NAME)
+            .map((server) => ({ name: String(server.name), status: String(server.status ?? "unknown") }));
+          this.externalMcpServers = external;
+          if (external.length > 0) metaChanged = true;
+          if (metaChanged) this.emit(this.sessionMetaEvent());
+          for (const server of external) {
+            if (server.status !== "connected") {
+              this.emit(
+                sessionEvent("error", {
+                  message: `MCP server "${server.name}" is ${server.status}.`,
+                  kind: "other",
+                }),
+              );
+            }
           }
         } else if (system.subtype === "compact_boundary") {
           this.emit(

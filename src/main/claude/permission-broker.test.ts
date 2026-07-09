@@ -157,4 +157,38 @@ describe("PermissionBroker", () => {
     expect(decision).toEqual({ behavior: "allow" });
     expect(events.filter((e) => e.type === "permission_request")).toHaveLength(1);
   });
+
+  const mcpTool = "mcp__github__search_issues";
+  const mcpInput = { query: "is:open" };
+
+  it("external mcp tools prompt in approve mode with a USE MCP TOOL title", async () => {
+    const { broker, events } = makeBroker();
+    const decision = broker.decideMutating(mcpTool, mcpInput);
+    await Promise.resolve();
+    const request = events.find((e) => e.type === "permission_request") as Extract<
+      SessionEvent,
+      { type: "permission_request" }
+    >;
+    expect(request).toBeDefined();
+    expect(request.data.actionTitle).toContain("USE MCP TOOL");
+    expect(request.data.actionTitle).toContain("github / search_issues");
+    broker.resolve(request.data.requestId, "allow");
+    expect(await decision).toEqual({ behavior: "allow" });
+  });
+
+  it("external mcp tools are denied in readOnly mode", async () => {
+    const { broker, events } = makeBroker();
+    broker.setMode("readOnly");
+    const decision = await broker.decideMutating(mcpTool, mcpInput);
+    expect(decision.behavior).toBe("deny");
+    expect(events.some((e) => e.type === "permission_request")).toBe(false);
+  });
+
+  it("external mcp tools are auto-approved in acceptAll mode", async () => {
+    const { broker, events } = makeBroker();
+    broker.setMode("acceptAll");
+    const decision = await broker.decideMutating(mcpTool, mcpInput);
+    expect(decision).toEqual({ behavior: "allow" });
+    expect(events.filter((e) => e.type === "permission_request")).toHaveLength(1);
+  });
 });

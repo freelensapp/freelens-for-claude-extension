@@ -25,6 +25,8 @@ export function PreferencesInput() {
   const [customAgentRules, setCustomAgentRules] = useState(prefs.customAgentRules);
   const [podLogsRequireApproval, setPodLogsRequireApproval] = useState(prefs.podLogsRequireApproval);
   const [podLogsTailLines, setPodLogsTailLines] = useState(String(prefs.podLogsTailLines));
+  const [mcpEnabled, setMcpEnabled] = useState(prefs.mcpEnabled);
+  const [mcpConfiguration, setMcpConfiguration] = useState(prefs.mcpConfiguration);
 
   const onPathChange = (value: string) => {
     setClaudeCodePath(value);
@@ -51,6 +53,16 @@ export function PreferencesInput() {
     setPodLogsTailLines(value);
     const parsed = Number.parseInt(value, 10);
     if (Number.isFinite(parsed) && parsed > 0) prefs.podLogsTailLines = parsed;
+  };
+
+  const onMcpEnabledChange = (checked: boolean) => {
+    setMcpEnabled(checked);
+    prefs.mcpEnabled = checked;
+  };
+
+  const onMcpConfigurationBlur = () => {
+    // Commit the draft only on blur to avoid caret jumps while typing.
+    prefs.mcpConfiguration = mcpConfiguration;
   };
 
   return (
@@ -106,6 +118,29 @@ export function PreferencesInput() {
           className={styles.number}
         />
         <div className={styles.hint}>Lines read from the end of the log when the agent does not request an amount.</div>
+      </div>
+
+      <div className={styles.field}>
+        <Switch checked={mcpEnabled} onChange={onMcpEnabledChange}>
+          Enable MCP servers
+        </Switch>
+        <div className={styles.hint}>
+          Extra MCP servers are started with each new session and their tools always require approval.
+        </div>
+      </div>
+
+      <div className={mcpEnabled ? styles.field : `${styles.field} ${styles.dimmed}`}>
+        <SubTitle title="MCP JSON configuration" />
+        <textarea
+          className={`${styles.textarea} ${styles.mono}`}
+          value={mcpConfiguration}
+          rows={8}
+          onChange={(event) => setMcpConfiguration(event.target.value)}
+          onBlur={onMcpConfigurationBlur}
+        />
+        <div className={styles.hint}>
+          Claude Desktop format: an mcpServers object with command/args or url entries. Applied at the next new chat.
+        </div>
       </div>
     </section>
   );

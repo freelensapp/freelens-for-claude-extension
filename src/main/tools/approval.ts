@@ -20,12 +20,22 @@ export interface ApprovalTarget {
 export interface ApprovalDescriptor {
   /** Short human header, e.g. `UPDATE SERVICE` or `DELETE POD (evict)`. */
   actionTitle: string;
+  /** Secondary line, e.g. `<server> / <tool>` for an external MCP tool. */
+  subtitle?: string;
   /** The object rendered as `proposedYaml` in the dialog. */
   proposedValue: unknown;
   /** Resource to read for the backup/diff; omitted when there is nothing to back up. */
   target?: ApprovalTarget;
   /** Whether the proposed result is a known full manifest (diff-able). */
   wantsDiff?: boolean;
+}
+
+/** Split a qualified `mcp__<server>__<tool>` name into its server and tool parts. */
+function splitMcpName(qualified: string): { server: string; tool: string } {
+  const rest = qualified.slice("mcp__".length);
+  const separator = rest.indexOf("__");
+  if (separator === -1) return { server: rest, tool: "" };
+  return { server: rest.slice(0, separator), tool: rest.slice(separator + 2) };
 }
 
 function upper(value: unknown): string {
@@ -100,7 +110,13 @@ export function describeApproval(toolName: string, input: unknown): ApprovalDesc
       // A read has no target to back up; the input itself is the whole proposal.
       return { actionTitle: "READ POD LOGS", proposedValue: input };
     }
-    default:
+    default: {
+      // External MCP tools cannot be classified: name the server and tool, and
+      // show the raw input as the whole proposal.
+      if (toolName.startsWith("mcp__")) {
+        const { server, tool } = splitMcpName(toolName);
+        return { actionTitle: "USE MCP TOOL", subtitle: `${server} / ${tool}`, proposedValue: input };
+      }
       return {
         actionTitle: `${toolName
           .replace(/^freelens_/, "")
@@ -108,6 +124,7 @@ export function describeApproval(toolName: string, input: unknown): ApprovalDesc
           .toUpperCase()}`,
         proposedValue: input,
       };
+    }
   }
 }
 
