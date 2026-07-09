@@ -22,6 +22,13 @@ describe("describeApproval", () => {
     expect(descriptor.proposedValue).toBe(input);
   });
 
+  it("describes freelens_kubectl with RUN KUBECTL and the shell-quoted command line", () => {
+    const descriptor = describeApproval("freelens_kubectl", { args: ["get", "pods", "-o", "wide"] });
+    expect(descriptor.actionTitle).toBe("RUN KUBECTL");
+    expect(descriptor.proposedValue).toBe("kubectl get pods -o wide");
+    expect(descriptor.target).toBeUndefined();
+  });
+
   it("builds a title from a built-in mutating tool name", () => {
     const descriptor = describeApproval("freelens_update_resource", {
       manifest: { apiVersion: "v1", kind: "Service", metadata: { name: "web", namespace: "default" } },

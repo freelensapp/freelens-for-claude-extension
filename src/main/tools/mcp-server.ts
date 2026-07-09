@@ -6,10 +6,12 @@
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import { DEFAULT_POD_LOGS_TAIL_LINES } from "../../common/preferences-store";
 import { RESERVED_MCP_SERVER_NAME } from "../../common/protocol";
+import { ProcessRegistry } from "./cli-exec";
 import { clusterVersionSchema, runClusterVersion } from "./cluster-version";
 import { type CreateResourceInput, createResourceSchema, runCreateResource } from "./create-resource";
 import { type DeletePodInput, deletePodSchema, runDeletePod } from "./delete-pod";
 import { type DeleteResourceInput, deleteResourceSchema, runDeleteResource } from "./delete-resource";
+import { type KubectlInput, kubectlSchema, runKubectl } from "./kubectl";
 import { type PatchResourceInput, patchResourceSchema, runPatchResource } from "./patch-resource";
 import { type PodLogsInput, podLogsSchema, runPodLogs } from "./pod-logs";
 import { type ResourcesInput, resourcesSchema, runResources } from "./resources";
@@ -40,6 +42,7 @@ export const MUTATING_TOOL_NAMES = [
   "freelens_delete_resource",
   "freelens_delete_pod",
   "freelens_rollout_restart",
+  "freelens_kubectl",
 ] as const;
 
 /** Qualify a short tool name to its `mcp__<server>__<tool>` form. */
@@ -95,6 +98,9 @@ const TOOL_DESCRIPTIONS: Record<string, string> = {
     "Evict or delete a pod (evict, force_delete, or delete_with_finalizers). Requires user approval.",
   freelens_rollout_restart:
     "Trigger a rolling restart of a Deployment, DaemonSet, or StatefulSet. Requires user approval.",
+  freelens_kubectl:
+    "Run kubectl against this cluster (argv array, no shell) as a fallback for actions the dedicated freelens_ " +
+    "tools do not cover. Prefer the dedicated tools; requires user approval.",
 };
 
 /** The first sentence of a description, used for the compact Available Tools panel. */
@@ -142,6 +148,7 @@ async function guard(run: () => Promise<string>) {
 export function createKubeMcpServer(
   client: KubeClient,
   podLogsTailLines: () => number = () => DEFAULT_POD_LOGS_TAIL_LINES,
+  registry: ProcessRegistry = new ProcessRegistry(),
 ): McpSdkServerConfigWithInstance {
   return createSdkMcpServer({
     name: MCP_SERVER_NAME,
@@ -194,6 +201,11 @@ export function createKubeMcpServer(
         TOOL_DESCRIPTIONS.freelens_rollout_restart,
         rolloutRestartSchema,
         (args: RolloutRestartInput) => guard(() => runRolloutRestart(client, args)),
+      ),
+      tool("freelens_kubectl", TOOL_DESCRIPTIONS.freelens_kubectl, kubectlSchema, (args: KubectlInput) =>
+        guard(() =>
+          runKubectl({ kubeConfigPath: client.kubeConfigPath, contextName: client.contextName, registry }, args),
+        ),
       ),
     ],
   });

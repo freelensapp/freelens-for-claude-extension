@@ -17,6 +17,7 @@ import {
   type SessionEvent,
   sessionEvent,
 } from "../../common/protocol";
+import { ProcessRegistry } from "../tools/cli-exec";
 import { disposeKubeClient, getKubeClient, type KubeClient } from "../tools/kube-client";
 import { stripManagedFields, toYaml } from "../tools/kube-format";
 import {
@@ -162,6 +163,8 @@ class ClusterSession {
   private readonly input = new MessageQueue();
   private readonly abort = new AbortController();
   private readonly toolNames = new Map<string, string>();
+  /** In-flight kubectl/helm children, killed on interrupt, new chat, and dispose. */
+  private readonly cliRegistry = new ProcessRegistry();
   private readonly broker: PermissionBroker;
   private readonly dir: string;
   private readonly transcriptFile: string;
@@ -458,7 +461,7 @@ class ClusterSession {
    */
   private buildMcpServers(client: KubeClient): Record<string, McpServerConfig> {
     const servers: Record<string, McpServerConfig> = {
-      [MCP_SERVER_NAME]: createKubeMcpServer(client, () => this.preferences.podLogsTailLines),
+      [MCP_SERVER_NAME]: createKubeMcpServer(client, () => this.preferences.podLogsTailLines, this.cliRegistry),
     };
     if (!this.preferences.mcpEnabled) return servers;
 
@@ -485,7 +488,9 @@ class ClusterSession {
       "Mutating tools (create, update, patch/scale, delete, delete pod, rollout restart) exist, but every " +
       "mutation requires explicit user approval, and all mutations are denied while the chat is in read-only " +
       "mode. Prefer reads to discover current state before proposing any mutation, and never retry a denied " +
-      "action unless the user asks you to.";
+      "action unless the user asks you to. A freelens_kubectl escape-hatch tool can run kubectl directly for " +
+      "anything the dedicated tools do not cover, but always prefer the dedicated freelens_ tools; it is the " +
+      "fallback and needs the same approval as any mutation.";
     const rules = this.preferences.customAgentRules.trim();
     return rules ? `${base}\n\nAdditional user rules:\n${rules}` : base;
   }
@@ -750,6 +755,7 @@ class ClusterSession {
 
   async interrupt(): Promise<void> {
     this.broker.denyAllPending("the turn was interrupted");
+    this.cliRegistry.killAll();
     try {
       await this.queryHandle?.interrupt();
     } catch {
@@ -778,6 +784,7 @@ class ClusterSession {
       }
     }
     this.broker.denyAllPending("the session was disposed");
+    this.cliRegistry.killAll();
     this.input.close();
     this.abort.abort();
     try {

@@ -3,6 +3,8 @@
  * Licensed under MIT License. See LICENSE in root directory for more information.
  */
 
+import { quoteCommand } from "./cli-exec";
+
 // Metadata the permission broker needs to render an approval dialog for a
 // mutating tool call: a human action title, the value to preview as YAML, the
 // target resource to read back for the "current resource (backup)" block, and
@@ -109,6 +111,12 @@ export function describeApproval(toolName: string, input: unknown): ApprovalDesc
     case "freelens_pod_logs": {
       // A read has no target to back up; the input itself is the whole proposal.
       return { actionTitle: "READ POD LOGS", proposedValue: input };
+    }
+    case "freelens_kubectl": {
+      // No target to back up; the whole proposal is the shell-quoted command line
+      // the model supplied (the injected --kubeconfig/--context are omitted).
+      const kubectlArgs = Array.isArray(args.args) ? (args.args as unknown[]).map(String) : [];
+      return { actionTitle: "RUN KUBECTL", proposedValue: quoteCommand("kubectl", kubectlArgs) };
     }
     default: {
       // External MCP tools cannot be classified: name the server and tool, and

@@ -24,6 +24,47 @@ export const CLI_MAX_BUFFER = 8 * 1024 * 1024;
 /** Grace period after SIGTERM before a lingering child is SIGKILL-ed. */
 export const KILL_GRACE_MS = 2000;
 
+/** Default per-call timeout for a CLI tool, in seconds. */
+export const DEFAULT_TIMEOUT_SECONDS = 120;
+
+/** Upper bound on a CLI tool's per-call timeout, in seconds. */
+export const MAX_TIMEOUT_SECONDS = 600;
+
+/** Clamp a requested timeout to the allowed range, defaulting when absent/invalid. */
+export function clampTimeoutSeconds(seconds: number | undefined): number {
+  if (!seconds || !Number.isFinite(seconds) || seconds <= 0) return DEFAULT_TIMEOUT_SECONDS;
+  return Math.min(Math.floor(seconds), MAX_TIMEOUT_SECONDS);
+}
+
+/** Cluster-targeting flags the tool injects itself, which the model must not set. */
+const REJECTED_FLAGS = new Set(["--kubeconfig", "--context", "--kube-context"]);
+
+/**
+ * Validate a CLI tool's argv: non-empty, every element a string free of NUL and
+ * newline characters, and none of the cluster-targeting flags (bare or
+ * `=`-joined) the tool injects itself. Throws a readable error on any violation
+ * (the tool's `guard` wrapper turns it into an explanatory result).
+ */
+export function validateCliArgs(label: string, args: string[]): void {
+  if (!Array.isArray(args) || args.length === 0) {
+    throw new Error(`${label} requires a non-empty args array.`);
+  }
+  for (const arg of args) {
+    if (typeof arg !== "string") {
+      throw new Error(`Every ${label} argument must be a string.`);
+    }
+    if (arg.includes("\0") || arg.includes("\n") || arg.includes("\r")) {
+      throw new Error(`${label} arguments must not contain NUL or newline characters.`);
+    }
+    const flag = arg.split("=", 1)[0];
+    if (REJECTED_FLAGS.has(flag)) {
+      throw new Error(
+        `The ${flag} flag is managed by Freelens and cannot be set here; the tool targets the current cluster automatically.`,
+      );
+    }
+  }
+}
+
 /** The subset of a child process the registry needs: the ability to signal it. */
 export interface CliChild {
   kill(signal?: NodeJS.Signals | number): boolean;
@@ -192,17 +233,19 @@ export function formatCliResult(
   const err = stderr.trimEnd();
   if (out) sections.push(out);
   if (err) sections.push(err);
-  const body = sections.join("\n\n");
+  // Truncate the captured output first so the trailing status line always
+  // survives (it is the most useful part when output is large).
+  const body = truncateBytes(sections.join("\n\n"), LOG_BYTE_CAP);
 
   if (!error) {
-    return truncateBytes(`${body || "(no output)"}\n\n[exit code 0]`, LOG_BYTE_CAP);
+    return `${body || "(no output)"}\n\n[exit code 0]`;
   }
   if (error.killed) {
     const prefix = body ? `${body}\n\n` : "";
-    return truncateBytes(`${prefix}[${binaryLabel} timed out or was terminated before completing]`, LOG_BYTE_CAP);
+    return `${prefix}[${binaryLabel} timed out or was terminated before completing]`;
   }
   if (typeof error.code === "number") {
-    return truncateBytes(`${body || "(no output)"}\n\n[exit code ${error.code}]`, LOG_BYTE_CAP);
+    return `${body || "(no output)"}\n\n[exit code ${error.code}]`;
   }
   return `Failed to run ${binaryLabel}: ${error.message}`;
 }
