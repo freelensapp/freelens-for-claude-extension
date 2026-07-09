@@ -9,6 +9,7 @@ import { pendingPrompt } from "../api/pending-prompt";
 import styles from "./chat-view.module.scss";
 import { Markdown } from "./markdown";
 import { PermissionDialog } from "./permission-dialog";
+import { SlashMenu } from "./slash-menu";
 import { ToolCard } from "./tool-card";
 import { ToolsPanel } from "./tools-panel";
 
@@ -38,6 +39,7 @@ type ChatItem =
   | { kind: "tool_call"; toolName: string }
   | { kind: "tool_result"; toolName: string; summary: string }
   | { kind: "notice"; text: string }
+  | { kind: "local_command"; content: string }
   | { kind: "session_error"; message: string; errorKind: SessionErrorKind; canRetry: boolean }
   | {
       kind: "permission";
@@ -62,6 +64,7 @@ interface ChatState {
   resolvedModel?: string;
   usage?: UsageTotals;
   error?: { message: string; kind: SessionErrorKind };
+  slashCommands?: string[];
 }
 
 const initialState: ChatState = { items: [], draft: "", working: false, mode: "approve", resumed: false };
@@ -164,6 +167,11 @@ function reducer(state: ChatState, action: ChatAction): ChatState {
         ...state,
         items: [...state.items, { kind: "notice", text: "Conversation compacted to save context" }],
       };
+    case "local_command_output":
+      return {
+        ...state,
+        items: [...state.items, { kind: "local_command", content: action.data.content }],
+      };
     case "permission_request":
       return {
         ...state,
@@ -185,6 +193,8 @@ function reducer(state: ChatState, action: ChatAction): ChatState {
         resumed: action.data.resumed,
         model: action.data.model,
         resolvedModel: action.data.resolvedModel,
+        // Keep previously-known commands when a later meta event omits them.
+        slashCommands: action.data.slashCommands ?? state.slashCommands,
       };
     case "turn_complete": {
       const items = state.draft ? [...state.items, { kind: "assistant" as const, text: state.draft }] : state.items;
@@ -227,9 +237,35 @@ export function ChatView({ clusterId, client }: ChatViewProps) {
   const [state, dispatch] = useReducer(reducer, initialState);
   const [input, setInput] = useState("");
   const [epoch, setEpoch] = useState(0);
+  const [menuIndex, setMenuIndex] = useState(0);
+  const [menuDismissed, setMenuDismissed] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const workingRef = useRef(state.working);
   workingRef.current = state.working;
+
+  // The slash-command autocomplete: active while the draft is a bare `/command`
+  // (starts with `/`, no whitespace yet). Absent/empty command lists show nothing.
+  const slashQuery = input.startsWith("/") && !/\s/.test(input) ? input.slice(1).toLowerCase() : null;
+  const slashMatches =
+    slashQuery !== null
+      ? (state.slashCommands ?? [])
+          .map((name) => name.replace(/^\//, ""))
+          .filter((name) => name.toLowerCase().startsWith(slashQuery))
+      : [];
+  const menuOpen = slashQuery !== null && slashMatches.length > 0 && !menuDismissed;
+  const menuSelected = slashMatches.length > 0 ? Math.min(menuIndex, slashMatches.length - 1) : 0;
+
+  const changeInput = (value: string) => {
+    setInput(value);
+    setMenuDismissed(false);
+    setMenuIndex(0);
+  };
+
+  const completeCommand = (name: string) => {
+    setInput(`/${name}`);
+    setMenuDismissed(true);
+    setMenuIndex(0);
+  };
 
   const sendText = async (text: string) => {
     const trimmed = text.trim();
@@ -262,14 +298,48 @@ export function ChatView({ clusterId, client }: ChatViewProps) {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
   }, [state.items, state.draft]);
 
+  const newChat = async () => {
+    await client.disposeSession(clusterId);
+    setInput("");
+    setEpoch((value) => value + 1);
+  };
+
   const send = async () => {
     const text = input.trim();
     if (!text || state.working) return;
+    // `/clear` resets the transcript and session id together via New chat.
+    if (text === "/clear") {
+      setInput("");
+      await newChat();
+      return;
+    }
     setInput("");
     await sendText(text);
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (menuOpen) {
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        setMenuIndex((index) => (index + 1) % slashMatches.length);
+        return;
+      }
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        setMenuIndex((index) => (index - 1 + slashMatches.length) % slashMatches.length);
+        return;
+      }
+      if (event.key === "Enter" || event.key === "Tab") {
+        event.preventDefault();
+        completeCommand(slashMatches[menuSelected]);
+        return;
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setMenuDismissed(true);
+        return;
+      }
+    }
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
       void send();
@@ -278,12 +348,6 @@ export function ChatView({ clusterId, client }: ChatViewProps) {
 
   const stop = () => {
     void client.interrupt(clusterId);
-  };
-
-  const newChat = async () => {
-    await client.disposeSession(clusterId);
-    setInput("");
-    setEpoch((value) => value + 1);
   };
 
   const retry = () => {
@@ -362,6 +426,13 @@ export function ChatView({ clusterId, client }: ChatViewProps) {
           }
           if (item.kind === "notice") {
             return <ToolNotice key={key} label={item.text} />;
+          }
+          if (item.kind === "local_command") {
+            return (
+              <pre key={key} className={styles.localCommand}>
+                {item.content}
+              </pre>
+            );
           }
           if (item.kind === "session_error") {
             return (
@@ -463,14 +534,17 @@ export function ChatView({ clusterId, client }: ChatViewProps) {
       </div>
 
       <div className={styles.inputRow}>
-        <textarea
-          className={styles.input}
-          value={input}
-          placeholder="Ask about this cluster..."
-          onChange={(event) => setInput(event.target.value)}
-          onKeyDown={onKeyDown}
-          rows={2}
-        />
+        <div className={styles.inputWrap}>
+          {menuOpen ? <SlashMenu matches={slashMatches} selected={menuSelected} onSelect={completeCommand} /> : null}
+          <textarea
+            className={styles.input}
+            value={input}
+            placeholder="Ask about this cluster..."
+            onChange={(event) => changeInput(event.target.value)}
+            onKeyDown={onKeyDown}
+            rows={2}
+          />
+        </div>
         <button
           type="button"
           className={styles.sendButton}

@@ -180,3 +180,52 @@ describe("subagent wiring", () => {
     expect(events.some((event) => event.type === "assistant_message")).toBe(false);
   });
 });
+
+describe("slash commands", () => {
+  it("captures init slash_commands into session_meta", async () => {
+    const manager = makeManager();
+    const events: SessionEvent[] = [];
+    manager.subscribe("s1", (event) => events.push(event));
+    await manager.sendMessage("s1", "hello");
+    const q = sdk.queries.at(-1);
+    q?.emit({
+      type: "system",
+      subtype: "init",
+      session_id: "sess-1",
+      model: "claude-x",
+      mcp_servers: [],
+      slash_commands: ["clear", "compact", "help"],
+    });
+    await flush();
+    const meta = events.filter((event) => event.type === "session_meta").at(-1);
+    expect(meta?.type === "session_meta" && meta.data.slashCommands).toEqual(["clear", "compact", "help"]);
+  });
+
+  it("emits and persists local_command_output for replay", async () => {
+    const manager = makeManager();
+    manager.subscribe("s2", () => {});
+    await manager.sendMessage("s2", "hello");
+    const q = sdk.queries.at(-1);
+    q?.emit({ type: "system", subtype: "local_command_output", content: "compacted 3 messages" });
+    await flush();
+
+    // A late subscriber replays the persisted transcript, proving the event is
+    // on the persisted-events allowlist.
+    const replay: SessionEvent[] = [];
+    manager.subscribe("s2", (event) => replay.push(event));
+    const output = replay.find((event) => event.type === "local_command_output");
+    expect(output?.type === "local_command_output" && output.data.content).toBe("compacted 3 messages");
+  });
+
+  it("emits a local_command_output fallback on conversation_reset", async () => {
+    const manager = makeManager();
+    const events: SessionEvent[] = [];
+    manager.subscribe("s3", (event) => events.push(event));
+    await manager.sendMessage("s3", "hello");
+    const q = sdk.queries.at(-1);
+    q?.emit({ type: "conversation_reset", new_conversation_id: "n1", uuid: "u1", session_id: "sess-1" });
+    await flush();
+    const output = events.find((event) => event.type === "local_command_output");
+    expect(output?.type === "local_command_output" && output.data.content).toBe("Conversation cleared by /clear");
+  });
+});

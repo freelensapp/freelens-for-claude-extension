@@ -39,6 +39,20 @@
   font-style: italic;
 }
 
+.localCommand {
+  align-self: stretch;
+  margin: 0;
+  padding: 0.5em 0.7em;
+  border-radius: 4px;
+  background: rgba(127, 127, 127, 0.12);
+  font-family: var(--font-monospace, monospace);
+  font-size: 0.8em;
+  opacity: 0.8;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-x: auto;
+}
+
 .errorBanner {
   margin: 0 1rem;
   padding: 0.6em 0.8em;
@@ -157,6 +171,12 @@
   gap: 0.5rem;
   padding: 0.6rem 1rem 1rem;
   align-items: flex-end;
+}
+
+.inputWrap {
+  position: relative;
+  flex: 1 1 auto;
+  display: flex;
 }
 
 .input {

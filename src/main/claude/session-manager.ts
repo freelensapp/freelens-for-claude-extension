@@ -67,6 +67,7 @@ const PERSISTED_EVENTS = new Set<SessionEvent["type"]>([
   "error",
   "permission_request",
   "permission_resolved",
+  "local_command_output",
 ]);
 
 /** Read-only tools that the SDK may run without hitting `canUseTool`; pod logs are gated separately. */
@@ -179,6 +180,8 @@ class ClusterSession {
   private resolvedModel?: string;
   /** External MCP servers (never the built-in one) reported by the SDK `init` message. */
   private externalMcpServers?: { name: string; status: string }[];
+  /** Slash commands offered by Claude Code, reported by the SDK `init` message. */
+  private slashCommands?: string[];
   /** The last user prompt, kept so a failed turn can be retried without re-adding the bubble. */
   private lastUserText?: string;
 
@@ -235,6 +238,7 @@ class ClusterSession {
       resumed: this.resumed,
       model: this.selectedModel,
       resolvedModel: this.resolvedModel,
+      ...(this.slashCommands ? { slashCommands: this.slashCommands } : {}),
       ...(this.externalMcpServers ? { mcpServers: this.externalMcpServers } : {}),
     });
   }
@@ -603,6 +607,8 @@ class ClusterSession {
           session_id?: string;
           model?: string;
           mcp_servers?: { name?: string; status?: string }[];
+          slash_commands?: string[];
+          content?: string;
           compact_metadata?: { trigger?: "manual" | "auto"; pre_tokens?: number };
         };
         if (system.subtype === "init") {
@@ -610,6 +616,11 @@ class ClusterSession {
           let metaChanged = false;
           if (system.model && system.model !== this.resolvedModel) {
             this.resolvedModel = system.model;
+            metaChanged = true;
+          }
+          // Capture the native slash commands so the input autocomplete can list them.
+          if (Array.isArray(system.slash_commands) && system.slash_commands.length > 0) {
+            this.slashCommands = system.slash_commands.map(String);
             metaChanged = true;
           }
           // Keep only external servers (never the built-in one) for the panel and
@@ -630,6 +641,9 @@ class ClusterSession {
               );
             }
           }
+        } else if (system.subtype === "local_command_output") {
+          // Printable output of a native slash command (e.g. `/compact`).
+          this.emit(sessionEvent("local_command_output", { content: String(system.content ?? "") }));
         } else if (system.subtype === "compact_boundary") {
           this.emit(
             sessionEvent("compaction", {
@@ -638,6 +652,12 @@ class ClusterSession {
             }),
           );
         }
+        break;
+      }
+      case "conversation_reset": {
+        // Fallback for `/clear` typed in a way the renderer did not intercept; the
+        // renderer's own New chat action resets the transcript and session id.
+        this.emit(sessionEvent("local_command_output", { content: "Conversation cleared by /clear" }));
         break;
       }
       case "stream_event": {
