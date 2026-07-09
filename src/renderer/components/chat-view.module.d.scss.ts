@@ -4,6 +4,9 @@ declare const classNames: {
   readonly userBubble: "userBubble";
   readonly assistantBubble: "assistantBubble";
   readonly toolNotice: "toolNotice";
+  readonly reasoning: "reasoning";
+  readonly reasoningSummary: "reasoningSummary";
+  readonly reasoningBody: "reasoningBody";
   readonly localCommand: "localCommand";
   readonly errorBanner: "errorBanner";
   readonly errorItem: "errorItem";
@@ -19,6 +22,8 @@ declare const classNames: {
   readonly modeSelect: "modeSelect";
   readonly modeWarning: "modeWarning";
   readonly secondaryButton: "secondaryButton";
+  readonly shortcuts: "shortcuts";
+  readonly chip: "chip";
   readonly inputRow: "inputRow";
   readonly inputWrap: "inputWrap";
   readonly input: "input";
