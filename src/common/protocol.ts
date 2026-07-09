@@ -22,9 +22,26 @@ export interface StatusResponse {
   };
 }
 
+/**
+ * The built-in in-process MCP server name. Also the reserved name that a
+ * user-supplied MCP configuration cannot reuse; shared by the config parser,
+ * the session manager, and the tests.
+ */
+export const RESERVED_MCP_SERVER_NAME = "freelens-kube";
+
 /** Body of `POST /clusters/:id/messages`. */
 export interface SendMessageRequest {
   text: string;
+}
+
+/**
+ * Response of `GET /clusters/:id/tools`: the Available Tools panel data. The
+ * built-in tools are always present; `mcp` lists external MCP servers (never
+ * the built-in `freelens-kube`) and is empty when no query is live.
+ */
+export interface ClusterToolsResponse {
+  builtin: { name: string; description: string; mutating: boolean }[];
+  mcp: { name: string; status: string; tools: { name: string; description?: string }[] }[];
 }
 
 /** Body of `POST /permissions/:requestId`. */
@@ -78,11 +95,21 @@ export interface SessionEventMap {
   status: { state: SessionState };
   user_message: { text: string };
   assistant_delta: { text: string };
+  /** Live-only reasoning deltas, accumulated into the streaming answer's fold; not persisted. */
+  assistant_thinking: { delta: string };
   assistant_message: { text: string };
-  /** `callId` is the SDK `tool_use` block id, absent for replayed M1 transcripts. */
-  tool_call: { toolName: string; input: unknown; callId?: string };
-  /** `callId` is the block's `tool_use_id`, absent for replayed M1 transcripts. */
-  tool_result: { toolName: string; summary: string; callId?: string };
+  /** Printable output of a native Claude Code slash command (e.g. `/compact`). Persisted. */
+  local_command_output: { content: string };
+  /**
+   * `callId` is the SDK `tool_use` block id, absent for replayed M1 transcripts.
+   * `parentCallId` is set when the call happened inside a subagent: the `Agent` call's id.
+   */
+  tool_call: { toolName: string; input: unknown; callId?: string; parentCallId?: string };
+  /**
+   * `callId` is the block's `tool_use_id`, absent for replayed M1 transcripts.
+   * `parentCallId` is set when the result belongs to a subagent tool call.
+   */
+  tool_result: { toolName: string; summary: string; callId?: string; parentCallId?: string };
   turn_complete: Record<string, never>;
   /** Per-turn token usage from the SDK `result` message. */
   usage: { inputTokens: number; cachedInputTokens: number; outputTokens: number };
@@ -115,6 +142,10 @@ export interface SessionEventMap {
     model?: string;
     /** The model id the SDK `init` message resolved to (for the Default label). */
     resolvedModel?: string;
+    /** Slash commands offered by Claude Code, from the SDK `init` message. */
+    slashCommands?: string[];
+    /** External MCP servers (never the built-in `freelens-kube`) and their status. */
+    mcpServers?: { name: string; status: string }[];
   };
 }
 

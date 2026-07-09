@@ -5,6 +5,7 @@
 
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import { DEFAULT_POD_LOGS_TAIL_LINES } from "../../common/preferences-store";
+import { RESERVED_MCP_SERVER_NAME } from "../../common/protocol";
 import { clusterVersionSchema, runClusterVersion } from "./cluster-version";
 import { type CreateResourceInput, createResourceSchema, runCreateResource } from "./create-resource";
 import { type DeletePodInput, deletePodSchema, runDeletePod } from "./delete-pod";
@@ -21,7 +22,7 @@ import type { McpSdkServerConfigWithInstance } from "@anthropic-ai/claude-agent-
 import type { KubeClient } from "./kube-client";
 
 /** MCP server name; combined with tool names to form `mcp__<server>__<tool>`. */
-export const MCP_SERVER_NAME = "freelens-kube";
+export const MCP_SERVER_NAME = RESERVED_MCP_SERVER_NAME;
 
 /** Read-only tools: auto-allowed, listed in the SDK `allowedTools` option. */
 export const READ_ONLY_TOOL_NAMES = [
