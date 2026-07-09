@@ -29,6 +29,8 @@ export interface PreferencesStoreModel {
   mcpEnabled: boolean;
   /** Claude-Desktop-style MCP configuration JSON; applied at the next new session. */
   mcpConfiguration: string;
+  /** Let Claude delegate deep read-only investigations to the cluster-analyzer subagent. */
+  subagentsEnabled: boolean;
 }
 
 /**
@@ -44,6 +46,7 @@ export interface PreferencesState {
   readonly defaultModel: string;
   readonly mcpEnabled: boolean;
   readonly mcpConfiguration: string;
+  readonly subagentsEnabled: boolean;
 }
 
 /** Default MCP configuration: an empty Claude-Desktop-style `mcpServers` object. */
@@ -57,6 +60,7 @@ const defaults: PreferencesStoreModel = {
   defaultModel: "",
   mcpEnabled: false,
   mcpConfiguration: DEFAULT_MCP_CONFIGURATION,
+  subagentsEnabled: true,
 };
 
 export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesStoreModel> implements PreferencesState {
@@ -67,6 +71,7 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesSto
   defaultModel = defaults.defaultModel;
   mcpEnabled = defaults.mcpEnabled;
   mcpConfiguration = defaults.mcpConfiguration;
+  subagentsEnabled = defaults.subagentsEnabled;
 
   constructor() {
     super({
@@ -81,6 +86,7 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesSto
       defaultModel: observable,
       mcpEnabled: observable,
       mcpConfiguration: observable,
+      subagentsEnabled: observable,
     });
   }
 
@@ -92,6 +98,7 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesSto
     this.defaultModel = model.defaultModel ?? defaults.defaultModel;
     this.mcpEnabled = model.mcpEnabled ?? defaults.mcpEnabled;
     this.mcpConfiguration = model.mcpConfiguration ?? defaults.mcpConfiguration;
+    this.subagentsEnabled = model.subagentsEnabled ?? defaults.subagentsEnabled;
   }
 
   toJSON(): PreferencesStoreModel {
@@ -103,6 +110,7 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesSto
       defaultModel: this.defaultModel,
       mcpEnabled: this.mcpEnabled,
       mcpConfiguration: this.mcpConfiguration,
+      subagentsEnabled: this.subagentsEnabled,
     };
   }
 }

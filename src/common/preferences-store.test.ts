@@ -16,6 +16,7 @@ describe("PreferencesStore", () => {
     expect(store.defaultModel).toBe("");
     expect(store.mcpEnabled).toBe(false);
     expect(store.mcpConfiguration).toBe(DEFAULT_MCP_CONFIGURATION);
+    expect(store.subagentsEnabled).toBe(true);
   });
 
   it("round-trips through toJSON/fromStore", () => {
@@ -27,6 +28,7 @@ describe("PreferencesStore", () => {
     store.defaultModel = "haiku";
     store.mcpEnabled = true;
     store.mcpConfiguration = '{ "mcpServers": { "x": { "command": "foo" } } }';
+    store.subagentsEnabled = false;
 
     const restored = new PreferencesStore();
     restored.fromStore(store.toJSON());
@@ -37,6 +39,7 @@ describe("PreferencesStore", () => {
     expect(restored.defaultModel).toBe("haiku");
     expect(restored.mcpEnabled).toBe(true);
     expect(restored.mcpConfiguration).toBe('{ "mcpServers": { "x": { "command": "foo" } } }');
+    expect(restored.subagentsEnabled).toBe(false);
   });
 
   it("fromStore fills missing fields with defaults", () => {

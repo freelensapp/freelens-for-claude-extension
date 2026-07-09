@@ -27,6 +27,7 @@ export function PreferencesInput() {
   const [podLogsTailLines, setPodLogsTailLines] = useState(String(prefs.podLogsTailLines));
   const [mcpEnabled, setMcpEnabled] = useState(prefs.mcpEnabled);
   const [mcpConfiguration, setMcpConfiguration] = useState(prefs.mcpConfiguration);
+  const [subagentsEnabled, setSubagentsEnabled] = useState(prefs.subagentsEnabled);
 
   const onPathChange = (value: string) => {
     setClaudeCodePath(value);
@@ -63,6 +64,11 @@ export function PreferencesInput() {
   const onMcpConfigurationBlur = () => {
     // Commit the draft only on blur to avoid caret jumps while typing.
     prefs.mcpConfiguration = mcpConfiguration;
+  };
+
+  const onSubagentsEnabledChange = (checked: boolean) => {
+    setSubagentsEnabled(checked);
+    prefs.subagentsEnabled = checked;
   };
 
   return (
@@ -140,6 +146,15 @@ export function PreferencesInput() {
         />
         <div className={styles.hint}>
           Claude Desktop format: an mcpServers object with command/args or url entries. Applied at the next new chat.
+        </div>
+      </div>
+
+      <div className={styles.field}>
+        <Switch checked={subagentsEnabled} onChange={onSubagentsEnabledChange}>
+          Enable analysis subagent
+        </Switch>
+        <div className={styles.hint}>
+          Lets Claude delegate deep read-only investigations to a separate context. Applied at the next new chat.
         </div>
       </div>
     </section>

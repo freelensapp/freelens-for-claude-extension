@@ -34,6 +34,25 @@
   white-space: nowrap;
 }
 
+.subagentTag {
+  font-size: 0.75em;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.05em 0.4em;
+  border-radius: 3px;
+  background: rgba(61, 144, 206, 0.2);
+  color: var(--colorInfo, #3d90ce);
+}
+
+.children {
+  margin-top: 0.5em;
+  padding-left: 0.7em;
+  border-left: 2px solid rgba(127, 127, 127, 0.25);
+  display: flex;
+  flex-direction: column;
+  gap: 0.4em;
+}
+
 .runningDot {
   width: 0.5em;
   height: 0.5em;

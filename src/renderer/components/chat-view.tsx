@@ -22,6 +22,7 @@ import type {
   SessionEventMap,
 } from "../../common/protocol";
 import type { BridgeClient } from "../api/bridge-client";
+import type { ToolChild } from "./tool-card";
 
 interface ChatViewProps {
   clusterId: string;
@@ -33,7 +34,7 @@ type PermissionRequest = SessionEventMap["permission_request"];
 type ChatItem =
   | { kind: "user"; text: string }
   | { kind: "assistant"; text: string }
-  | { kind: "tool"; callId: string; toolName: string; input: unknown; result?: string }
+  | { kind: "tool"; callId: string; toolName: string; input: unknown; result?: string; children?: ToolChild[] }
   | { kind: "tool_call"; toolName: string }
   | { kind: "tool_result"; toolName: string; summary: string }
   | { kind: "notice"; text: string }
@@ -87,12 +88,24 @@ function reducer(state: ChatState, action: ChatAction): ChatState {
       return { ...state, items: [...state.items, { kind: "assistant", text: action.data.text }], draft: "" };
     case "tool_call":
       if (action.data.callId) {
+        const callId = action.data.callId;
+        const child: ToolChild = { callId, toolName: action.data.toolName, input: action.data.input };
+        // Subagent tool calls render indented under the matching Agent card.
+        const parentId = action.data.parentCallId;
+        if (parentId && state.items.some((item) => item.kind === "tool" && item.callId === parentId)) {
+          return {
+            ...state,
+            items: state.items.map((item) =>
+              item.kind === "tool" && item.callId === parentId
+                ? { ...item, children: [...(item.children ?? []), child] }
+                : item,
+            ),
+          };
+        }
+        // Top-level call, or an orphaned parented call with no matching card.
         return {
           ...state,
-          items: [
-            ...state.items,
-            { kind: "tool", callId: action.data.callId, toolName: action.data.toolName, input: action.data.input },
-          ],
+          items: [...state.items, { kind: "tool", callId, toolName: action.data.toolName, input: action.data.input }],
         };
       }
       // Replayed M1 transcript event: keep the one-line notice.
@@ -101,6 +114,28 @@ function reducer(state: ChatState, action: ChatAction): ChatState {
       if (action.data.callId) {
         const callId = action.data.callId;
         const summary = action.data.summary;
+        const parentId = action.data.parentCallId;
+        if (
+          parentId &&
+          state.items.some(
+            (item) =>
+              item.kind === "tool" &&
+              item.callId === parentId &&
+              (item.children ?? []).some((c) => c.callId === callId),
+          )
+        ) {
+          return {
+            ...state,
+            items: state.items.map((item) =>
+              item.kind === "tool" && item.callId === parentId
+                ? {
+                    ...item,
+                    children: (item.children ?? []).map((c) => (c.callId === callId ? { ...c, result: summary } : c)),
+                  }
+                : item,
+            ),
+          };
+        }
         return {
           ...state,
           items: state.items.map((item) =>
@@ -312,7 +347,15 @@ export function ChatView({ clusterId, client }: ChatViewProps) {
             );
           }
           if (item.kind === "tool") {
-            return <ToolCard key={item.callId} toolName={item.toolName} input={item.input} result={item.result} />;
+            return (
+              <ToolCard
+                key={item.callId}
+                toolName={item.toolName}
+                input={item.input}
+                result={item.result}
+                childCalls={item.children}
+              />
+            );
           }
           if (item.kind === "tool_call") {
             return <ToolNotice key={key} label={`Calling ${item.toolName}...`} />;

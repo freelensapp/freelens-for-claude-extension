@@ -30,6 +30,7 @@ import {
 } from "../tools/mcp-server";
 import { parseUserMcpConfig } from "./mcp-config";
 import { PermissionBroker, type ResolveResult } from "./permission-broker";
+import { buildAgents } from "./subagents";
 
 import type { McpServerConfig, Query, SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 
@@ -408,6 +409,14 @@ class ClusterSession {
   private startQuery(resume?: string): void {
     const client = this.client;
     if (!client || !this.claudeCodePath) return;
+    // With the subagent enabled, delegation itself is safe (every tool the
+    // subagent calls is still individually gated), so `Task`/`Agent` are let
+    // through; with it off both stay disallowed exactly as before.
+    const subagentsEnabled = this.preferences.subagentsEnabled;
+    const disallowedTools = subagentsEnabled
+      ? DISALLOWED_BUILTIN_TOOLS.filter((name) => name !== "Task")
+      : DISALLOWED_BUILTIN_TOOLS;
+    const allowedTools = subagentsEnabled ? [...AUTO_ALLOWED_TOOL_NAMES, "Agent"] : AUTO_ALLOWED_TOOL_NAMES;
     this.queryHandle = query({
       prompt: this.input,
       options: {
@@ -420,8 +429,9 @@ class ClusterSession {
         strictMcpConfig: true,
         // Pod logs are omitted so `canUseTool` fires for them and the approval
         // preference can be enforced live.
-        allowedTools: AUTO_ALLOWED_TOOL_NAMES,
-        disallowedTools: DISALLOWED_BUILTIN_TOOLS,
+        allowedTools,
+        disallowedTools,
+        ...(subagentsEnabled ? { agents: buildAgents() } : {}),
         settingSources: [],
         includePartialMessages: true,
         canUseTool: (toolName, input, extra) => this.canUseTool(toolName, input, extra),
@@ -646,9 +656,14 @@ class ClusterSession {
             }),
           );
         }
+        // A non-null parent means this is subagent activity; its tool calls are
+        // rendered indented under the `Agent` delegation card, and its prose is
+        // deliberately not forwarded (the SDK default).
+        const parentCallId = message.parent_tool_use_id ?? undefined;
         const blocks = (message.message?.content ?? []) as ContentBlock[];
         for (const block of blocks) {
           if (block.type === "text" && block.text) {
+            if (parentCallId) continue;
             this.emit(sessionEvent("assistant_message", { text: block.text }));
           } else if (block.type === "tool_use") {
             if (block.id && block.name) this.toolNames.set(block.id, block.name);
@@ -657,6 +672,7 @@ class ClusterSession {
                 toolName: unqualifyToolName(block.name ?? "tool"),
                 input: block.input,
                 callId: block.id,
+                ...(parentCallId ? { parentCallId } : {}),
               }),
             );
           }
@@ -664,6 +680,7 @@ class ClusterSession {
         break;
       }
       case "user": {
+        const parentCallId = message.parent_tool_use_id ?? undefined;
         const blocks = (message.message?.content ?? []) as ContentBlock[];
         if (!Array.isArray(blocks)) break;
         for (const block of blocks) {
@@ -674,6 +691,7 @@ class ClusterSession {
                 toolName: unqualifyToolName(toolName),
                 summary: summarizeToolResult(block.content).slice(0, 2000),
                 callId: block.tool_use_id,
+                ...(parentCallId ? { parentCallId } : {}),
               }),
             );
           }
