@@ -3,19 +3,6 @@
   display: inline-flex;
 }
 
-.toggleButton {
-  padding: 0.3em 0.9em;
-  cursor: pointer;
-  border: 1px solid rgba(127, 127, 127, 0.4);
-  border-radius: 4px;
-  background: transparent;
-  color: inherit;
-
-  &:hover {
-    background: rgba(127, 127, 127, 0.15);
-  }
-}
-
 .popover {
   position: absolute;
   bottom: calc(100% + 0.4rem);

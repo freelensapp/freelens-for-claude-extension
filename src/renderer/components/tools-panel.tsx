@@ -3,11 +3,14 @@
  * Licensed under MIT License. See LICENSE in root directory for more information.
  */
 
+import { Renderer } from "@freelensapp/extensions";
 import { useState } from "react";
 import styles from "./tools-panel.module.scss";
 
 import type { ClusterToolsResponse } from "../../common/protocol";
 import type { BridgeClient } from "../api/bridge-client";
+
+const { Icon } = Renderer.Component;
 
 interface ToolsPanelProps {
   clusterId: string;
@@ -55,9 +58,7 @@ export function ToolsPanel({ clusterId, client }: ToolsPanelProps) {
 
   return (
     <div className={styles.container}>
-      <button type="button" className={styles.toggleButton} onClick={toggle}>
-        Tools
-      </button>
+      <Icon material="build" small interactive tooltip="Available tools" onClick={toggle} />
       {open ? (
         <div className={styles.popover}>
           {error ? <div className={styles.error}>{error}</div> : null}
