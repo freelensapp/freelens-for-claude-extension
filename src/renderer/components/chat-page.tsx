@@ -9,6 +9,7 @@ import { bridgeClient } from "../api/bridge-client";
 import styles from "./chat-page.module.scss";
 import { ChatView } from "./chat-view";
 import { Onboarding } from "./onboarding";
+import { Styles } from "./styles";
 
 import type { StatusResponse } from "../../common/protocol";
 
@@ -41,12 +42,13 @@ export function ChatPage() {
     void refresh(false);
   }, [refresh]);
 
+  // A single content branch keeps <Styles/> mounted regardless of which state
+  // the page renders, so the scoped component CSS is always injected.
+  let content: JSX.Element;
   if (!clusterId) {
-    return <div className={styles.notice}>Open this page from within a connected cluster.</div>;
-  }
-
-  if (failed || !client.isReady) {
-    return (
+    content = <div className={styles.notice}>Open this page from within a connected cluster.</div>;
+  } else if (failed || !client.isReady) {
+    content = (
       <div className={styles.notice}>
         The Claude bridge is not ready yet.
         <button type="button" className={styles.retry} onClick={() => void refresh(false)}>
@@ -54,15 +56,18 @@ export function ChatPage() {
         </button>
       </div>
     );
+  } else if (!status) {
+    content = <div className={styles.notice}>Connecting to Claude...</div>;
+  } else if (!status.claudeCode.found) {
+    content = <Onboarding status={status} onRecheck={() => refresh(true)} />;
+  } else {
+    content = <ChatView clusterId={clusterId} client={client} />;
   }
 
-  if (!status) {
-    return <div className={styles.notice}>Connecting to Claude...</div>;
-  }
-
-  if (!status.claudeCode.found) {
-    return <Onboarding status={status} onRecheck={() => refresh(true)} />;
-  }
-
-  return <ChatView clusterId={clusterId} client={client} />;
+  return (
+    <>
+      <Styles />
+      {content}
+    </>
+  );
 }

@@ -8,6 +8,7 @@ import { useState } from "react";
 import { PreferencesStore } from "../../common/preferences-store";
 import { MODEL_CHOICES } from "../../common/protocol";
 import styles from "./preferences.module.scss";
+import { Styles } from "./styles";
 
 import type { ChangeEvent } from "react";
 
@@ -79,6 +80,7 @@ export function PreferencesInput() {
 
   return (
     <section className={styles.preferences}>
+      <Styles />
       <div className={styles.field}>
         <SubTitle title="Claude Code executable path" />
         <Input theme="round-black" value={claudeCodePath} onChange={onPathChange} className={styles.mono} />
