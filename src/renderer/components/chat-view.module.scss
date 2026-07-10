@@ -19,8 +19,8 @@
   max-width: 80%;
   padding: 0.5em 0.8em;
   border-radius: 10px 10px 2px 10px;
-  background: #3d90ce;
-  color: #fff;
+  background: var(--primary, #3d90ce);
+  color: var(--textColorPrimaryAccent, #fff);
   white-space: pre-wrap;
 }
 
@@ -241,8 +241,8 @@
   cursor: pointer;
   border: none;
   border-radius: 4px;
-  background: #3d90ce;
-  color: #fff;
+  background: var(--primary, #3d90ce);
+  color: var(--textColorPrimaryAccent, #fff);
 
   &:disabled {
     opacity: 0.5;

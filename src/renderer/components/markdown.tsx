@@ -21,7 +21,7 @@ function CodeBlock({ inline, className, children }: CodeBlockProps) {
   const text = String(children ?? "").replace(/\n$/, "");
 
   if (inline) {
-    return <code className={className}>{children}</code>;
+    return <code className={`${styles.inlineCode} ${className ?? ""}`.trim()}>{children}</code>;
   }
 
   const copy = () => {
