@@ -42,7 +42,7 @@ type PermissionRequest = SessionEventMap["permission_request"];
 
 type ChatItem =
   | { kind: "user"; text: string }
-  | { kind: "assistant"; text: string }
+  | { kind: "assistant"; text: string; reasoning?: string }
   | { kind: "tool"; callId: string; toolName: string; input: unknown; result?: string; children?: ToolChild[] }
   | { kind: "tool_call"; toolName: string }
   | { kind: "tool_result"; toolName: string; summary: string }
@@ -111,7 +111,7 @@ function reducer(state: ChatState, action: ChatAction): ChatState {
     case "assistant_message":
       return {
         ...state,
-        items: [...state.items, { kind: "assistant", text: action.data.text }],
+        items: [...state.items, { kind: "assistant", text: action.data.text, reasoning: action.data.reasoning }],
         draft: "",
         draftReasoning: "",
       };
@@ -237,7 +237,14 @@ function reducer(state: ChatState, action: ChatAction): ChatState {
       };
     }
     case "turn_complete": {
-      const items = state.draft ? [...state.items, { kind: "assistant" as const, text: state.draft }] : state.items;
+      // A fallback assistant item is only synthesized when streamed text was
+      // never sealed into an assistant_message; carry its reasoning along.
+      const items = state.draft
+        ? [
+            ...state.items,
+            { kind: "assistant" as const, text: state.draft, reasoning: state.draftReasoning || undefined },
+          ]
+        : state.items;
       return { ...state, items, draft: "", draftReasoning: "", working: false };
     }
     case "error":
@@ -510,6 +517,9 @@ export function ChatView({ clusterId, client }: ChatViewProps) {
             if (item.kind === "assistant") {
               return (
                 <div key={key} className={styles.assistantBubble}>
+                  {item.reasoning ? (
+                    <ReasoningFold reasoning={item.reasoning} hasAnswer={item.text.length > 0} />
+                  ) : null}
                   <Markdown>{item.text}</Markdown>
                 </div>
               );

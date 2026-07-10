@@ -187,6 +187,8 @@ class ClusterSession {
   private slashCommands?: string[];
   /** The last user prompt, kept so a failed turn can be retried without re-adding the bubble. */
   private lastUserText?: string;
+  /** Reasoning deltas accumulated for the current turn, attached to the next assistant message. */
+  private thinkingText = "";
 
   constructor(
     private readonly clusterId: string,
@@ -342,6 +344,8 @@ class ClusterSession {
 
   async sendMessage(text: string): Promise<void> {
     this.lastUserText = text;
+    // Start a fresh reasoning accumulator for the new turn.
+    this.thinkingText = "";
     this.emit(sessionEvent("user_message", { text }));
     await this.pushUserTurn(text);
   }
@@ -677,7 +681,9 @@ class ClusterSession {
           event.delta?.type === "thinking_delta" &&
           event.delta.thinking
         ) {
-          // Live-only reasoning; deliberately not persisted, so it is absent on replay.
+          // Drive the live fold, and accumulate for the durable copy attached to
+          // the assistant message when the turn's text arrives.
+          this.thinkingText += event.delta.thinking;
           this.emit(sessionEvent("assistant_thinking", { delta: event.delta.thinking }));
         }
         break;
@@ -699,7 +705,11 @@ class ClusterSession {
         for (const block of blocks) {
           if (block.type === "text" && block.text) {
             if (parentCallId) continue;
-            this.emit(sessionEvent("assistant_message", { text: block.text }));
+            // Attach and reset the accumulated reasoning so it persists with the
+            // message and replays after a remount.
+            const reasoning = this.thinkingText || undefined;
+            this.thinkingText = "";
+            this.emit(sessionEvent("assistant_message", { text: block.text, ...(reasoning ? { reasoning } : {}) }));
           } else if (block.type === "tool_use") {
             if (block.id && block.name) this.toolNames.set(block.id, block.name);
             this.emit(
