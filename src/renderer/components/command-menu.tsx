@@ -51,7 +51,7 @@ export function CommandMenu({
     };
   }, [open]);
 
-  const names = commands.map((name) => name.replace(/^\//, ""));
+  const names = commands.map((name) => name.replace(/^\//, "")).sort((a, b) => a.localeCompare(b));
 
   const run = (action: () => void) => {
     action();
