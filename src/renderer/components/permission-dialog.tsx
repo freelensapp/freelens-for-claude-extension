@@ -3,11 +3,36 @@
  * Licensed under MIT License. See LICENSE in root directory for more information.
  */
 
+import { Renderer } from "@freelensapp/extensions";
+import { useState } from "react";
 import styles from "./permission-dialog.module.scss";
+
+import type { ReactNode } from "react";
 
 import type { PermissionBehavior, SessionEventMap } from "../../common/protocol";
 
+const { Icon } = Renderer.Component;
+
 type PermissionRequest = SessionEventMap["permission_request"];
+
+/** Wrap a code/diff block with a copy button, mirroring the markdown code-block pattern. */
+function CopyableCode({ text, children }: { text: string; children: ReactNode }) {
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    void navigator.clipboard?.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  };
+  return (
+    <div className={styles.codeWrap}>
+      <button type="button" className={styles.copyButton} onClick={copy}>
+        {copied ? "Copied" : "Copy"}
+      </button>
+      {children}
+    </div>
+  );
+}
 
 interface PermissionResolution {
   behavior: PermissionBehavior;
@@ -45,11 +70,21 @@ function ActionDetails({ request }: { request: PermissionRequest }) {
   return (
     <div className={styles.section}>
       <div className={styles.sectionLabel}>Action details</div>
-      {request.diff ? <DiffBlock diff={request.diff} /> : <pre className={styles.code}>{request.proposedYaml}</pre>}
+      {request.diff ? (
+        <CopyableCode text={request.diff}>
+          <DiffBlock diff={request.diff} />
+        </CopyableCode>
+      ) : (
+        <CopyableCode text={request.proposedYaml}>
+          <pre className={styles.code}>{request.proposedYaml}</pre>
+        </CopyableCode>
+      )}
       {request.currentYaml ? (
         <details className={styles.backup}>
           <summary className={styles.backupSummary}>Current resource (backup)</summary>
-          <pre className={styles.code}>{request.currentYaml}</pre>
+          <CopyableCode text={request.currentYaml}>
+            <pre className={styles.code}>{request.currentYaml}</pre>
+          </CopyableCode>
         </details>
       ) : null}
     </div>
@@ -82,7 +117,10 @@ export function PermissionDialog({ request, resolution, onResolve }: PermissionD
 
   return (
     <div className={`${styles.card} ${styles.pending}`}>
-      <div className={styles.header}>{request.actionTitle}</div>
+      <div className={styles.header}>
+        <Icon material="warning" small className={styles.warnIcon} />
+        <span>{request.actionTitle}</span>
+      </div>
       <ActionDetails request={request} />
       <div className={styles.buttons}>
         <button type="button" className={styles.approve} onClick={() => onResolve("allow")}>

@@ -1,9 +1,14 @@
 declare const classNames: {
   readonly card: "card";
   readonly header: "header";
-  readonly toolName: "toolName";
+  readonly toolIcon: "toolIcon";
+  readonly title: "title";
   readonly args: "args";
-  readonly subagentTag: "subagentTag";
+  readonly status: "status";
+  readonly doneCheck: "doneCheck";
+  readonly errorIcon: "errorIcon";
+  readonly errorCard: "errorCard";
+  readonly rawName: "rawName";
   readonly children: "children";
   readonly runningDot: "runningDot";
   readonly body: "body";

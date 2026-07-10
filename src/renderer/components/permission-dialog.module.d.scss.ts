@@ -2,6 +2,9 @@ declare const classNames: {
   readonly card: "card";
   readonly pending: "pending";
   readonly header: "header";
+  readonly warnIcon: "warnIcon";
+  readonly codeWrap: "codeWrap";
+  readonly copyButton: "copyButton";
   readonly section: "section";
   readonly sectionLabel: "sectionLabel";
   readonly code: "code";
