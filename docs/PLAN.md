@@ -3,9 +3,11 @@
 Status: **approved** — all open questions were resolved by the maintainer in
 issue [#7](https://github.com/freelensapp/freelens-for-claude-extension/issues/7);
 see [Resolved questions](#resolved-questions) at the end of this document.
-**M0 through M3 are delivered** and confirmed working by the maintainer.
-Next step: implement **M4** (documentation and release readiness) as
-specified in [M4.md](./M4.md).
+**M0 through M4 are delivered** (spec documents for delivered milestones
+were removed in the docs cleanup). Next step: implement **M5** (UX
+overhaul, issue
+[#25](https://github.com/freelensapp/freelens-for-claude-extension/issues/25))
+as specified in [M5.md](./M5.md).
 
 Process note: planning and analysis run on issues (Fable model);
 implementation runs on pull requests (Opus model).
@@ -297,29 +299,32 @@ bridge; minimal chat page for the active cluster; three read-only MCP tools
 (list/get resources, pod logs, warning events); built-in tools disallowed.
 Success criterion: with a subscription-authenticated Claude Code, ask "what
 pods are failing in this cluster and why?" and get an answer grounded in tool
-calls. Detailed implementation specification: [M0.md](./M0.md).
+calls.
 
 **M1 — tool and safety parity (delivered).** Full 12-tool set, approval
 dialog with YAML diff, permission modes, session persistence and resume,
-per-cluster session management (new chat, stop — delivered in M0). Detailed
-implementation specification: [M1.md](./M1.md).
+per-cluster session management (new chat, stop — delivered in M0).
 
 **M2 — UX parity (delivered).** Usage display, retry, model picker,
-tool-call cards, "Ask Claude" on resources, preferences page. Detailed
-implementation specification: [M2.md](./M2.md).
+tool-call cards, "Ask Claude" on resources, preferences page.
 
 **M3 — beyond parity (delivered).** User MCP-server passthrough, Claude
 Code subagents for analysis workflows, prompt shortcuts/slash commands,
 kubectl and helm tools spawning the bundled binaries directly (D4), plus
-the Available Tools panel and reasoning fold deferred from M2. Detailed
-implementation specification: [M3.md](./M3.md).
+the Available Tools panel and reasoning fold deferred from M2.
 
-**M4 — documentation and release readiness.** README rewrite with full
-user documentation, package metadata polish with a verified minimum
-Freelens version, and a release process document covering the existing
-version/tag/publish automation and the pre-release checklist (including
-the D2 contact with Anthropic before any announcement). Detailed
-implementation specification: [M4.md](./M4.md).
+**M4 — documentation and release readiness (delivered).** README rewrite
+with full user documentation, package metadata polish with a verified
+minimum Freelens version, and a release process document covering the
+existing version/tag/publish automation and the pre-release checklist
+(including the D2 contact with Anthropic before any announcement).
+
+**M5 — UX overhaul.** Composer-style input area with model/mode/usage
+controls, manual compaction, persisted reasoning folds, tool and approval
+card polish, theme-consistent styling, and reliable scrolling — the full
+list from issue
+[#25](https://github.com/freelensapp/freelens-for-claude-extension/issues/25).
+Detailed implementation specification: [M5.md](./M5.md).
 
 ## Post-1.0 backlog
 
