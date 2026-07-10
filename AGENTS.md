@@ -93,7 +93,7 @@ src/
       pending-prompt.ts    # module-scoped handoff between "Ask Claude" menu entries and the chat page
     components/
       chat-page.tsx        # page: onboarding gate or chat view
-      chat-view.tsx        # transcript + input + status strip (token counter, model + mode selectors, retry, slash popup, shortcut chips, reasoning fold, nested tool cards, tools panel toggle)
+      chat-view.tsx        # transcript + input + status strip (token counter, model + mode selectors, retry, slash popup, shortcut chips, reasoning fold, nested tool cards, command menu, tools panel toggle)
       tool-card.tsx        # collapsible tool call/result card
       permission-dialog.tsx # inline approval card (proposed YAML, backup, diff)
       menu-entry.tsx       # "Ask Claude" kube object menu item
@@ -101,6 +101,7 @@ src/
       markdown.tsx         # react-markdown wrapper (code blocks, links)
       onboarding.tsx       # Claude Code missing / not detected panel
       slash-menu.tsx       # slash-command autocomplete popup shown above the input
+      command-menu.tsx     # "[/]" composer widget popover (Context group + Slash Commands list)
       tools-panel.tsx      # Available Tools popover (built-in tools + connected MCP servers)
       *.module.scss        # component styles (SCSS modules)
     icons/

@@ -10,6 +10,7 @@ import { BUILTIN_PROMPT_SHORTCUTS, parsePromptShortcuts } from "../../common/pro
 import { MODEL_CHOICES } from "../../common/protocol";
 import { pendingPrompt } from "../api/pending-prompt";
 import styles from "./chat-view.module.scss";
+import { CommandMenu } from "./command-menu";
 import { Markdown } from "./markdown";
 import { PermissionDialog } from "./permission-dialog";
 import { SlashMenu } from "./slash-menu";
@@ -643,14 +644,15 @@ export function ChatView({ clusterId, client }: ChatViewProps) {
         </div>
         <div className={styles.composerControls}>
           <div className={styles.composerLeft}>
-            <Icon material="add" small interactive tooltip="New chat" onClick={() => void newChat()} />
-            <Icon
-              material="compress"
-              small
-              interactive
-              tooltip="Compact the conversation"
-              disabled={state.working || !state.usage}
-              onClick={compact}
+            <CommandMenu
+              commands={state.slashCommands ?? []}
+              compactDisabled={state.working || !state.usage}
+              onCommand={(name) => {
+                completeCommand(name);
+                textareaRef.current?.focus();
+              }}
+              onClearConversation={() => void newChat()}
+              onCompact={compact}
             />
             <ToolsPanel clusterId={clusterId} client={client} />
           </div>
