@@ -95,20 +95,30 @@ function ActionDetails({ request }: { request: PermissionRequest }) {
  * summary that expands back to the details.
  */
 export function PermissionDialog({ request, resolution, onResolve }: PermissionDialogProps) {
+  // A controlled disclosure instead of a native <details>: as a flex item of the
+  // transcript, <details> renders zero-height in the host's Chromium, and this
+  // also mounts the (Monaco-backed) details only once expanded.
+  const [expanded, setExpanded] = useState(false);
+
   if (resolution) {
     const label = resolution.behavior === "allow" ? "Approved" : "Denied";
     const suffix = resolution.reason ? ` (${resolution.reason})` : "";
     return (
-      <details className={`${styles.card} ${styles.resolved}`}>
-        <summary className={styles.resolvedSummary}>
+      <div className={`${styles.card} ${styles.resolved}`}>
+        <button
+          type="button"
+          className={styles.resolvedSummary}
+          onClick={() => setExpanded((value) => !value)}
+          aria-expanded={expanded}
+        >
           <span className={resolution.behavior === "allow" ? styles.approvedTag : styles.deniedTag}>{label}</span>
           <span className={styles.resolvedTitle}>
             {request.actionTitle}
             {suffix}
           </span>
-        </summary>
-        <ActionDetails request={request} />
-      </details>
+        </button>
+        {expanded ? <ActionDetails request={request} /> : null}
+      </div>
     );
   }
 
