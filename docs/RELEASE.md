@@ -63,8 +63,8 @@ Before cutting a stable `X.Y.Z` release:
       feature/tool list match the shipped code.
 - [ ] **Anthropic terms-of-service contact (D2 gate).** Before any public
       announcement or marketplace submission, contact Anthropic to confirm
-      the terms-of-service posture recorded in
-      [PLAN.md D2](./PLAN.md#d2-authentication-and-terms-of-service-posture-approved).
+      the terms-of-service posture: the extension drives the user's own
+      Claude Code installation and never handles their credentials.
       Publishing the GitHub release itself is fine — the project has been
       public throughout; it is the announcement that the maintainer
       deferred until after legal review.
