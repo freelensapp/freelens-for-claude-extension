@@ -21,6 +21,15 @@
   display: flex;
   flex-direction: column;
   gap: 0.6rem;
+
+  // In a scrollable flex column, items with the default flex-shrink:1 are
+  // compressed to fit the bounded height instead of overflowing; cards use
+  // overflow:hidden, which makes their flex min-height resolve to 0, so they
+  // can collapse to zero once the transcript fills up. Pin every item to its
+  // natural height and let the transcript scroll.
+  > * {
+    flex-shrink: 0;
+  }
 }
 
 .jumpButton {
