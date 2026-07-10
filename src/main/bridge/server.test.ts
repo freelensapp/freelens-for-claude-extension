@@ -26,6 +26,13 @@ const retry = vi.fn(async (clusterId: string) =>
   clusterId === "busy" ? ("nothing_to_retry" as const) : ("accepted" as const),
 );
 
+const getClusterUsage = vi.fn(async (_clusterId: string) => ({
+  account: { authMethod: "Claude AI", email: "user@example.com", plan: "Claude Team" },
+  rateLimitsAvailable: true,
+  windows: [{ label: "Session (5hr)", utilization: 10, resetsAt: null }],
+  contributing: null,
+}));
+
 const sessionManager = {
   subscribe: vi.fn(() => () => {}),
   sendMessage: vi.fn(async () => {}),
@@ -35,6 +42,7 @@ const sessionManager = {
   setPermissionMode: vi.fn(() => {}),
   setModel: vi.fn(() => {}),
   retry,
+  getClusterUsage,
   resolvePermission,
 } as unknown as SessionManager;
 
@@ -164,5 +172,16 @@ describe("retry route", () => {
   it("returns 409 when there is nothing to retry", async () => {
     const response = await authedPost("/clusters/busy/retry", {});
     expect(response.status).toBe(409);
+  });
+});
+
+describe("usage route", () => {
+  it("returns the cluster usage data", async () => {
+    const response = await fetch(`${baseUrl}/clusters/c1/usage`, { headers: { Authorization: `Bearer ${TOKEN}` } });
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.account.email).toBe("user@example.com");
+    expect(body.windows).toEqual([{ label: "Session (5hr)", utilization: 10, resetsAt: null }]);
+    expect(getClusterUsage).toHaveBeenCalledWith("c1");
   });
 });

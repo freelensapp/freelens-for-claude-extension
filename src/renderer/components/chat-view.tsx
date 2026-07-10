@@ -15,6 +15,7 @@ import { Markdown } from "./markdown";
 import { PermissionDialog } from "./permission-dialog";
 import { SlashMenu } from "./slash-menu";
 import { ToolCard } from "./tool-card";
+import { UsageDialog } from "./usage-dialog";
 
 import type { ChangeEvent, KeyboardEvent } from "react";
 
@@ -308,6 +309,7 @@ export function ChatView({ clusterId, client }: ChatViewProps) {
   const [epoch, setEpoch] = useState(0);
   const [menuIndex, setMenuIndex] = useState(0);
   const [menuDismissed, setMenuDismissed] = useState(false);
+  const [usageOpen, setUsageOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [atBottom, setAtBottom] = useState(true);
@@ -650,6 +652,7 @@ export function ChatView({ clusterId, client }: ChatViewProps) {
                 completeCommand(name);
                 textareaRef.current?.focus();
               }}
+              onUsage={() => setUsageOpen(true)}
               onClearConversation={() => void newChat()}
               onCompact={compact}
             />
@@ -702,6 +705,8 @@ export function ChatView({ clusterId, client }: ChatViewProps) {
           </div>
         </div>
       </div>
+
+      {usageOpen ? <UsageDialog clusterId={clusterId} client={client} onClose={() => setUsageOpen(false)} /> : null}
     </div>
   );
 }

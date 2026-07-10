@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { Common } from "@freelensapp/extensions";
 import {
+  type ClusterUsageResponse,
   type PermissionBehavior,
   type PermissionMode,
   type SessionErrorKind,
@@ -30,6 +31,7 @@ import {
 import { parseUserMcpConfig } from "./mcp-config";
 import { PermissionBroker, type ResolveResult } from "./permission-broker";
 import { buildAgents } from "./subagents";
+import { buildUsageResponse } from "./usage";
 
 import type { McpServerConfig, Query, SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 
@@ -749,6 +751,29 @@ class ClusterSession {
   }
 
   /**
+   * The data behind `/usage`: account info plus claude.ai plan rate-limit
+   * windows and the local "what's contributing" breakdown. Initializes the
+   * session so the SDK control channel exists, but never pushes a turn (no
+   * token cost). Returns an `error` field when the data cannot be fetched.
+   */
+  async getUsage(): Promise<ClusterUsageResponse> {
+    const empty: ClusterUsageResponse = { account: {}, rateLimitsAvailable: false, windows: [] };
+    if (!this.started) await this.start();
+    const handle = this.queryHandle;
+    if (!handle) return { ...empty, error: "Claude Code is not available." };
+    try {
+      const usageMethod = handle.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET;
+      const [account, usage] = await Promise.all([
+        typeof handle.accountInfo === "function" ? handle.accountInfo().catch(() => undefined) : undefined,
+        typeof usageMethod === "function" ? usageMethod.call(handle).catch(() => undefined) : undefined,
+      ]);
+      return buildUsageResponse(account, usage);
+    } catch (error) {
+      return { ...empty, error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
+  /**
    * Tear the session down. `persistTranscript` keeps the transcript on disk
    * (graceful shutdown / deactivate); when `false` the transcript file is
    * removed instead (a new chat starts clean).
@@ -830,6 +855,11 @@ export class SessionManager {
   /** Re-run the last user turn after a failure; reports whether it was accepted. */
   async retry(clusterId: string): Promise<"accepted" | "nothing_to_retry"> {
     return this.getOrCreate(clusterId).retry();
+  }
+
+  /** The `/usage` data for a cluster; initializes the session if needed. */
+  async getClusterUsage(clusterId: string): Promise<ClusterUsageResponse> {
+    return this.getOrCreate(clusterId).getUsage();
   }
 
   /** Resolve a pending approval identified only by its request id. */

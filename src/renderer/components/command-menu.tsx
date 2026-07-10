@@ -13,6 +13,8 @@ interface CommandMenuProps {
   compactDisabled: boolean;
   /** Insert the chosen slash command into the composer. */
   onCommand: (name: string) => void;
+  /** Open the Account & Usage dialog (`/usage`). */
+  onUsage: () => void;
   /** Clear the conversation (New chat). */
   onClearConversation: () => void;
   /** Compact the conversation (native `/compact`). */
@@ -29,6 +31,7 @@ export function CommandMenu({
   commands,
   compactDisabled,
   onCommand,
+  onUsage,
   onClearConversation,
   onCompact,
 }: CommandMenuProps) {
@@ -73,6 +76,16 @@ export function CommandMenu({
         <div className={styles.popover}>
           <div className={styles.group}>
             <div className={styles.groupLabel}>Context</div>
+            <button
+              type="button"
+              className={styles.item}
+              onMouseDown={(event) => {
+                event.preventDefault();
+                run(onUsage);
+              }}
+            >
+              Account &amp; Usage...
+            </button>
             <button
               type="button"
               className={styles.item}

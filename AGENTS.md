@@ -57,7 +57,7 @@ src/
     session-store.ts       # ChatSessionStore: per-cluster sessionId + permission mode + model
     preferences-store.ts   # PreferencesStore: pod logs, agent rules, path override, default model, MCP config, subagents, prompt shortcuts
     prompt-shortcuts.ts    # built-in quick-prompt chips + parser for the promptShortcuts preference (renderer-free)
-    protocol.ts            # shared request/response and SSE event types (usage, compaction, model, retry, thinking, local command output, parentCallId, mcp/slash meta)
+    protocol.ts            # shared request/response and SSE event types (usage, compaction, model, retry, thinking, local command output, parentCallId, mcp/slash meta); ClusterUsageResponse (/usage dialog data)
   main/
     index.ts               # onActivate: start bridge + stores (incl. preferences); onDeactivate: stop it
     claude/
@@ -66,8 +66,9 @@ src/
       permission-broker.ts # permission modes + approval request/resolve (mutating + consent-required reads + external MCP tools)
       mcp-config.ts        # parse/validate Claude-Desktop-style user MCP JSON into SDK server configs (never throws)
       subagents.ts         # cluster-analyzer definition: read-only investigator subagent
+      usage.ts             # buildUsageResponse: shape SDK accountInfo + /usage data into ClusterUsageResponse
     bridge/
-      server.ts            # node:http server, routing, bearer auth, CORS, SSE, permission/model/retry routes
+      server.ts            # node:http server, routing, bearer auth, CORS, SSE, permission/model/retry/usage routes
     tools/
       kube-client.ts       # KubeConfig + typed API surface from the cluster catalog entity
       kube-format.ts       # YAML, managedFields stripping, truncation, selectFields, toDiff
@@ -89,7 +90,7 @@ src/
   renderer/
     index.tsx              # clusterPages, clusterPageMenus, appPreferences, kubeObjectMenuItems
     api/
-      bridge-client.ts     # fetch wrapper + SSE reader; resolvePermission, setPermissionMode, setModel, retry
+      bridge-client.ts     # fetch wrapper + SSE reader; resolvePermission, setPermissionMode, setModel, retry, getUsage
       pending-prompt.ts    # module-scoped handoff between "Ask Claude" menu entries and the chat page
     components/
       chat-page.tsx        # page: onboarding gate or chat view
@@ -102,6 +103,7 @@ src/
       onboarding.tsx       # Claude Code missing / not detected panel
       slash-menu.tsx       # slash-command autocomplete popup shown above the input
       command-menu.tsx     # "[/]" composer widget popover (Context group + Slash Commands list)
+      usage-dialog.tsx     # Account & Usage modal (/usage): account, plan rate-limit windows, contributing breakdown
       *.module.scss        # component styles (SCSS modules)
     icons/
       claude-icon.tsx      # cluster page menu icon
