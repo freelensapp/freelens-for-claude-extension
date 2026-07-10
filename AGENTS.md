@@ -48,14 +48,7 @@ pnpm clean:all            # Clean everything (dts, node_modules, out, tgz)
 
 The extension embeds a Claude-powered chat in Freelens. The main process runs
 the Claude Agent SDK (which spawns the user's own Claude Code) and exposes a
-local HTTP/SSE bridge; the renderer is a per-cluster chat page. See the approved
-plan in [docs/PLAN.md](./docs/PLAN.md), the M0 spec in
-[docs/M0.md](./docs/M0.md), the M1 spec (tool and safety parity) in
-[docs/M1.md](./docs/M1.md), the M2 spec (UX parity) in
-[docs/M2.md](./docs/M2.md), and the M3 spec (user MCP passthrough,
-cluster-analyzer subagent, slash commands, prompt shortcuts, direct
-kubectl/helm tools, Available Tools panel, reasoning fold) in
-[docs/M3.md](./docs/M3.md).
+local HTTP/SSE bridge; the renderer is a per-cluster chat page.
 
 ```text
 src/
@@ -117,10 +110,10 @@ src/
 Build output goes to `out/`. The Agent SDK and `@kubernetes/client-node` are
 bundled but must only be imported from `src/main/**` (never the renderer).
 
-### CRD KubeObject template (not used by M0/M1/M2)
+### CRD KubeObject template (not shipped by this extension)
 
 The `## CRD KubeObject Pattern` and gateway-api sections below document the
-upstream extension template's example CRD layout. M0/M1/M2 do not ship any CRD
+upstream extension template's example CRD layout. This extension ships no CRD
 models; keep the pattern notes for reference if CRD views are added later.
 
 ## CRD KubeObject Pattern

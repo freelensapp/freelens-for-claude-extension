@@ -22,9 +22,6 @@ Claude Code binary already installed on your machine and inherits whatever
 authentication it uses. Billing is whatever your Claude Code uses — a Claude
 subscription or API usage — and the extension never sees your credentials.
 
-See [docs/PLAN.md](./docs/PLAN.md) for the design decisions behind this
-approach.
-
 This is a community project, not an official Anthropic product. The name
 "Freelens for Claude" uses the "Claude" trademark nominatively to describe
 what the extension works with; it does not imply endorsement by or

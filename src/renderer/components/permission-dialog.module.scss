@@ -11,11 +11,42 @@
 }
 
 .header {
+  display: flex;
+  align-items: center;
+  gap: 0.4em;
   padding: 0.4em 0.8em;
   font-weight: 600;
   letter-spacing: 0.03em;
   background: rgba(229, 192, 123, 0.18);
   color: var(--colorWarning, #e5c07b);
+}
+
+.warnIcon {
+  flex: none;
+  color: var(--colorWarning, #e5c07b);
+}
+
+.codeWrap {
+  position: relative;
+}
+
+.copyButton {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  z-index: 1;
+  padding: 2px 8px;
+  font-size: 0.75em;
+  cursor: pointer;
+  border: none;
+  border-radius: 3px;
+  background: rgba(127, 127, 127, 0.3);
+  color: inherit;
+  opacity: 0.7;
+
+  &:hover {
+    opacity: 1;
+  }
 }
 
 .section {
@@ -104,9 +135,15 @@
   display: flex;
   align-items: center;
   gap: 0.5em;
+  width: 100%;
   padding: 0.4em 0.8em;
   cursor: pointer;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
   font-size: 0.85em;
+  text-align: left;
 }
 
 .resolvedTitle {

@@ -3,6 +3,7 @@
  * Licensed under MIT License. See LICENSE in root directory for more information.
  */
 
+import { Renderer } from "@freelensapp/extensions";
 import { useEffect, useReducer, useRef, useState } from "react";
 import { PreferencesStore } from "../../common/preferences-store";
 import { BUILTIN_PROMPT_SHORTCUTS, parsePromptShortcuts } from "../../common/prompt-shortcuts";
@@ -27,6 +28,11 @@ import type {
 import type { BridgeClient } from "../api/bridge-client";
 import type { ToolChild } from "./tool-card";
 
+const { Icon } = Renderer.Component;
+
+/** The composer textarea grows from one line up to roughly this many. */
+const MAX_TEXTAREA_HEIGHT = 9;
+
 interface ChatViewProps {
   clusterId: string;
   client: BridgeClient;
@@ -36,7 +42,7 @@ type PermissionRequest = SessionEventMap["permission_request"];
 
 type ChatItem =
   | { kind: "user"; text: string }
-  | { kind: "assistant"; text: string }
+  | { kind: "assistant"; text: string; reasoning?: string }
   | { kind: "tool"; callId: string; toolName: string; input: unknown; result?: string; children?: ToolChild[] }
   | { kind: "tool_call"; toolName: string }
   | { kind: "tool_result"; toolName: string; summary: string }
@@ -105,7 +111,7 @@ function reducer(state: ChatState, action: ChatAction): ChatState {
     case "assistant_message":
       return {
         ...state,
-        items: [...state.items, { kind: "assistant", text: action.data.text }],
+        items: [...state.items, { kind: "assistant", text: action.data.text, reasoning: action.data.reasoning }],
         draft: "",
         draftReasoning: "",
       };
@@ -185,7 +191,16 @@ function reducer(state: ChatState, action: ChatAction): ChatState {
     case "compaction":
       return {
         ...state,
-        items: [...state.items, { kind: "notice", text: "Conversation compacted to save context" }],
+        items: [
+          ...state.items,
+          {
+            kind: "notice",
+            text:
+              action.data.trigger === "manual"
+                ? "Conversation compacted manually"
+                : "Conversation compacted automatically to save context",
+          },
+        ],
       };
     case "local_command_output":
       return {
@@ -206,9 +221,13 @@ function reducer(state: ChatState, action: ChatAction): ChatState {
             : item,
         ),
       };
-    case "session_meta":
+    case "session_meta": {
+      // The first meta that reports a resumed session drops a one-time notice
+      // into the transcript, replacing the old status-strip "resumed" label.
+      const justResumed = action.data.resumed && !state.resumed;
       return {
         ...state,
+        items: justResumed ? [...state.items, { kind: "notice", text: "Conversation resumed" }] : state.items,
         mode: action.data.permissionMode,
         resumed: action.data.resumed,
         model: action.data.model,
@@ -216,8 +235,16 @@ function reducer(state: ChatState, action: ChatAction): ChatState {
         // Keep previously-known commands when a later meta event omits them.
         slashCommands: action.data.slashCommands ?? state.slashCommands,
       };
+    }
     case "turn_complete": {
-      const items = state.draft ? [...state.items, { kind: "assistant" as const, text: state.draft }] : state.items;
+      // A fallback assistant item is only synthesized when streamed text was
+      // never sealed into an assistant_message; carry its reasoning along.
+      const items = state.draft
+        ? [
+            ...state.items,
+            { kind: "assistant" as const, text: state.draft, reasoning: state.draftReasoning || undefined },
+          ]
+        : state.items;
       return { ...state, items, draft: "", draftReasoning: "", working: false };
     }
     case "error":
@@ -282,6 +309,8 @@ export function ChatView({ clusterId, client }: ChatViewProps) {
   const [menuIndex, setMenuIndex] = useState(0);
   const [menuDismissed, setMenuDismissed] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [atBottom, setAtBottom] = useState(true);
   const workingRef = useRef(state.working);
   workingRef.current = state.working;
 
@@ -336,9 +365,34 @@ export function ChatView({ clusterId, client }: ChatViewProps) {
     return close;
   }, [clusterId, client, epoch]);
 
+  // Stick-to-bottom: only follow new content when the user is already parked
+  // near the bottom; otherwise leave their scroll position alone.
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
-  }, [state.items, state.draft, state.draftReasoning]);
+    if (atBottom) scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+  }, [state.items, state.draft, state.draftReasoning, atBottom]);
+
+  const onTranscriptScroll = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
+    setAtBottom(distance < 80);
+  };
+
+  const jumpToLatest = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight });
+    setAtBottom(true);
+  };
+
+  // Auto-grow the composer textarea from one line up to the cap, then scroll.
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    const lineHeight = Number.parseFloat(getComputedStyle(el).lineHeight) || 20;
+    el.style.height = `${Math.min(el.scrollHeight, lineHeight * MAX_TEXTAREA_HEIGHT)}px`;
+  }, [input]);
 
   const newChat = async () => {
     await client.disposeSession(clusterId);
@@ -357,6 +411,12 @@ export function ChatView({ clusterId, client }: ChatViewProps) {
     }
     setInput("");
     await sendText(text);
+  };
+
+  // Manual compaction: send the native `/compact` command. Guarded by the button
+  // being disabled while a turn is in flight or before any usage has accrued.
+  const compact = () => {
+    void sendText("/compact");
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -443,84 +503,102 @@ export function ChatView({ clusterId, client }: ChatViewProps) {
 
   return (
     <div className={styles.chatView}>
-      <div className={styles.transcript} ref={scrollRef}>
-        {state.items.map((item, index) => {
-          const key = `${index}-${item.kind}`;
-          if (item.kind === "user") {
-            return (
-              <div key={key} className={styles.userBubble}>
-                {item.text}
-              </div>
-            );
-          }
-          if (item.kind === "assistant") {
-            return (
-              <div key={key} className={styles.assistantBubble}>
-                <Markdown>{item.text}</Markdown>
-              </div>
-            );
-          }
-          if (item.kind === "tool") {
-            return (
-              <ToolCard
-                key={item.callId}
-                toolName={item.toolName}
-                input={item.input}
-                result={item.result}
-                childCalls={item.children}
-              />
-            );
-          }
-          if (item.kind === "tool_call") {
-            return <ToolNotice key={key} label={`Calling ${item.toolName}...`} />;
-          }
-          if (item.kind === "notice") {
-            return <ToolNotice key={key} label={item.text} />;
-          }
-          if (item.kind === "local_command") {
-            return (
-              <pre key={key} className={styles.localCommand}>
-                {item.content}
-              </pre>
-            );
-          }
-          if (item.kind === "session_error") {
-            return (
-              <div key={key} className={styles.errorItem}>
-                <div>{item.message}</div>
-                {item.errorKind === "auth" ? (
-                  <div className={styles.errorHint}>
-                    Run <code>claude</code> in a terminal to log in, then start a new chat.
-                  </div>
-                ) : null}
-                {item.canRetry && index === lastIndex && !state.working ? (
-                  <button type="button" className={styles.retryButton} onClick={retry}>
-                    Retry
-                  </button>
-                ) : null}
-              </div>
-            );
-          }
-          if (item.kind === "permission") {
-            return (
-              <PermissionDialog
-                key={item.requestId}
-                request={item.request}
-                resolution={item.resolution}
-                onResolve={(behavior) => resolvePermission(item.requestId, behavior)}
-              />
-            );
-          }
-          return <ToolNotice key={key} label={`${item.toolName} returned`} />;
-        })}
+      <div className={styles.transcriptWrap}>
+        <div className={styles.transcript} ref={scrollRef} onScroll={onTranscriptScroll}>
+          {state.items.map((item, index) => {
+            const key = `${index}-${item.kind}`;
+            if (item.kind === "user") {
+              return (
+                <div key={key} className={styles.userBubble}>
+                  {item.text}
+                </div>
+              );
+            }
+            if (item.kind === "assistant") {
+              return (
+                <div key={key} className={styles.assistantBubble}>
+                  {item.reasoning ? (
+                    <ReasoningFold reasoning={item.reasoning} hasAnswer={item.text.length > 0} />
+                  ) : null}
+                  <Markdown>{item.text}</Markdown>
+                </div>
+              );
+            }
+            if (item.kind === "tool") {
+              return (
+                <ToolCard
+                  key={item.callId}
+                  toolName={item.toolName}
+                  input={item.input}
+                  result={item.result}
+                  childCalls={item.children}
+                />
+              );
+            }
+            if (item.kind === "tool_call") {
+              return <ToolNotice key={key} label={`Calling ${item.toolName}...`} />;
+            }
+            if (item.kind === "notice") {
+              return <ToolNotice key={key} label={item.text} />;
+            }
+            if (item.kind === "local_command") {
+              return (
+                <pre key={key} className={styles.localCommand}>
+                  {item.content}
+                </pre>
+              );
+            }
+            if (item.kind === "session_error") {
+              return (
+                <div key={key} className={styles.errorItem}>
+                  <div>{item.message}</div>
+                  {item.errorKind === "auth" ? (
+                    <div className={styles.errorHint}>
+                      Run <code>claude</code> in a terminal to log in, then start a new chat.
+                    </div>
+                  ) : null}
+                  {item.canRetry && index === lastIndex && !state.working ? (
+                    <button type="button" className={styles.retryButton} onClick={retry}>
+                      Retry
+                    </button>
+                  ) : null}
+                </div>
+              );
+            }
+            if (item.kind === "permission") {
+              return (
+                <PermissionDialog
+                  key={item.requestId}
+                  request={item.request}
+                  resolution={item.resolution}
+                  onResolve={(behavior) => resolvePermission(item.requestId, behavior)}
+                />
+              );
+            }
+            return <ToolNotice key={key} label={`${item.toolName} returned`} />;
+          })}
 
-        {state.draft || state.draftReasoning ? (
-          <div className={styles.assistantBubble}>
-            {state.draftReasoning ? (
-              <ReasoningFold reasoning={state.draftReasoning} hasAnswer={state.draft.length > 0} />
-            ) : null}
-            {state.draft ? <Markdown>{state.draft}</Markdown> : null}
-          </div>
+          {state.draft || state.draftReasoning ? (
+            <div className={styles.assistantBubble}>
+              {state.draftReasoning ? (
+                <ReasoningFold reasoning={state.draftReasoning} hasAnswer={state.draft.length > 0} />
+              ) : null}
+              {state.draft ? <Markdown>{state.draft}</Markdown> : null}
+            </div>
+          ) : null}
+
+          {state.working && !state.draft && !state.draftReasoning ? (
+            <div className={styles.thinking} aria-label="Thinking">
+              <span />
+              <span />
+              <span />
+            </div>
+          ) : null}
+        </div>
+        {!atBottom ? (
+          <button type="button" className={styles.jumpButton} onClick={jumpToLatest}>
+            Jump to latest
+          </button>
         ) : null}
       </div>
 
@@ -534,57 +612,6 @@ export function ChatView({ clusterId, client }: ChatViewProps) {
           ) : null}
         </div>
       ) : null}
-
-      <div className={styles.statusStrip}>
-        <div className={styles.statusLeft}>
-          {state.working ? <span className={styles.workingIndicator}>Working...</span> : null}
-          {state.resumed ? <span className={styles.resumedNotice}>conversation resumed</span> : null}
-          {state.usage ? (
-            <span
-              className={styles.usage}
-              title="Tokens used this session (input, cached input, output). Resets when the chat is cleared."
-            >
-              {formatUsage(state.usage)}
-            </span>
-          ) : null}
-        </div>
-        <div className={styles.actions}>
-          <label className={styles.modeSelector}>
-            Model:
-            <select className={styles.modeSelect} value={state.model ?? ""} onChange={changeModel}>
-              <option value="">{defaultLabel}</option>
-              {MODEL_CHOICES.map((model) => (
-                <option key={model} value={model}>
-                  {model}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className={styles.modeSelector}>
-            Mode:
-            <select
-              className={state.mode === "acceptAll" ? `${styles.modeSelect} ${styles.modeWarning}` : styles.modeSelect}
-              value={state.mode}
-              onChange={changeMode}
-            >
-              {(Object.keys(MODE_LABELS) as PermissionMode[]).map((mode) => (
-                <option key={mode} value={mode}>
-                  {MODE_LABELS[mode]}
-                </option>
-              ))}
-            </select>
-          </label>
-          <ToolsPanel clusterId={clusterId} client={client} />
-          {state.working ? (
-            <button type="button" className={styles.secondaryButton} onClick={stop}>
-              Stop
-            </button>
-          ) : null}
-          <button type="button" className={styles.secondaryButton} onClick={() => void newChat()}>
-            New chat
-          </button>
-        </div>
-      </div>
 
       {showShortcuts ? (
         <div className={styles.shortcuts}>
@@ -601,26 +628,79 @@ export function ChatView({ clusterId, client }: ChatViewProps) {
         </div>
       ) : null}
 
-      <div className={styles.inputRow}>
-        <div className={styles.inputWrap}>
+      <div className={styles.composer}>
+        <div className={styles.composerText}>
           {menuOpen ? <SlashMenu matches={slashMatches} selected={menuSelected} onSelect={completeCommand} /> : null}
           <textarea
+            ref={textareaRef}
             className={styles.input}
             value={input}
-            placeholder="Ask about this cluster..."
+            placeholder="Write a message about this cluster..."
             onChange={(event) => changeInput(event.target.value)}
             onKeyDown={onKeyDown}
-            rows={2}
+            rows={1}
           />
         </div>
-        <button
-          type="button"
-          className={styles.sendButton}
-          onClick={() => void send()}
-          disabled={state.working || input.trim().length === 0}
-        >
-          Send
-        </button>
+        <div className={styles.composerControls}>
+          <div className={styles.composerLeft}>
+            <Icon material="add" small interactive tooltip="New chat" onClick={() => void newChat()} />
+            <Icon
+              material="compress"
+              small
+              interactive
+              tooltip="Compact the conversation"
+              disabled={state.working || !state.usage}
+              onClick={compact}
+            />
+            <ToolsPanel clusterId={clusterId} client={client} />
+          </div>
+          <div className={styles.composerRight}>
+            {state.usage ? (
+              <span
+                className={styles.usage}
+                title="Tokens used this session (input, cached input, output). Resets when the chat is cleared."
+              >
+                {formatUsage(state.usage)}
+              </span>
+            ) : null}
+            <select
+              className={styles.modeSelect}
+              value={state.model ?? ""}
+              onChange={changeModel}
+              title="Model"
+              aria-label="Model"
+            >
+              <option value="">{defaultLabel}</option>
+              {MODEL_CHOICES.map((model) => (
+                <option key={model} value={model}>
+                  {model}
+                </option>
+              ))}
+            </select>
+            <select
+              className={state.mode === "acceptAll" ? `${styles.modeSelect} ${styles.modeWarning}` : styles.modeSelect}
+              value={state.mode}
+              onChange={changeMode}
+              title="Approval mode"
+              aria-label="Approval mode"
+            >
+              {(Object.keys(MODE_LABELS) as PermissionMode[]).map((mode) => (
+                <option key={mode} value={mode}>
+                  {MODE_LABELS[mode]}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              className={styles.sendButton}
+              onClick={() => (state.working ? stop() : void send())}
+              disabled={!state.working && input.trim().length === 0}
+              aria-label={state.working ? "Stop" : "Send"}
+            >
+              <Icon material={state.working ? "stop" : "send"} small />
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );

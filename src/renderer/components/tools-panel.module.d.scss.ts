@@ -1,6 +1,5 @@
 declare const classNames: {
   readonly container: "container";
-  readonly toggleButton: "toggleButton";
   readonly popover: "popover";
   readonly group: "group";
   readonly groupLabel: "groupLabel";

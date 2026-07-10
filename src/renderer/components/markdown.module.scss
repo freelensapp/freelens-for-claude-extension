@@ -29,6 +29,17 @@
   }
 }
 
+// Inline code (backticks): a subtle chip at full text contrast, never dimmed.
+.inlineCode {
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+  background: var(--colorVague, rgba(127, 127, 127, 0.18));
+  color: var(--textColorPrimary, inherit);
+  font-family: var(--font-monospace, monospace);
+  font-size: 0.9em;
+  word-break: break-word;
+}
+
 .codeBlock {
   position: relative;
   margin: 0.5em 0;
@@ -37,8 +48,8 @@
     overflow-x: auto;
     padding: 0.6em 0.8em;
     border-radius: 4px;
-    background: var(--colorInfo, rgba(127, 127, 127, 0.15));
-    background: rgba(127, 127, 127, 0.15);
+    background: var(--mainBackground, rgba(127, 127, 127, 0.15));
+    border: 1px solid var(--borderColor, rgba(127, 127, 127, 0.25));
   }
 }
 

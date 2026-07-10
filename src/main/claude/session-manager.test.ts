@@ -247,6 +247,52 @@ describe("reasoning fold", () => {
     expect(thinking?.type === "assistant_thinking" && thinking.data.delta).toBe("let me think");
   });
 
+  it("attaches accumulated reasoning to the next assistant message and resets after it", async () => {
+    const manager = makeManager();
+    const events: SessionEvent[] = [];
+    manager.subscribe("t3", (event) => events.push(event));
+    await manager.sendMessage("t3", "hello");
+    const q = sdk.queries.at(-1);
+    q?.emit({
+      type: "stream_event",
+      event: { type: "content_block_delta", delta: { type: "thinking_delta", thinking: "step 1 " } },
+    });
+    q?.emit({
+      type: "stream_event",
+      event: { type: "content_block_delta", delta: { type: "thinking_delta", thinking: "step 2" } },
+    });
+    q?.emit({ type: "assistant", message: { content: [{ type: "text", text: "the answer" }] } });
+    await flush();
+
+    const message = events.find((event) => event.type === "assistant_message");
+    expect(message?.type === "assistant_message" && message.data.text).toBe("the answer");
+    expect(message?.type === "assistant_message" && message.data.reasoning).toBe("step 1 step 2");
+
+    // A later text block in the same turn carries no leftover reasoning.
+    q?.emit({ type: "assistant", message: { content: [{ type: "text", text: "second" }] } });
+    await flush();
+    const second = events.filter((event) => event.type === "assistant_message").at(-1);
+    expect(second?.type === "assistant_message" && second.data.reasoning).toBeUndefined();
+  });
+
+  it("persists reasoning with the assistant message so it replays after a remount", async () => {
+    const manager = makeManager();
+    manager.subscribe("t5", () => {});
+    await manager.sendMessage("t5", "hello");
+    const q = sdk.queries.at(-1);
+    q?.emit({
+      type: "stream_event",
+      event: { type: "content_block_delta", delta: { type: "thinking_delta", thinking: "durable" } },
+    });
+    q?.emit({ type: "assistant", message: { content: [{ type: "text", text: "answer" }] } });
+    await flush();
+
+    const replay: SessionEvent[] = [];
+    manager.subscribe("t5", (event) => replay.push(event));
+    const message = replay.find((event) => event.type === "assistant_message");
+    expect(message?.type === "assistant_message" && message.data.reasoning).toBe("durable");
+  });
+
   it("does not persist assistant_thinking for replay", async () => {
     const manager = makeManager();
     manager.subscribe("t2", () => {});

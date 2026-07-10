@@ -1,6 +1,8 @@
 declare const classNames: {
   readonly chatView: "chatView";
+  readonly transcriptWrap: "transcriptWrap";
   readonly transcript: "transcript";
+  readonly jumpButton: "jumpButton";
   readonly userBubble: "userBubble";
   readonly assistantBubble: "assistantBubble";
   readonly toolNotice: "toolNotice";
@@ -12,21 +14,18 @@ declare const classNames: {
   readonly errorItem: "errorItem";
   readonly retryButton: "retryButton";
   readonly errorHint: "errorHint";
-  readonly statusStrip: "statusStrip";
-  readonly statusLeft: "statusLeft";
-  readonly workingIndicator: "workingIndicator";
-  readonly resumedNotice: "resumedNotice";
+  readonly thinking: "thinking";
   readonly usage: "usage";
-  readonly actions: "actions";
-  readonly modeSelector: "modeSelector";
   readonly modeSelect: "modeSelect";
   readonly modeWarning: "modeWarning";
-  readonly secondaryButton: "secondaryButton";
   readonly shortcuts: "shortcuts";
   readonly chip: "chip";
-  readonly inputRow: "inputRow";
-  readonly inputWrap: "inputWrap";
+  readonly composer: "composer";
+  readonly composerText: "composerText";
   readonly input: "input";
+  readonly composerControls: "composerControls";
+  readonly composerLeft: "composerLeft";
+  readonly composerRight: "composerRight";
   readonly sendButton: "sendButton";
 };
 export = classNames;

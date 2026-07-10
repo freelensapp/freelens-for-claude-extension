@@ -1,7 +1,6 @@
 .card {
-  align-self: flex-start;
-  max-width: 90%;
-  border: 1px solid rgba(127, 127, 127, 0.25);
+  align-self: stretch;
+  border: 1px solid var(--borderColor, rgba(127, 127, 127, 0.25));
   border-radius: 6px;
   background: rgba(127, 127, 127, 0.06);
   overflow: hidden;
@@ -12,17 +11,22 @@
   display: flex;
   align-items: center;
   gap: 0.5em;
+  width: 100%;
   padding: 0.35em 0.7em;
   cursor: pointer;
-  list-style: none;
-
-  &::-webkit-details-marker {
-    display: none;
-  }
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
 }
 
-.toolName {
-  font-family: var(--font-monospace, monospace);
+.toolIcon {
+  flex: none;
+  opacity: 0.75;
+}
+
+.title {
   font-weight: 600;
 }
 
@@ -34,14 +38,32 @@
   white-space: nowrap;
 }
 
-.subagentTag {
-  font-size: 0.75em;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  padding: 0.05em 0.4em;
-  border-radius: 3px;
-  background: rgba(61, 144, 206, 0.2);
-  color: var(--colorInfo, #3d90ce);
+// Status affordance pinned to the trailing edge of the collapsed header.
+.status {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+}
+
+.doneCheck {
+  opacity: 0.5;
+}
+
+.errorIcon {
+  color: var(--colorError, #e06c75);
+}
+
+.errorCard {
+  border-color: var(--colorError, #e06c75);
+}
+
+// The raw tool name kept visible in the expanded body.
+.rawName {
+  font-family: var(--font-monospace, monospace);
+  font-size: 0.85em;
+  opacity: 0.6;
+  margin-bottom: 0.2em;
 }
 
 .children {
@@ -81,17 +103,4 @@
   letter-spacing: 0.05em;
   opacity: 0.6;
   margin: 0.4em 0 0.2em;
-}
-
-.code {
-  margin: 0;
-  padding: 0.5em;
-  border-radius: 4px;
-  background: rgba(127, 127, 127, 0.12);
-  font-family: var(--font-monospace, monospace);
-  font-size: 0.9em;
-  white-space: pre-wrap;
-  word-break: break-word;
-  overflow-x: auto;
-  max-height: 20em;
 }

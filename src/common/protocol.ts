@@ -97,7 +97,8 @@ export interface SessionEventMap {
   assistant_delta: { text: string };
   /** Live-only reasoning deltas, accumulated into the streaming answer's fold; not persisted. */
   assistant_thinking: { delta: string };
-  assistant_message: { text: string };
+  /** A completed assistant message; `reasoning` carries the turn's accumulated thinking (persisted). */
+  assistant_message: { text: string; reasoning?: string };
   /** Printable output of a native Claude Code slash command (e.g. `/compact`). Persisted. */
   local_command_output: { content: string };
   /**

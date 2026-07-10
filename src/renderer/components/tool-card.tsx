@@ -3,7 +3,13 @@
  * Licensed under MIT License. See LICENSE in root directory for more information.
  */
 
+import { Renderer } from "@freelensapp/extensions";
+import { useState } from "react";
+import { stringify } from "yaml";
+import { CodeViewer } from "./code-viewer";
 import styles from "./tool-card.module.scss";
+
+const { Icon } = Renderer.Component;
 
 /** A subagent tool call rendered indented under the delegation card. */
 export interface ToolChild {
@@ -11,6 +17,32 @@ export interface ToolChild {
   toolName: string;
   input: unknown;
   result?: string;
+}
+
+/** Friendly title and Material icon for each known tool name. */
+const TOOL_DESCRIPTIONS: Record<string, { title: string; material: string }> = {
+  freelens_resources: { title: "Read resources", material: "search" },
+  freelens_pod_logs: { title: "Read pod logs", material: "subject" },
+  freelens_warning_events: { title: "Read warning events", material: "warning" },
+  freelens_cluster_version: { title: "Cluster version", material: "info" },
+  freelens_create_resource: { title: "Create resource", material: "add_box" },
+  freelens_update_resource: { title: "Update resource", material: "edit" },
+  freelens_patch_resource: { title: "Patch resource", material: "tune" },
+  freelens_delete_resource: { title: "Delete resource", material: "delete" },
+  freelens_delete_pod: { title: "Delete pod", material: "delete" },
+  freelens_rollout_restart: { title: "Rollout restart", material: "restart_alt" },
+  freelens_kubectl: { title: "Run kubectl", material: "terminal" },
+  freelens_helm: { title: "Run helm", material: "anchor" },
+  Agent: { title: "Subagent", material: "smart_toy" },
+};
+
+/** Map a tool name to a human title and icon; external MCP tools show `server: tool`. */
+function describeTool(toolName: string): { title: string; material: string } {
+  const known = TOOL_DESCRIPTIONS[toolName];
+  if (known) return known;
+  const mcp = /^mcp__(.+?)__(.+)$/.exec(toolName);
+  if (mcp) return { title: `${mcp[1]}: ${mcp[2]}`, material: "power" };
+  return { title: toolName, material: "build" };
 }
 
 interface ToolCardProps {
@@ -46,13 +78,30 @@ function summarizeArgs(input: unknown): string {
   return [kind, qualified].filter(Boolean).join(" ");
 }
 
-/** Render the tool input as a small YAML-ish block (JSON is close enough for a preview). */
-function renderInput(input: unknown): string {
+/** Render any value as YAML. Kubernetes speaks YAML, so tool inputs and JSON results are shown as YAML. */
+function toYaml(value: unknown): string {
   try {
-    return JSON.stringify(input, null, 2);
+    return stringify(value).replace(/\n$/, "");
   } catch {
-    return String(input);
+    return String(value);
   }
+}
+
+/**
+ * A result may already be YAML or plain text, or it may be JSON. When it parses
+ * as a JSON object or array, re-render it as YAML; otherwise show it verbatim.
+ */
+function resultToYaml(result: string): string {
+  const trimmed = result.trim();
+  if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (parsed && typeof parsed === "object") return toYaml(parsed);
+    } catch {
+      // Not JSON after all; fall through to the verbatim text.
+    }
+  }
+  return result.replace(/\n$/, "");
 }
 
 /**
@@ -63,33 +112,50 @@ function renderInput(input: unknown): string {
 export function ToolCard({ toolName, input, result, childCalls }: ToolCardProps) {
   const running = result === undefined;
   const isSubagent = toolName === SUBAGENT_TOOL_NAME;
+  const isError = !running && result.trimStart().startsWith("Error");
+  const { title, material } = describeTool(toolName);
   const description = isSubagent ? String(asRecord(input).description ?? "") : "";
   const summary = isSubagent ? description : summarizeArgs(input);
+  // A controlled disclosure (not a native <details>): the body mounts only when
+  // expanded, so its Monaco editors are not instantiated for every collapsed
+  // card, and a card cannot collapse to zero height as a flex item.
+  const [open, setOpen] = useState(false);
   return (
-    <details className={styles.card}>
-      <summary className={styles.header}>
-        <span className={styles.toolName}>{toolName}</span>
-        {isSubagent ? <span className={styles.subagentTag}>subagent</span> : null}
+    <div className={isError ? `${styles.card} ${styles.errorCard}` : styles.card}>
+      <button type="button" className={styles.header} onClick={() => setOpen((value) => !value)} aria-expanded={open}>
+        <Icon material={material} small className={styles.toolIcon} />
+        <span className={styles.title}>{title}</span>
         {summary ? <span className={styles.args}>{summary}</span> : null}
-        {running ? <span className={styles.runningDot} aria-label="running" /> : null}
-      </summary>
-      <div className={styles.body}>
-        <div className={styles.sectionLabel}>Input</div>
-        <pre className={styles.code}>{renderInput(input)}</pre>
-        {result !== undefined ? (
-          <>
-            <div className={styles.sectionLabel}>Result</div>
-            <pre className={styles.code}>{result || "(no output)"}</pre>
-          </>
-        ) : null}
-        {childCalls && childCalls.length > 0 ? (
-          <div className={styles.children}>
-            {childCalls.map((child) => (
-              <ToolCard key={child.callId} toolName={child.toolName} input={child.input} result={child.result} />
-            ))}
-          </div>
-        ) : null}
-      </div>
-    </details>
+        <span className={styles.status}>
+          {running ? (
+            <span className={styles.runningDot} aria-label="running" />
+          ) : isError ? (
+            <Icon material="error_outline" small className={styles.errorIcon} aria-label="error" />
+          ) : (
+            <Icon material="check" small className={styles.doneCheck} aria-label="done" />
+          )}
+        </span>
+      </button>
+      {open ? (
+        <div className={styles.body}>
+          <div className={styles.rawName}>{toolName}</div>
+          <div className={styles.sectionLabel}>Input</div>
+          <CodeViewer value={toYaml(input)} language="yaml" />
+          {result !== undefined ? (
+            <>
+              <div className={styles.sectionLabel}>Result</div>
+              <CodeViewer value={result ? resultToYaml(result) : "(no output)"} language="yaml" />
+            </>
+          ) : null}
+          {childCalls && childCalls.length > 0 ? (
+            <div className={styles.children}>
+              {childCalls.map((child) => (
+                <ToolCard key={child.callId} toolName={child.toolName} input={child.input} result={child.result} />
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
   );
 }
