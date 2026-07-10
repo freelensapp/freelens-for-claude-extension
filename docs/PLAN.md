@@ -3,9 +3,14 @@
 Status: **approved** — all open questions were resolved by the maintainer in
 issue [#7](https://github.com/freelensapp/freelens-for-claude-extension/issues/7);
 see [Resolved questions](#resolved-questions) at the end of this document.
-**M0 through M3 are delivered** and confirmed working by the maintainer.
-Next step: implement **M4** (documentation and release readiness) as
-specified in [M4.md](./M4.md).
+**All milestones (M0 through M4) are delivered.** M0 through M3 were
+confirmed working by the maintainer; M4 (documentation and release
+readiness) merged in
+[#24](https://github.com/freelensapp/freelens-for-claude-extension/pull/24).
+The remaining steps to a first release are maintainer actions documented in
+[RELEASE.md](./RELEASE.md): the pre-release checklist (manual smoke test,
+screenshots), cutting the release via the existing automation, and the D2
+contact with Anthropic before any public announcement.
 
 Process note: planning and analysis run on issues (Fable model);
 implementation runs on pull requests (Opus model).
@@ -314,7 +319,7 @@ kubectl and helm tools spawning the bundled binaries directly (D4), plus
 the Available Tools panel and reasoning fold deferred from M2. Detailed
 implementation specification: [M3.md](./M3.md).
 
-**M4 — documentation and release readiness.** README rewrite with full
+**M4 — documentation and release readiness (delivered).** README rewrite with full
 user documentation, package metadata polish with a verified minimum
 Freelens version, and a release process document covering the existing
 version/tag/publish automation and the pre-release checklist (including
