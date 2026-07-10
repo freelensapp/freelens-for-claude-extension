@@ -1,6 +1,5 @@
 .card {
-  align-self: flex-start;
-  max-width: 90%;
+  align-self: stretch;
   border: 1px solid var(--borderColor, rgba(127, 127, 127, 0.25));
   border-radius: 6px;
   background: rgba(127, 127, 127, 0.06);

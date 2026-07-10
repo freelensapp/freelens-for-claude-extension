@@ -1,6 +1,8 @@
 declare const classNames: {
   readonly chatView: "chatView";
+  readonly transcriptWrap: "transcriptWrap";
   readonly transcript: "transcript";
+  readonly jumpButton: "jumpButton";
   readonly userBubble: "userBubble";
   readonly assistantBubble: "assistantBubble";
   readonly toolNotice: "toolNotice";

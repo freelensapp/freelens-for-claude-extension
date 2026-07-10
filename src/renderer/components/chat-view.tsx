@@ -282,6 +282,7 @@ export function ChatView({ clusterId, client }: ChatViewProps) {
   const [menuIndex, setMenuIndex] = useState(0);
   const [menuDismissed, setMenuDismissed] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [atBottom, setAtBottom] = useState(true);
   const workingRef = useRef(state.working);
   workingRef.current = state.working;
 
@@ -336,9 +337,25 @@ export function ChatView({ clusterId, client }: ChatViewProps) {
     return close;
   }, [clusterId, client, epoch]);
 
+  // Stick-to-bottom: only follow new content when the user is already parked
+  // near the bottom; otherwise leave their scroll position alone.
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
-  }, [state.items, state.draft, state.draftReasoning]);
+    if (atBottom) scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+  }, [state.items, state.draft, state.draftReasoning, atBottom]);
+
+  const onTranscriptScroll = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
+    setAtBottom(distance < 80);
+  };
+
+  const jumpToLatest = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight });
+    setAtBottom(true);
+  };
 
   const newChat = async () => {
     await client.disposeSession(clusterId);
@@ -443,84 +460,91 @@ export function ChatView({ clusterId, client }: ChatViewProps) {
 
   return (
     <div className={styles.chatView}>
-      <div className={styles.transcript} ref={scrollRef}>
-        {state.items.map((item, index) => {
-          const key = `${index}-${item.kind}`;
-          if (item.kind === "user") {
-            return (
-              <div key={key} className={styles.userBubble}>
-                {item.text}
-              </div>
-            );
-          }
-          if (item.kind === "assistant") {
-            return (
-              <div key={key} className={styles.assistantBubble}>
-                <Markdown>{item.text}</Markdown>
-              </div>
-            );
-          }
-          if (item.kind === "tool") {
-            return (
-              <ToolCard
-                key={item.callId}
-                toolName={item.toolName}
-                input={item.input}
-                result={item.result}
-                childCalls={item.children}
-              />
-            );
-          }
-          if (item.kind === "tool_call") {
-            return <ToolNotice key={key} label={`Calling ${item.toolName}...`} />;
-          }
-          if (item.kind === "notice") {
-            return <ToolNotice key={key} label={item.text} />;
-          }
-          if (item.kind === "local_command") {
-            return (
-              <pre key={key} className={styles.localCommand}>
-                {item.content}
-              </pre>
-            );
-          }
-          if (item.kind === "session_error") {
-            return (
-              <div key={key} className={styles.errorItem}>
-                <div>{item.message}</div>
-                {item.errorKind === "auth" ? (
-                  <div className={styles.errorHint}>
-                    Run <code>claude</code> in a terminal to log in, then start a new chat.
-                  </div>
-                ) : null}
-                {item.canRetry && index === lastIndex && !state.working ? (
-                  <button type="button" className={styles.retryButton} onClick={retry}>
-                    Retry
-                  </button>
-                ) : null}
-              </div>
-            );
-          }
-          if (item.kind === "permission") {
-            return (
-              <PermissionDialog
-                key={item.requestId}
-                request={item.request}
-                resolution={item.resolution}
-                onResolve={(behavior) => resolvePermission(item.requestId, behavior)}
-              />
-            );
-          }
-          return <ToolNotice key={key} label={`${item.toolName} returned`} />;
-        })}
+      <div className={styles.transcriptWrap}>
+        <div className={styles.transcript} ref={scrollRef} onScroll={onTranscriptScroll}>
+          {state.items.map((item, index) => {
+            const key = `${index}-${item.kind}`;
+            if (item.kind === "user") {
+              return (
+                <div key={key} className={styles.userBubble}>
+                  {item.text}
+                </div>
+              );
+            }
+            if (item.kind === "assistant") {
+              return (
+                <div key={key} className={styles.assistantBubble}>
+                  <Markdown>{item.text}</Markdown>
+                </div>
+              );
+            }
+            if (item.kind === "tool") {
+              return (
+                <ToolCard
+                  key={item.callId}
+                  toolName={item.toolName}
+                  input={item.input}
+                  result={item.result}
+                  childCalls={item.children}
+                />
+              );
+            }
+            if (item.kind === "tool_call") {
+              return <ToolNotice key={key} label={`Calling ${item.toolName}...`} />;
+            }
+            if (item.kind === "notice") {
+              return <ToolNotice key={key} label={item.text} />;
+            }
+            if (item.kind === "local_command") {
+              return (
+                <pre key={key} className={styles.localCommand}>
+                  {item.content}
+                </pre>
+              );
+            }
+            if (item.kind === "session_error") {
+              return (
+                <div key={key} className={styles.errorItem}>
+                  <div>{item.message}</div>
+                  {item.errorKind === "auth" ? (
+                    <div className={styles.errorHint}>
+                      Run <code>claude</code> in a terminal to log in, then start a new chat.
+                    </div>
+                  ) : null}
+                  {item.canRetry && index === lastIndex && !state.working ? (
+                    <button type="button" className={styles.retryButton} onClick={retry}>
+                      Retry
+                    </button>
+                  ) : null}
+                </div>
+              );
+            }
+            if (item.kind === "permission") {
+              return (
+                <PermissionDialog
+                  key={item.requestId}
+                  request={item.request}
+                  resolution={item.resolution}
+                  onResolve={(behavior) => resolvePermission(item.requestId, behavior)}
+                />
+              );
+            }
+            return <ToolNotice key={key} label={`${item.toolName} returned`} />;
+          })}
 
-        {state.draft || state.draftReasoning ? (
-          <div className={styles.assistantBubble}>
-            {state.draftReasoning ? (
-              <ReasoningFold reasoning={state.draftReasoning} hasAnswer={state.draft.length > 0} />
-            ) : null}
-            {state.draft ? <Markdown>{state.draft}</Markdown> : null}
-          </div>
+          {state.draft || state.draftReasoning ? (
+            <div className={styles.assistantBubble}>
+              {state.draftReasoning ? (
+                <ReasoningFold reasoning={state.draftReasoning} hasAnswer={state.draft.length > 0} />
+              ) : null}
+              {state.draft ? <Markdown>{state.draft}</Markdown> : null}
+            </div>
+          ) : null}
+        </div>
+        {!atBottom ? (
+          <button type="button" className={styles.jumpButton} onClick={jumpToLatest}>
+            Jump to latest
+          </button>
         ) : null}
       </div>
 
