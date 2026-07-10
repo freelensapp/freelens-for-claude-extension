@@ -34,14 +34,52 @@ export interface SendMessageRequest {
   text: string;
 }
 
+/** A single plan rate-limit window (5-hour, 7-day, or per-model). */
+export interface UsageWindow {
+  /** Display label, e.g. "Session (5hr)", "Weekly (7 day)", "Weekly Fable". */
+  label: string;
+  /** Percentage of the window used, 0-100, or null when unknown. */
+  utilization: number | null;
+  /** ISO 8601 timestamp when the window resets, or null when unknown. */
+  resetsAt: string | null;
+}
+
+/** One behavioral characteristic contributing to limits usage. */
+export interface UsageBehavior {
+  /** Stable behavior key; the renderer maps it to a sentence and a tip. */
+  key: "cache_miss" | "long_context" | "subagent_heavy" | "high_parallel" | "cron";
+  /** Share of the weighted local usage attributed to this behavior, 0-100. */
+  pct: number;
+}
+
+/** "What's contributing to your limits usage?" data for one time window. */
+export interface UsageContributing {
+  behaviors: UsageBehavior[];
+}
+
 /**
- * Response of `GET /clusters/:id/tools`: the Available Tools panel data. The
- * built-in tools are always present; `mcp` lists external MCP servers (never
- * the built-in `freelens-kube`) and is empty when no query is live.
+ * Response of `GET /clusters/:id/usage`: the data behind the `/usage` command.
+ * Account details plus claude.ai plan rate-limit windows and the local
+ * "what's contributing" breakdown. Fetching initializes the cluster's Claude
+ * Code session (without running a turn). Fields are absent when the SDK cannot
+ * report them (API-key sessions have no plan limits; `contributing` is null for
+ * non-subscriber sessions or when the local scan fails).
  */
-export interface ClusterToolsResponse {
-  builtin: { name: string; description: string; mutating: boolean }[];
-  mcp: { name: string; status: string; tools: { name: string; description?: string }[] }[];
+export interface ClusterUsageResponse {
+  account: {
+    /** Human-readable auth method, e.g. "Claude AI" for a first-party login. */
+    authMethod?: string;
+    email?: string;
+    organization?: string;
+    /** Human-readable plan, e.g. "Claude Team". */
+    plan?: string;
+  };
+  /** False for API key / Bedrock / Vertex sessions where plan limits do not apply. */
+  rateLimitsAvailable: boolean;
+  windows: UsageWindow[];
+  contributing?: { day: UsageContributing; week: UsageContributing } | null;
+  /** Present when the usage data could not be fetched at all. */
+  error?: string;
 }
 
 /** Body of `POST /permissions/:requestId`. */

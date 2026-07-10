@@ -10,7 +10,7 @@ import { join } from "node:path";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { Common } from "@freelensapp/extensions";
 import {
-  type ClusterToolsResponse,
+  type ClusterUsageResponse,
   type PermissionBehavior,
   type PermissionMode,
   type SessionErrorKind,
@@ -22,7 +22,6 @@ import { disposeKubeClient, getKubeClient, type KubeClient } from "../tools/kube
 import { stripManagedFields, toYaml } from "../tools/kube-format";
 import {
   ALLOWED_TOOL_NAMES,
-  BUILTIN_TOOL_DESCRIPTORS,
   createKubeMcpServer,
   isKnownToolName,
   isMutatingToolName,
@@ -32,6 +31,7 @@ import {
 import { parseUserMcpConfig } from "./mcp-config";
 import { PermissionBroker, type ResolveResult } from "./permission-broker";
 import { buildAgents } from "./subagents";
+import { buildUsageResponse } from "./usage";
 
 import type { McpServerConfig, Query, SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 
@@ -250,30 +250,6 @@ class ClusterSession {
 
   getPermissionMode(): PermissionMode {
     return this.broker.getMode();
-  }
-
-  /**
-   * Live external MCP servers (never the built-in one) with their status and
-   * discovered tools, for the Available Tools panel. Returns `[]` when no query
-   * is live or the SDK cannot report status.
-   */
-  async getMcpServers(): Promise<ClusterToolsResponse["mcp"]> {
-    if (!this.queryHandle) return [];
-    try {
-      const statuses = await this.queryHandle.mcpServerStatus();
-      return statuses
-        .filter((server) => server.name !== MCP_SERVER_NAME)
-        .map((server) => ({
-          name: server.name,
-          status: server.status,
-          tools: (server.tools ?? []).map((entry) => ({
-            name: entry.name,
-            ...(entry.description ? { description: entry.description } : {}),
-          })),
-        }));
-    } catch {
-      return [];
-    }
   }
 
   setPermissionMode(mode: PermissionMode): void {
@@ -775,6 +751,29 @@ class ClusterSession {
   }
 
   /**
+   * The data behind `/usage`: account info plus claude.ai plan rate-limit
+   * windows and the local "what's contributing" breakdown. Initializes the
+   * session so the SDK control channel exists, but never pushes a turn (no
+   * token cost). Returns an `error` field when the data cannot be fetched.
+   */
+  async getUsage(): Promise<ClusterUsageResponse> {
+    const empty: ClusterUsageResponse = { account: {}, rateLimitsAvailable: false, windows: [] };
+    if (!this.started) await this.start();
+    const handle = this.queryHandle;
+    if (!handle) return { ...empty, error: "Claude Code is not available." };
+    try {
+      const usageMethod = handle.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET;
+      const [account, usage] = await Promise.all([
+        typeof handle.accountInfo === "function" ? handle.accountInfo().catch(() => undefined) : undefined,
+        typeof usageMethod === "function" ? usageMethod.call(handle).catch(() => undefined) : undefined,
+      ]);
+      return buildUsageResponse(account, usage);
+    } catch (error) {
+      return { ...empty, error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
+  /**
    * Tear the session down. `persistTranscript` keeps the transcript on disk
    * (graceful shutdown / deactivate); when `false` the transcript file is
    * removed instead (a new chat starts clean).
@@ -858,15 +857,9 @@ export class SessionManager {
     return this.getOrCreate(clusterId).retry();
   }
 
-  /**
-   * Available Tools panel data: the static built-in descriptors plus, when a
-   * query is live for the cluster, the external MCP servers and their tools.
-   */
-  async getClusterTools(clusterId: string): Promise<ClusterToolsResponse> {
-    const builtin = BUILTIN_TOOL_DESCRIPTORS.map((descriptor) => ({ ...descriptor }));
-    const session = this.sessions.get(clusterId);
-    const mcp = session ? await session.getMcpServers() : [];
-    return { builtin, mcp };
+  /** The `/usage` data for a cluster; initializes the session if needed. */
+  async getClusterUsage(clusterId: string): Promise<ClusterUsageResponse> {
+    return this.getOrCreate(clusterId).getUsage();
   }
 
   /** Resolve a pending approval identified only by its request id. */

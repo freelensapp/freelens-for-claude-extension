@@ -26,17 +26,11 @@ const retry = vi.fn(async (clusterId: string) =>
   clusterId === "busy" ? ("nothing_to_retry" as const) : ("accepted" as const),
 );
 
-const builtin = [
-  { name: "freelens_resources", description: "List or get resources.", mutating: false },
-  { name: "freelens_delete_pod", description: "Evict or delete a pod.", mutating: true },
-];
-
-const getClusterTools = vi.fn(async (clusterId: string) => ({
-  builtin,
-  mcp:
-    clusterId === "live"
-      ? [{ name: "github", status: "connected", tools: [{ name: "search", description: "Search." }] }]
-      : [],
+const getClusterUsage = vi.fn(async (_clusterId: string) => ({
+  account: { authMethod: "Claude AI", email: "user@example.com", plan: "Claude Team" },
+  rateLimitsAvailable: true,
+  windows: [{ label: "Session (5hr)", utilization: 10, resetsAt: null }],
+  contributing: null,
 }));
 
 const sessionManager = {
@@ -47,8 +41,8 @@ const sessionManager = {
   disposeAll: vi.fn(async () => {}),
   setPermissionMode: vi.fn(() => {}),
   setModel: vi.fn(() => {}),
-  getClusterTools,
   retry,
+  getClusterUsage,
   resolvePermission,
 } as unknown as SessionManager;
 
@@ -168,28 +162,6 @@ describe("model route", () => {
   });
 });
 
-const authedGet = (path: string) => fetch(`${baseUrl}${path}`, { headers: { Authorization: `Bearer ${TOKEN}` } });
-
-describe("tools route", () => {
-  it("returns built-in descriptors and an empty mcp list without a live query", async () => {
-    const response = await authedGet("/clusters/c1/tools");
-    expect(response.status).toBe(200);
-    const body = await response.json();
-    expect(body.builtin).toEqual(builtin);
-    expect(body.mcp).toEqual([]);
-    expect(getClusterTools).toHaveBeenCalledWith("c1");
-  });
-
-  it("includes external mcp servers when a query is live", async () => {
-    const response = await authedGet("/clusters/live/tools");
-    expect(response.status).toBe(200);
-    const body = await response.json();
-    expect(body.mcp).toEqual([
-      { name: "github", status: "connected", tools: [{ name: "search", description: "Search." }] },
-    ]);
-  });
-});
-
 describe("retry route", () => {
   it("returns 202 when a turn is queued", async () => {
     const response = await authedPost("/clusters/c1/retry", {});
@@ -200,5 +172,16 @@ describe("retry route", () => {
   it("returns 409 when there is nothing to retry", async () => {
     const response = await authedPost("/clusters/busy/retry", {});
     expect(response.status).toBe(409);
+  });
+});
+
+describe("usage route", () => {
+  it("returns the cluster usage data", async () => {
+    const response = await fetch(`${baseUrl}/clusters/c1/usage`, { headers: { Authorization: `Bearer ${TOKEN}` } });
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.account.email).toBe("user@example.com");
+    expect(body.windows).toEqual([{ label: "Session (5hr)", utilization: 10, resetsAt: null }]);
+    expect(getClusterUsage).toHaveBeenCalledWith("c1");
   });
 });

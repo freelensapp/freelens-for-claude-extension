@@ -5,7 +5,7 @@
 
 import { BridgeStore } from "../../common/bridge-store";
 import {
-  type ClusterToolsResponse,
+  type ClusterUsageResponse,
   decodeSseFrame,
   type PermissionBehavior,
   type PermissionMode,
@@ -60,13 +60,13 @@ export class BridgeClient {
     if (!response.ok) throw new Error(`send failed: ${response.status}`);
   }
 
-  /** Fetch the Available Tools panel data: built-in tools plus live MCP servers. */
-  async getTools(clusterId: string): Promise<ClusterToolsResponse> {
-    const response = await fetch(`${this.baseUrl}/clusters/${encodeURIComponent(clusterId)}/tools`, {
+  /** Fetch the `/usage` data: account, plan rate-limit windows, contributing breakdown. */
+  async getUsage(clusterId: string): Promise<ClusterUsageResponse> {
+    const response = await fetch(`${this.baseUrl}/clusters/${encodeURIComponent(clusterId)}/usage`, {
       headers: this.authHeader,
     });
-    if (!response.ok) throw new Error(`tools request failed: ${response.status}`);
-    return (await response.json()) as ClusterToolsResponse;
+    if (!response.ok) throw new Error(`usage request failed: ${response.status}`);
+    return (await response.json()) as ClusterUsageResponse;
   }
 
   async interrupt(clusterId: string): Promise<void> {

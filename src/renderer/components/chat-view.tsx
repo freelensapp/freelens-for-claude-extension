@@ -10,11 +10,12 @@ import { BUILTIN_PROMPT_SHORTCUTS, parsePromptShortcuts } from "../../common/pro
 import { MODEL_CHOICES } from "../../common/protocol";
 import { pendingPrompt } from "../api/pending-prompt";
 import styles from "./chat-view.module.scss";
+import { CommandMenu } from "./command-menu";
 import { Markdown } from "./markdown";
 import { PermissionDialog } from "./permission-dialog";
 import { SlashMenu } from "./slash-menu";
 import { ToolCard } from "./tool-card";
-import { ToolsPanel } from "./tools-panel";
+import { UsageDialog } from "./usage-dialog";
 
 import type { ChangeEvent, KeyboardEvent } from "react";
 
@@ -308,6 +309,7 @@ export function ChatView({ clusterId, client }: ChatViewProps) {
   const [epoch, setEpoch] = useState(0);
   const [menuIndex, setMenuIndex] = useState(0);
   const [menuDismissed, setMenuDismissed] = useState(false);
+  const [usageOpen, setUsageOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [atBottom, setAtBottom] = useState(true);
@@ -643,16 +645,17 @@ export function ChatView({ clusterId, client }: ChatViewProps) {
         </div>
         <div className={styles.composerControls}>
           <div className={styles.composerLeft}>
-            <Icon material="add" small interactive tooltip="New chat" onClick={() => void newChat()} />
-            <Icon
-              material="compress"
-              small
-              interactive
-              tooltip="Compact the conversation"
-              disabled={state.working || !state.usage}
-              onClick={compact}
+            <CommandMenu
+              commands={state.slashCommands ?? []}
+              compactDisabled={state.working || !state.usage}
+              onCommand={(name) => {
+                completeCommand(name);
+                textareaRef.current?.focus();
+              }}
+              onUsage={() => setUsageOpen(true)}
+              onClearConversation={() => void newChat()}
+              onCompact={compact}
             />
-            <ToolsPanel clusterId={clusterId} client={client} />
           </div>
           <div className={styles.composerRight}>
             {state.usage ? (
@@ -702,6 +705,8 @@ export function ChatView({ clusterId, client }: ChatViewProps) {
           </div>
         </div>
       </div>
+
+      {usageOpen ? <UsageDialog clusterId={clusterId} client={client} onClose={() => setUsageOpen(false)} /> : null}
     </div>
   );
 }
