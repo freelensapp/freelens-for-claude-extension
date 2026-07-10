@@ -13,6 +13,5 @@ declare const classNames: {
   readonly runningDot: "runningDot";
   readonly body: "body";
   readonly sectionLabel: "sectionLabel";
-  readonly code: "code";
 };
 export = classNames;

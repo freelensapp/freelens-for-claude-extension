@@ -11,13 +11,14 @@
   display: flex;
   align-items: center;
   gap: 0.5em;
+  width: 100%;
   padding: 0.35em 0.7em;
   cursor: pointer;
-  list-style: none;
-
-  &::-webkit-details-marker {
-    display: none;
-  }
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
 }
 
 .toolIcon {
@@ -102,16 +103,4 @@
   letter-spacing: 0.05em;
   opacity: 0.6;
   margin: 0.4em 0 0.2em;
-}
-
-.code {
-  margin: 0;
-  padding: 0.5em;
-  border-radius: 4px;
-  background: rgba(127, 127, 127, 0.12);
-  font-family: var(--font-monospace, monospace);
-  font-size: 0.9em;
-  white-space: pre-wrap;
-  word-break: break-word;
-  overflow-x: auto;
 }

@@ -4,6 +4,9 @@
  */
 
 import { Renderer } from "@freelensapp/extensions";
+import { useState } from "react";
+import { stringify } from "yaml";
+import { CodeViewer } from "./code-viewer";
 import styles from "./tool-card.module.scss";
 
 const { Icon } = Renderer.Component;
@@ -75,13 +78,30 @@ function summarizeArgs(input: unknown): string {
   return [kind, qualified].filter(Boolean).join(" ");
 }
 
-/** Render the tool input as a small YAML-ish block (JSON is close enough for a preview). */
-function renderInput(input: unknown): string {
+/** Render any value as YAML. Kubernetes speaks YAML, so tool inputs and JSON results are shown as YAML. */
+function toYaml(value: unknown): string {
   try {
-    return JSON.stringify(input, null, 2);
+    return stringify(value).replace(/\n$/, "");
   } catch {
-    return String(input);
+    return String(value);
   }
+}
+
+/**
+ * A result may already be YAML or plain text, or it may be JSON. When it parses
+ * as a JSON object or array, re-render it as YAML; otherwise show it verbatim.
+ */
+function resultToYaml(result: string): string {
+  const trimmed = result.trim();
+  if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (parsed && typeof parsed === "object") return toYaml(parsed);
+    } catch {
+      // Not JSON after all; fall through to the verbatim text.
+    }
+  }
+  return result.replace(/\n$/, "");
 }
 
 /**
@@ -96,9 +116,13 @@ export function ToolCard({ toolName, input, result, childCalls }: ToolCardProps)
   const { title, material } = describeTool(toolName);
   const description = isSubagent ? String(asRecord(input).description ?? "") : "";
   const summary = isSubagent ? description : summarizeArgs(input);
+  // A controlled disclosure (not a native <details>): the body mounts only when
+  // expanded, so its Monaco editors are not instantiated for every collapsed
+  // card, and a card cannot collapse to zero height as a flex item.
+  const [open, setOpen] = useState(false);
   return (
-    <details className={isError ? `${styles.card} ${styles.errorCard}` : styles.card}>
-      <summary className={styles.header}>
+    <div className={isError ? `${styles.card} ${styles.errorCard}` : styles.card}>
+      <button type="button" className={styles.header} onClick={() => setOpen((value) => !value)} aria-expanded={open}>
         <Icon material={material} small className={styles.toolIcon} />
         <span className={styles.title}>{title}</span>
         {summary ? <span className={styles.args}>{summary}</span> : null}
@@ -111,25 +135,27 @@ export function ToolCard({ toolName, input, result, childCalls }: ToolCardProps)
             <Icon material="check" small className={styles.doneCheck} aria-label="done" />
           )}
         </span>
-      </summary>
-      <div className={styles.body}>
-        <div className={styles.rawName}>{toolName}</div>
-        <div className={styles.sectionLabel}>Input</div>
-        <pre className={styles.code}>{renderInput(input)}</pre>
-        {result !== undefined ? (
-          <>
-            <div className={styles.sectionLabel}>Result</div>
-            <pre className={styles.code}>{result || "(no output)"}</pre>
-          </>
-        ) : null}
-        {childCalls && childCalls.length > 0 ? (
-          <div className={styles.children}>
-            {childCalls.map((child) => (
-              <ToolCard key={child.callId} toolName={child.toolName} input={child.input} result={child.result} />
-            ))}
-          </div>
-        ) : null}
-      </div>
-    </details>
+      </button>
+      {open ? (
+        <div className={styles.body}>
+          <div className={styles.rawName}>{toolName}</div>
+          <div className={styles.sectionLabel}>Input</div>
+          <CodeViewer value={toYaml(input)} language="yaml" />
+          {result !== undefined ? (
+            <>
+              <div className={styles.sectionLabel}>Result</div>
+              <CodeViewer value={result ? resultToYaml(result) : "(no output)"} language="yaml" />
+            </>
+          ) : null}
+          {childCalls && childCalls.length > 0 ? (
+            <div className={styles.children}>
+              {childCalls.map((child) => (
+                <ToolCard key={child.callId} toolName={child.toolName} input={child.input} result={child.result} />
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
   );
 }
