@@ -7,11 +7,22 @@ import { Renderer } from "@freelensapp/extensions";
 
 const { Icon } = Renderer.Component;
 
-// A simple spark mark used for the cluster page menu entry.
+// A twelve-spoke asterisk burst, echoing the Claude spark mark.
 const rawSvg = `<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-  <path fill="currentColor" d="M12 2c.4 3.6 1.8 5 5.4 5.4C13.8 7.8 12.4 9.2 12 12.8 11.6 9.2 10.2 7.8 6.6 7.4 10.2 7 11.6 5.6 12 2Z"/>
-  <path fill="currentColor" d="M18.5 12.5c.25 2.2 1.05 3 3.25 3.25-2.2.25-3 1.05-3.25 3.25-.25-2.2-1.05-3-3.25-3.25 2.2-.25 3-1.05 3.25-3.25Z"/>
-  <path fill="currentColor" d="M6 13c.2 1.8.85 2.45 2.65 2.65C6.85 15.85 6.2 16.5 6 18.3c-.2-1.8-.85-2.45-2.65-2.65C5.15 15.45 5.8 14.8 6 13Z"/>
+  <g stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+    <line x1="12" y1="12" x2="12" y2="2"/>
+    <line x1="12" y1="12" x2="17" y2="3.34"/>
+    <line x1="12" y1="12" x2="20.66" y2="7"/>
+    <line x1="12" y1="12" x2="22" y2="12"/>
+    <line x1="12" y1="12" x2="20.66" y2="17"/>
+    <line x1="12" y1="12" x2="17" y2="20.66"/>
+    <line x1="12" y1="12" x2="12" y2="22"/>
+    <line x1="12" y1="12" x2="7" y2="20.66"/>
+    <line x1="12" y1="12" x2="3.34" y2="17"/>
+    <line x1="12" y1="12" x2="2" y2="12"/>
+    <line x1="12" y1="12" x2="3.34" y2="7"/>
+    <line x1="12" y1="12" x2="7" y2="3.34"/>
+  </g>
 </svg>`;
 
 export const ClaudeIcon = (props: React.ComponentProps<typeof Icon>) => <Icon {...props} svg={rawSvg} />;
