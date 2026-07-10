@@ -11,6 +11,7 @@
 import chatPage from "./chat-page.module.scss?inline";
 import chatView from "./chat-view.module.scss?inline";
 import codeViewer from "./code-viewer.module.scss?inline";
+import commandMenu from "./command-menu.module.scss?inline";
 import markdown from "./markdown.module.scss?inline";
 import onboarding from "./onboarding.module.scss?inline";
 import permissionDialog from "./permission-dialog.module.scss?inline";
@@ -23,6 +24,7 @@ const css = [
   chatPage,
   chatView,
   codeViewer,
+  commandMenu,
   markdown,
   onboarding,
   permissionDialog,
