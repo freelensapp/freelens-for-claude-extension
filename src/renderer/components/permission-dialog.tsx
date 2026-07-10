@@ -5,6 +5,7 @@
 
 import { Renderer } from "@freelensapp/extensions";
 import { useState } from "react";
+import { CodeViewer } from "./code-viewer";
 import styles from "./permission-dialog.module.scss";
 
 import type { ReactNode } from "react";
@@ -75,16 +76,12 @@ function ActionDetails({ request }: { request: PermissionRequest }) {
           <DiffBlock diff={request.diff} />
         </CopyableCode>
       ) : (
-        <CopyableCode text={request.proposedYaml}>
-          <pre className={styles.code}>{request.proposedYaml}</pre>
-        </CopyableCode>
+        <CodeViewer value={request.proposedYaml} language="yaml" />
       )}
       {request.currentYaml ? (
         <details className={styles.backup}>
           <summary className={styles.backupSummary}>Current resource (backup)</summary>
-          <CopyableCode text={request.currentYaml}>
-            <pre className={styles.code}>{request.currentYaml}</pre>
-          </CopyableCode>
+          <CodeViewer value={request.currentYaml} language="yaml" />
         </details>
       ) : null}
     </div>

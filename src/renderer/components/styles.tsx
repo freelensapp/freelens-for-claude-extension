@@ -10,6 +10,7 @@
 // the host. See the same pattern in freelens-ai-extension.
 import chatPage from "./chat-page.module.scss?inline";
 import chatView from "./chat-view.module.scss?inline";
+import codeViewer from "./code-viewer.module.scss?inline";
 import markdown from "./markdown.module.scss?inline";
 import onboarding from "./onboarding.module.scss?inline";
 import permissionDialog from "./permission-dialog.module.scss?inline";
@@ -21,6 +22,7 @@ import toolsPanel from "./tools-panel.module.scss?inline";
 const css = [
   chatPage,
   chatView,
+  codeViewer,
   markdown,
   onboarding,
   permissionDialog,

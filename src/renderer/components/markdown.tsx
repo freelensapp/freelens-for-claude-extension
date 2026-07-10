@@ -3,9 +3,9 @@
  * Licensed under MIT License. See LICENSE in root directory for more information.
  */
 
-import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { CodeViewer } from "./code-viewer";
 import styles from "./markdown.module.scss";
 
 import type { ReactNode } from "react";
@@ -17,30 +17,15 @@ interface CodeBlockProps {
 }
 
 function CodeBlock({ inline, className, children }: CodeBlockProps) {
-  const [copied, setCopied] = useState(false);
-  const text = String(children ?? "").replace(/\n$/, "");
-
   if (inline) {
     return <code className={`${styles.inlineCode} ${className ?? ""}`.trim()}>{children}</code>;
   }
 
-  const copy = () => {
-    void navigator.clipboard?.writeText(text).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    });
-  };
-
-  return (
-    <div className={styles.codeBlock}>
-      <button type="button" className={styles.copyButton} onClick={copy}>
-        {copied ? "Copied" : "Copy"}
-      </button>
-      <pre>
-        <code className={className}>{children}</code>
-      </pre>
-    </div>
-  );
+  // react-markdown tags fenced blocks with a `language-xxx` class; the file/code
+  // body renders in the shared Monaco-backed viewer.
+  const text = String(children ?? "").replace(/\n$/, "");
+  const language = /language-(\w+)/.exec(className ?? "")?.[1];
+  return <CodeViewer value={text} language={language} />;
 }
 
 /** Open links in the external browser rather than navigating the renderer. */
