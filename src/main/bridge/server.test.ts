@@ -26,19 +26,6 @@ const retry = vi.fn(async (clusterId: string) =>
   clusterId === "busy" ? ("nothing_to_retry" as const) : ("accepted" as const),
 );
 
-const builtin = [
-  { name: "freelens_resources", description: "List or get resources.", mutating: false },
-  { name: "freelens_delete_pod", description: "Evict or delete a pod.", mutating: true },
-];
-
-const getClusterTools = vi.fn(async (clusterId: string) => ({
-  builtin,
-  mcp:
-    clusterId === "live"
-      ? [{ name: "github", status: "connected", tools: [{ name: "search", description: "Search." }] }]
-      : [],
-}));
-
 const sessionManager = {
   subscribe: vi.fn(() => () => {}),
   sendMessage: vi.fn(async () => {}),
@@ -47,7 +34,6 @@ const sessionManager = {
   disposeAll: vi.fn(async () => {}),
   setPermissionMode: vi.fn(() => {}),
   setModel: vi.fn(() => {}),
-  getClusterTools,
   retry,
   resolvePermission,
 } as unknown as SessionManager;
@@ -165,28 +151,6 @@ describe("model route", () => {
   it("rejects garbage", async () => {
     const response = await authedPost("/clusters/c1/model", { model: "gpt" });
     expect(response.status).toBe(400);
-  });
-});
-
-const authedGet = (path: string) => fetch(`${baseUrl}${path}`, { headers: { Authorization: `Bearer ${TOKEN}` } });
-
-describe("tools route", () => {
-  it("returns built-in descriptors and an empty mcp list without a live query", async () => {
-    const response = await authedGet("/clusters/c1/tools");
-    expect(response.status).toBe(200);
-    const body = await response.json();
-    expect(body.builtin).toEqual(builtin);
-    expect(body.mcp).toEqual([]);
-    expect(getClusterTools).toHaveBeenCalledWith("c1");
-  });
-
-  it("includes external mcp servers when a query is live", async () => {
-    const response = await authedGet("/clusters/live/tools");
-    expect(response.status).toBe(200);
-    const body = await response.json();
-    expect(body.mcp).toEqual([
-      { name: "github", status: "connected", tools: [{ name: "search", description: "Search." }] },
-    ]);
   });
 });
 

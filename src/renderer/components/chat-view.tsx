@@ -15,7 +15,6 @@ import { Markdown } from "./markdown";
 import { PermissionDialog } from "./permission-dialog";
 import { SlashMenu } from "./slash-menu";
 import { ToolCard } from "./tool-card";
-import { ToolsPanel } from "./tools-panel";
 
 import type { ChangeEvent, KeyboardEvent } from "react";
 
@@ -654,7 +653,6 @@ export function ChatView({ clusterId, client }: ChatViewProps) {
               onClearConversation={() => void newChat()}
               onCompact={compact}
             />
-            <ToolsPanel clusterId={clusterId} client={client} />
           </div>
           <div className={styles.composerRight}>
             {state.usage ? (

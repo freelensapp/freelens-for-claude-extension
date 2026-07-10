@@ -108,29 +108,6 @@ const TOOL_DESCRIPTIONS: Record<string, string> = {
     "tools do not cover. Prefer the dedicated tools; requires user approval.",
 };
 
-/** The first sentence of a description, used for the compact Available Tools panel. */
-function firstSentence(text: string): string {
-  const period = text.indexOf(". ");
-  return period === -1 ? text : text.slice(0, period + 1);
-}
-
-/** A built-in tool descriptor for the Available Tools panel. */
-export interface BuiltinToolDescriptor {
-  name: string;
-  description: string;
-  mutating: boolean;
-}
-
-/** Static descriptors (short name, first-sentence description, mutating flag) for the panel. */
-export const BUILTIN_TOOL_DESCRIPTORS: BuiltinToolDescriptor[] = [
-  ...READ_ONLY_TOOL_NAMES.map((name) => ({
-    name,
-    description: firstSentence(TOOL_DESCRIPTIONS[name]),
-    mutating: false,
-  })),
-  ...MUTATING_TOOL_NAMES.map((name) => ({ name, description: firstSentence(TOOL_DESCRIPTIONS[name]), mutating: true })),
-];
-
 function textResult(text: string) {
   return { content: [{ type: "text" as const, text }] };
 }

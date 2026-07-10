@@ -5,7 +5,6 @@
 
 import { BridgeStore } from "../../common/bridge-store";
 import {
-  type ClusterToolsResponse,
   decodeSseFrame,
   type PermissionBehavior,
   type PermissionMode,
@@ -58,15 +57,6 @@ export class BridgeClient {
       body: JSON.stringify({ text }),
     });
     if (!response.ok) throw new Error(`send failed: ${response.status}`);
-  }
-
-  /** Fetch the Available Tools panel data: built-in tools plus live MCP servers. */
-  async getTools(clusterId: string): Promise<ClusterToolsResponse> {
-    const response = await fetch(`${this.baseUrl}/clusters/${encodeURIComponent(clusterId)}/tools`, {
-      headers: this.authHeader,
-    });
-    if (!response.ok) throw new Error(`tools request failed: ${response.status}`);
-    return (await response.json()) as ClusterToolsResponse;
   }
 
   async interrupt(clusterId: string): Promise<void> {

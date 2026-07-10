@@ -34,16 +34,6 @@ export interface SendMessageRequest {
   text: string;
 }
 
-/**
- * Response of `GET /clusters/:id/tools`: the Available Tools panel data. The
- * built-in tools are always present; `mcp` lists external MCP servers (never
- * the built-in `freelens-kube`) and is empty when no query is live.
- */
-export interface ClusterToolsResponse {
-  builtin: { name: string; description: string; mutating: boolean }[];
-  mcp: { name: string; status: string; tools: { name: string; description?: string }[] }[];
-}
-
 /** Body of `POST /permissions/:requestId`. */
 export interface ResolvePermissionRequest {
   behavior: PermissionBehavior;

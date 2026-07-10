@@ -119,12 +119,6 @@ export class BridgeServer {
       return;
     }
 
-    const toolsId = matchCluster(pathname, "tools");
-    if (req.method === "GET" && toolsId) {
-      sendJson(res, 200, await this.deps.sessionManager.getClusterTools(toolsId));
-      return;
-    }
-
     const messagesId = matchCluster(pathname, "messages");
     if (req.method === "POST" && messagesId) {
       const body = (await readJsonBody(req)) as { text?: unknown };

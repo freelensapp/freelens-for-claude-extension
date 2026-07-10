@@ -57,7 +57,7 @@ src/
     session-store.ts       # ChatSessionStore: per-cluster sessionId + permission mode + model
     preferences-store.ts   # PreferencesStore: pod logs, agent rules, path override, default model, MCP config, subagents, prompt shortcuts
     prompt-shortcuts.ts    # built-in quick-prompt chips + parser for the promptShortcuts preference (renderer-free)
-    protocol.ts            # shared request/response and SSE event types (usage, compaction, model, retry, thinking, local command output, parentCallId, mcp/slash meta, tools route)
+    protocol.ts            # shared request/response and SSE event types (usage, compaction, model, retry, thinking, local command output, parentCallId, mcp/slash meta)
   main/
     index.ts               # onActivate: start bridge + stores (incl. preferences); onDeactivate: stop it
     claude/
@@ -67,11 +67,11 @@ src/
       mcp-config.ts        # parse/validate Claude-Desktop-style user MCP JSON into SDK server configs (never throws)
       subagents.ts         # cluster-analyzer definition: read-only investigator subagent
     bridge/
-      server.ts            # node:http server, routing, bearer auth, CORS, SSE, permission/model/retry/tools routes
+      server.ts            # node:http server, routing, bearer auth, CORS, SSE, permission/model/retry routes
     tools/
       kube-client.ts       # KubeConfig + typed API surface from the cluster catalog entity
       kube-format.ts       # YAML, managedFields stripping, truncation, selectFields, toDiff
-      mcp-server.ts        # createSdkMcpServer; read-only vs mutating tool name sets (freelens_ prefix, incl. kubectl/helm); pod-logs tail-lines getter; tools-panel descriptors
+      mcp-server.ts        # createSdkMcpServer; read-only vs mutating tool name sets (freelens_ prefix, incl. kubectl/helm); pod-logs tail-lines getter
       approval.ts          # describeApproval: action title + backup target (incl. READ POD LOGS, RUN KUBECTL, RUN HELM, USE MCP TOOL)
       cli-exec.ts          # shared spawn helper: binary resolution, env hygiene, timeout, non-tty capture, process registry
       resources.ts         # freelens_resources tool (field selection, managedFields opt-in)
@@ -89,11 +89,11 @@ src/
   renderer/
     index.tsx              # clusterPages, clusterPageMenus, appPreferences, kubeObjectMenuItems
     api/
-      bridge-client.ts     # fetch wrapper + SSE reader; resolvePermission, setPermissionMode, setModel, retry, getTools
+      bridge-client.ts     # fetch wrapper + SSE reader; resolvePermission, setPermissionMode, setModel, retry
       pending-prompt.ts    # module-scoped handoff between "Ask Claude" menu entries and the chat page
     components/
       chat-page.tsx        # page: onboarding gate or chat view
-      chat-view.tsx        # transcript + input + status strip (token counter, model + mode selectors, retry, slash popup, shortcut chips, reasoning fold, nested tool cards, command menu, tools panel toggle)
+      chat-view.tsx        # transcript + input + status strip (token counter, model + mode selectors, retry, slash popup, shortcut chips, reasoning fold, nested tool cards, command menu)
       tool-card.tsx        # collapsible tool call/result card
       permission-dialog.tsx # inline approval card (proposed YAML, backup, diff)
       menu-entry.tsx       # "Ask Claude" kube object menu item
@@ -102,7 +102,6 @@ src/
       onboarding.tsx       # Claude Code missing / not detected panel
       slash-menu.tsx       # slash-command autocomplete popup shown above the input
       command-menu.tsx     # "[/]" composer widget popover (Context group + Slash Commands list)
-      tools-panel.tsx      # Available Tools popover (built-in tools + connected MCP servers)
       *.module.scss        # component styles (SCSS modules)
     icons/
       claude-icon.tsx      # cluster page menu icon

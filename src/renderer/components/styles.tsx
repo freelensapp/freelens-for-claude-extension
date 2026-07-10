@@ -18,7 +18,6 @@ import permissionDialog from "./permission-dialog.module.scss?inline";
 import preferences from "./preferences.module.scss?inline";
 import slashMenu from "./slash-menu.module.scss?inline";
 import toolCard from "./tool-card.module.scss?inline";
-import toolsPanel from "./tools-panel.module.scss?inline";
 
 const css = [
   chatPage,
@@ -31,7 +30,6 @@ const css = [
   preferences,
   slashMenu,
   toolCard,
-  toolsPanel,
 ].join("\n");
 
 /**
