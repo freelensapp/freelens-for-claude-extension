@@ -3,11 +3,8 @@
 Status: **approved** — all open questions were resolved by the maintainer in
 issue [#7](https://github.com/freelensapp/freelens-for-claude-extension/issues/7);
 see [Resolved questions](#resolved-questions) at the end of this document.
-**M0 through M4 are delivered** (spec documents for delivered milestones
-were removed in the docs cleanup). Next step: implement **M5** (UX
-overhaul, issue
-[#25](https://github.com/freelensapp/freelens-for-claude-extension/issues/25))
-as specified in [M5.md](./M5.md).
+**M0 through M5 are delivered** (spec documents for delivered milestones
+were removed in the docs cleanup).
 
 Process note: planning and analysis run on issues (Fable model);
 implementation runs on pull requests (Opus model).
@@ -319,12 +316,11 @@ minimum Freelens version, and a release process document covering the
 existing version/tag/publish automation and the pre-release checklist
 (including the D2 contact with Anthropic before any announcement).
 
-**M5 — UX overhaul.** Composer-style input area with model/mode/usage
-controls, manual compaction, persisted reasoning folds, tool and approval
-card polish, theme-consistent styling, and reliable scrolling — the full
-list from issue
+**M5 — UX overhaul (delivered).** Composer-style input area with
+model/mode/usage controls, manual compaction, persisted reasoning folds,
+tool and approval card polish, Monaco-backed YAML/file rendering,
+theme-consistent styling, and reliable scrolling — the full list from issue
 [#25](https://github.com/freelensapp/freelens-for-claude-extension/issues/25).
-Detailed implementation specification: [M5.md](./M5.md).
 
 ## Post-1.0 backlog
 
