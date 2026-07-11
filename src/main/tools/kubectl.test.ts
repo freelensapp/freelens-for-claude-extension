@@ -3,6 +3,7 @@
  * Licensed under MIT License. See LICENSE in root directory for more information.
  */
 
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { PermissionBroker } from "../claude/permission-broker";
 import { describeApproval } from "./approval";
@@ -98,29 +99,34 @@ describe("runKubectl execution", () => {
   });
 
   it("spawns the downloaded version-matched kubectl for the cluster version", async () => {
+    // Production builds paths with `node:path` `join`, so mirror the host
+    // separator on both the stub and the assertion for Windows portability.
+    const downloadDir = join("/data", "binaries", "kubectl");
+    const downloadedBin = join(downloadDir, "1.29.5", "kubectl");
     const capture: Capture = { file: "", args: [] };
     const cfg = makeConfig(fakeExec(capture), {
       getUserDataPath: () => "/data",
-      listDir: (path) => (path === "/data/binaries/kubectl" ? ["1.29.5"] : []),
-      fileExists: (path) => path === "/data/binaries/kubectl/1.29.5/kubectl",
+      listDir: (path) => (path === downloadDir ? ["1.29.5"] : []),
+      fileExists: (path) => path === downloadedBin,
     });
     cfg.getClusterVersion = async () => "v1.29.5";
     await runKubectl(cfg, { args: ["version"] });
-    expect(capture.file).toBe("/data/binaries/kubectl/1.29.5/kubectl");
+    expect(capture.file).toBe(downloadedBin);
   });
 
   it("falls back to the bundled kubectl when the cluster version lookup rejects", async () => {
+    const bundledBin = join("/resources", "x64", "kubectl");
     const capture: Capture = { file: "", args: [] };
     const cfg = makeConfig(fakeExec(capture), {
       getUserDataPath: () => "/data",
       listDir: () => ["1.29.5"],
-      fileExists: (path) => path === "/resources/x64/kubectl",
+      fileExists: (path) => path === bundledBin,
     });
     cfg.getClusterVersion = async () => {
       throw new Error("unreachable");
     };
     await runKubectl(cfg, { args: ["version"] });
-    expect(capture.file).toBe("/resources/x64/kubectl");
+    expect(capture.file).toBe(bundledBin);
   });
 
   it("reports the exit code and truncates oversized output", async () => {
