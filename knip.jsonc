@@ -45,7 +45,18 @@
     // not installed, so knip would otherwise report them as unlisted dependencies.
     "encoding",
     "bufferutil",
-    "utf-8-validate"
+    "utf-8-validate",
+    // bundled into `out/` by electron-vite at build time (not marked `external`
+    // in electron.vite.config.js), so the published package has no runtime
+    // dependencies and these live in `devDependencies`. Production mode would
+    // otherwise report them as unlisted.
+    "@anthropic-ai/claude-agent-sdk",
+    "@kubernetes/client-node",
+    "diff",
+    "react-markdown",
+    "remark-gfm",
+    "yaml",
+    "zod"
   ],
 
   "typescript": {
