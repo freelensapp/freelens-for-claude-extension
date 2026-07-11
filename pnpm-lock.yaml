@@ -7,29 +7,10 @@ settings:
 importers:
 
   .:
-    dependencies:
+    devDependencies:
       '@anthropic-ai/claude-agent-sdk':
         specifier: ^0.3.204
         version: 0.3.204(@anthropic-ai/sdk@0.110.0(zod@4.4.3))(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(zod@4.4.3)
-      '@kubernetes/client-node':
-        specifier: ^1.4.0
-        version: 1.4.0
-      diff:
-        specifier: ^7.0.0
-        version: 7.0.0
-      react-markdown:
-        specifier: ^8.0.7
-        version: 8.0.7(@types/react@17.0.93)(react@17.0.2)
-      remark-gfm:
-        specifier: ^3.0.1
-        version: 3.0.1
-      yaml:
-        specifier: ^2.9.0
-        version: 2.9.0
-      zod:
-        specifier: ^4.4.3
-        version: 4.4.3
-    devDependencies:
       '@babel/plugin-proposal-decorators':
         specifier: ^8.0.2
         version: 8.0.2(@babel/core@7.29.0)
@@ -39,6 +20,9 @@ importers:
       '@freelensapp/extensions':
         specifier: ^1.10.2
         version: 1.10.2(@emotion/react@11.14.0(@types/react@17.0.93)(react@17.0.2))(@types/react@17.0.93)
+      '@kubernetes/client-node':
+        specifier: ^1.4.0
+        version: 1.4.0
       '@testing-library/react':
         specifier: ^12.1.5
         version: 12.1.5(@types/react@17.0.93)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)
@@ -54,6 +38,9 @@ importers:
       '@vitejs/plugin-react':
         specifier: ^6.0.3
         version: 6.0.3(vite@8.1.2(@types/node@24.12.4)(esbuild@0.27.2)(jiti@2.4.2)(less@4.4.0)(sass-embedded@1.89.2)(sass@1.101.0)(stylus@0.62.0)(terser@5.39.0)(yaml@2.9.0))
+      diff:
+        specifier: ^7.0.0
+        version: 7.0.0
       electron-vite:
         specifier: ^5.0.0
         version: 5.0.0(vite@8.1.2(@types/node@24.12.4)(esbuild@0.27.2)(jiti@2.4.2)(less@4.4.0)(sass-embedded@1.89.2)(sass@1.101.0)(stylus@0.62.0)(terser@5.39.0)(yaml@2.9.0))
@@ -72,6 +59,12 @@ importers:
       react-dom:
         specifier: 17.0.2
         version: 17.0.2(react@17.0.2)
+      react-markdown:
+        specifier: ^8.0.7
+        version: 8.0.7(@types/react@17.0.93)(react@17.0.2)
+      remark-gfm:
+        specifier: ^3.0.1
+        version: 3.0.1
       sass:
         specifier: ^1.101.0
         version: 1.101.0
@@ -87,6 +80,12 @@ importers:
       vitest:
         specifier: ^4.1.9
         version: 4.1.9(@types/node@24.12.4)(jsdom@29.1.1)(vite@8.1.2(@types/node@24.12.4)(esbuild@0.27.2)(jiti@2.4.2)(less@4.4.0)(sass-embedded@1.89.2)(sass@1.101.0)(stylus@0.62.0)(terser@5.39.0)(yaml@2.9.0))
+      yaml:
+        specifier: ^2.9.0
+        version: 2.9.0
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
 
 packages:
 
