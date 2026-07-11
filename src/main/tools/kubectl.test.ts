@@ -43,7 +43,9 @@ function makeConfig(execFile: ExecFileFn, deps: Partial<CliDeps> = {}): KubectlT
       arch: "x64",
       platform: "linux",
       fileExists: () => false,
+      listDir: () => [],
       getKubectlPath: () => undefined,
+      getUserDataPath: () => undefined,
       execFile,
       ...deps,
     },
@@ -93,6 +95,32 @@ describe("runKubectl execution", () => {
     const cfg = makeConfig(fakeExec(capture), { getKubectlPath: () => "/opt/kubectl" });
     await runKubectl(cfg, { args: ["version"] });
     expect(capture.file).toBe("/opt/kubectl");
+  });
+
+  it("spawns the downloaded version-matched kubectl for the cluster version", async () => {
+    const capture: Capture = { file: "", args: [] };
+    const cfg = makeConfig(fakeExec(capture), {
+      getUserDataPath: () => "/data",
+      listDir: (path) => (path === "/data/binaries/kubectl" ? ["1.29.5"] : []),
+      fileExists: (path) => path === "/data/binaries/kubectl/1.29.5/kubectl",
+    });
+    cfg.getClusterVersion = async () => "v1.29.5";
+    await runKubectl(cfg, { args: ["version"] });
+    expect(capture.file).toBe("/data/binaries/kubectl/1.29.5/kubectl");
+  });
+
+  it("falls back to the bundled kubectl when the cluster version lookup rejects", async () => {
+    const capture: Capture = { file: "", args: [] };
+    const cfg = makeConfig(fakeExec(capture), {
+      getUserDataPath: () => "/data",
+      listDir: () => ["1.29.5"],
+      fileExists: (path) => path === "/resources/x64/kubectl",
+    });
+    cfg.getClusterVersion = async () => {
+      throw new Error("unreachable");
+    };
+    await runKubectl(cfg, { args: ["version"] });
+    expect(capture.file).toBe("/resources/x64/kubectl");
   });
 
   it("reports the exit code and truncates oversized output", async () => {

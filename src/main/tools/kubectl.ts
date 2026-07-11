@@ -45,8 +45,25 @@ export interface KubectlToolConfig {
   kubeConfigPath: string;
   contextName?: string;
   registry: ProcessRegistry;
+  /**
+   * The cluster's API server version (e.g. `v1.29.5`), used to prefer a
+   * version-matched kubectl Freelens already downloaded. Optional and best
+   * effort: resolution falls back to the bundled binary when it is absent or
+   * rejects.
+   */
+  getClusterVersion?: () => Promise<string | undefined>;
   /** Injectable execution/resolution seams; defaults to the real host process. */
   deps?: CliDeps;
+}
+
+/** The cluster version from the config's best-effort getter, or undefined on any failure. */
+async function resolveClusterVersion(config: KubectlToolConfig): Promise<string | undefined> {
+  if (!config.getClusterVersion) return undefined;
+  try {
+    return await config.getClusterVersion();
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -57,7 +74,8 @@ export interface KubectlToolConfig {
 export async function runKubectl(config: KubectlToolConfig, input: KubectlInput): Promise<string> {
   validateCliArgs("kubectl", input.args);
   const deps = config.deps ?? defaultCliDeps();
-  const binary = resolveKubectlBinary(deps);
+  const clusterVersion = await resolveClusterVersion(config);
+  const binary = resolveKubectlBinary(deps, clusterVersion);
   const timeoutSeconds = clampTimeoutSeconds(input.timeoutSeconds);
   const args = [
     ...input.args,

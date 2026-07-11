@@ -28,7 +28,9 @@ function makeDeps(overrides: Partial<CliDeps> = {}): CliDeps {
     arch: "x64",
     platform: "linux",
     fileExists: () => false,
+    listDir: () => [],
     getKubectlPath: () => undefined,
+    getUserDataPath: () => undefined,
     execFile: (() => ({ kill: () => true })) as unknown as ExecFileFn,
     ...overrides,
   };
@@ -61,6 +63,64 @@ describe("binary resolution", () => {
   it("adds the .exe suffix to the bundled binary on Windows", () => {
     const deps = makeDeps({ platform: "win32", fileExists: (path) => path === "/resources/x64/kubectl.exe" });
     expect(resolveKubectlBinary(deps)).toBe("/resources/x64/kubectl.exe");
+  });
+
+  it("prefers a downloaded version-matched kubectl over the bundled binary", () => {
+    const deps = makeDeps({
+      getUserDataPath: () => "/data",
+      listDir: (path) => (path === "/data/binaries/kubectl" ? ["1.29.5"] : []),
+      fileExists: (path) => path === "/data/binaries/kubectl/1.29.5/kubectl" || path === "/resources/x64/kubectl",
+    });
+    expect(resolveKubectlBinary(deps, "v1.29.5")).toBe("/data/binaries/kubectl/1.29.5/kubectl");
+  });
+
+  it("matches the downloaded kubectl by major.minor and picks the highest patch", () => {
+    const deps = makeDeps({
+      getUserDataPath: () => "/data",
+      listDir: (path) => (path === "/data/binaries/kubectl" ? ["1.29.1", "1.29.11", "1.30.0"] : []),
+      fileExists: (path) => path.startsWith("/data/binaries/kubectl/"),
+    });
+    // Cluster reports v1.29.4+patch: the 1.29.x downloads match, 1.29.11 wins on patch, 1.30.0 is ignored.
+    expect(resolveKubectlBinary(deps, "v1.29.4+patch")).toBe("/data/binaries/kubectl/1.29.11/kubectl");
+  });
+
+  it("adds the .exe suffix to the downloaded binary on Windows", () => {
+    const deps = makeDeps({
+      platform: "win32",
+      getUserDataPath: () => "C:/data",
+      listDir: () => ["1.31.0"],
+      fileExists: (path) => path === "C:/data/binaries/kubectl/1.31.0/kubectl.exe",
+    });
+    expect(resolveKubectlBinary(deps, "1.31.2")).toBe("C:/data/binaries/kubectl/1.31.0/kubectl.exe");
+  });
+
+  it("falls back to the bundled kubectl when no downloaded version matches the cluster", () => {
+    const deps = makeDeps({
+      getUserDataPath: () => "/data",
+      listDir: () => ["1.28.0", "1.30.0"],
+      fileExists: (path) => path === "/resources/x64/kubectl",
+    });
+    expect(resolveKubectlBinary(deps, "v1.29.5")).toBe("/resources/x64/kubectl");
+  });
+
+  it("ignores a matched directory whose kubectl file is missing", () => {
+    const deps = makeDeps({
+      getUserDataPath: () => "/data",
+      listDir: () => ["1.29.5"],
+      // The version directory exists but the binary inside it does not; only the bundled file does.
+      fileExists: (path) => path === "/resources/x64/kubectl",
+    });
+    expect(resolveKubectlBinary(deps, "v1.29.5")).toBe("/resources/x64/kubectl");
+  });
+
+  it("prefers the explicit kubectl preference over any downloaded version", () => {
+    const deps = makeDeps({
+      getKubectlPath: () => "/opt/kubectl",
+      getUserDataPath: () => "/data",
+      listDir: () => ["1.29.5"],
+      fileExists: () => true,
+    });
+    expect(resolveKubectlBinary(deps, "v1.29.5")).toBe("/opt/kubectl");
   });
 
   it("resolves helm to the bundled binary or the bare name, ignoring the kubectl preference", () => {
