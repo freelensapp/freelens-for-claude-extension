@@ -3,6 +3,7 @@
  * Licensed under MIT License. See LICENSE in root directory for more information.
  */
 
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { PermissionBroker } from "../claude/permission-broker";
 import { describeApproval } from "./approval";
@@ -43,7 +44,9 @@ function makeConfig(execFile: ExecFileFn, deps: Partial<CliDeps> = {}): HelmTool
       arch: "x64",
       platform: "linux",
       fileExists: () => false,
+      listDir: () => [],
       getKubectlPath: () => undefined,
+      getUserDataPath: () => undefined,
       execFile,
       ...deps,
     },
@@ -89,13 +92,16 @@ describe("runHelm execution", () => {
   });
 
   it("resolves the bundled helm binary when present, ignoring the kubectl preference", async () => {
+    // Production joins the path with `node:path` `join`; mirror the host
+    // separator so the assertion holds on Windows as well as POSIX.
+    const bundledBin = join("/resources", "x64", "helm");
     const capture: Capture = { file: "", args: [] };
     const cfg = makeConfig(fakeExec(capture), {
       getKubectlPath: () => "/opt/kubectl",
-      fileExists: (path) => path === "/resources/x64/helm",
+      fileExists: (path) => path === bundledBin,
     });
     await runHelm(cfg, { args: ["version"] });
-    expect(capture.file).toBe("/resources/x64/helm");
+    expect(capture.file).toBe(bundledBin);
   });
 
   it("reports the exit code and truncates oversized output", async () => {

@@ -29,6 +29,12 @@
     "mobx-react",
     "react",
     "react-dom",
+    // the Electron runtime, provided by the Freelens host process. It is loaded
+    // via a guarded `require("electron")` in `src/main/tools/cli-exec.ts` to read
+    // `app.getPath("userData")` and kept `external` in the main build, so it is
+    // intentionally not a listed dependency; knip would otherwise report it as
+    // unlisted from both the source require and the surviving `out/` bundle.
+    "electron",
     // types-only and test-only dev dependencies
     "@testing-library/react",
     "@types/react",

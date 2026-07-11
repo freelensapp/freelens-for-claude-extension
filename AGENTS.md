@@ -74,7 +74,7 @@ src/
       kube-format.ts       # YAML, managedFields stripping, truncation, selectFields, toDiff
       mcp-server.ts        # createSdkMcpServer; read-only vs mutating tool name sets (freelens_ prefix, incl. kubectl/helm); pod-logs tail-lines getter
       approval.ts          # describeApproval: action title + backup target (incl. READ POD LOGS, RUN KUBECTL, RUN HELM, USE MCP TOOL)
-      cli-exec.ts          # shared spawn helper: binary resolution, env hygiene, timeout, non-tty capture, process registry
+      cli-exec.ts          # shared spawn helper: binary resolution (prefers Freelens' downloaded version-matched kubectl), env hygiene, timeout, non-tty capture, process registry
       resources.ts         # freelens_resources tool (field selection, managedFields opt-in)
       pod-logs.ts          # freelens_pod_logs tool (previous, timestamps, configurable tail-lines default)
       warning-events.ts    # freelens_warning_events tool

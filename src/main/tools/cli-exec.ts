@@ -4,7 +4,7 @@
  */
 
 import { execFile } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { Common } from "@freelensapp/extensions";
 import { LOG_BYTE_CAP, truncateBytes } from "./kube-format";
@@ -95,10 +95,41 @@ export interface CliDeps {
   platform: NodeJS.Platform;
   /** Whether a path exists (stubbed in tests). */
   fileExists: (path: string) => boolean;
+  /** Directory entry names at `path`, or `[]` when it cannot be read (stubbed in tests). */
+  listDir: (path: string) => string[];
   /** The user's kubectl-path preference override, possibly empty/undefined. */
   getKubectlPath: () => string | undefined;
+  /**
+   * Freelens' per-user data directory (`app.getPath("userData")`), the root of
+   * the `binaries/kubectl/<version>` download tree, or undefined when unknown.
+   */
+  getUserDataPath: () => string | undefined;
   /** The child-process seam. */
   execFile: ExecFileFn;
+}
+
+/**
+ * Freelens' per-user data directory via Electron's `app.getPath("userData")`,
+ * or undefined when it cannot be resolved. Electron is a host runtime module
+ * (external, absent under vitest), so it is required lazily and every failure
+ * is swallowed - callers simply fall back to the bundled binary.
+ */
+function hostUserDataPath(): string | undefined {
+  try {
+    const electron = require("electron") as { app?: { getPath?(name: string): string } };
+    return electron.app?.getPath?.("userData");
+  } catch {
+    return undefined;
+  }
+}
+
+/** Directory entry names at `path`, or `[]` when it does not exist / cannot be read. */
+function safeReadDir(path: string): string[] {
+  try {
+    return readdirSync(path);
+  } catch {
+    return [];
+  }
 }
 
 /** Real dependencies wired to the host process; only touched outside tests. */
@@ -109,7 +140,9 @@ export function defaultCliDeps(): CliDeps {
     arch: process.arch,
     platform: process.platform,
     fileExists: (path) => existsSync(path),
+    listDir: (path) => safeReadDir(path),
     getKubectlPath: () => Common.App.Preferences.getKubectlPath(),
+    getUserDataPath: () => hostUserDataPath(),
     execFile: execFile as unknown as ExecFileFn,
   };
 }
@@ -120,13 +153,58 @@ function bundledBinaryPath(deps: CliDeps, name: string): string {
   return join(deps.resourcesPath, deps.arch, file);
 }
 
+/** The numeric `[major, minor, patch]` of a version string like `v1.29.5+build`, or undefined. */
+function parseVersionParts(version: string): [number, number, number] | undefined {
+  const match = /^\D*(\d+)\.(\d+)(?:\.(\d+))?/.exec(version.trim());
+  if (!match) return undefined;
+  return [Number(match[1]), Number(match[2]), Number(match[3] ?? 0)];
+}
+
 /**
- * Resolve the kubectl binary: the user preference when set, else the bundled
- * binary when present, else the bare `kubectl` name from `PATH`.
+ * Locate an already-downloaded, version-matched kubectl under Freelens' binaries
+ * tree (`<userData>/binaries/kubectl/<version>/kubectl[.exe]`). Freelens
+ * downloads a kubectl whose minor version tracks the cluster's to avoid
+ * "version skew" warnings; this reuses that binary when its major.minor matches
+ * `clusterVersion`, preferring the highest patch. Returns undefined when the
+ * userData path is unknown, no matching version has been downloaded, or the
+ * binary file is missing. Never throws or downloads anything itself.
  */
-export function resolveKubectlBinary(deps: CliDeps): string {
+export function findDownloadedKubectl(deps: CliDeps, clusterVersion: string): string | undefined {
+  const userData = deps.getUserDataPath()?.trim();
+  if (!userData) return undefined;
+  const target = parseVersionParts(clusterVersion);
+  if (!target) return undefined;
+  const [major, minor] = target;
+  const dir = join(userData, "binaries", "kubectl");
+  const file = deps.platform === "win32" ? "kubectl.exe" : "kubectl";
+  const matches = deps
+    .listDir(dir)
+    .map((name) => ({ name, parts: parseVersionParts(name) }))
+    .filter((entry): entry is { name: string; parts: [number, number, number] } => {
+      return entry.parts != null && entry.parts[0] === major && entry.parts[1] === minor;
+    })
+    .sort((a, b) => b.parts[2] - a.parts[2]);
+  for (const match of matches) {
+    const candidate = join(dir, match.name, file);
+    if (deps.fileExists(candidate)) return candidate;
+  }
+  return undefined;
+}
+
+/**
+ * Resolve the kubectl binary: the user preference when set, else the version-
+ * matched binary Freelens already downloaded for `clusterVersion` when present,
+ * else the bundled binary, else the bare `kubectl` name from `PATH`. Preferring
+ * the downloaded binary over the (newest) bundled one keeps kubectl's client
+ * version aligned with the cluster and avoids version-skew warnings.
+ */
+export function resolveKubectlBinary(deps: CliDeps, clusterVersion?: string): string {
   const preference = deps.getKubectlPath()?.trim();
   if (preference) return preference;
+  if (clusterVersion) {
+    const downloaded = findDownloadedKubectl(deps, clusterVersion);
+    if (downloaded) return downloaded;
+  }
   const bundled = bundledBinaryPath(deps, "kubectl");
   if (deps.fileExists(bundled)) return bundled;
   return "kubectl";
