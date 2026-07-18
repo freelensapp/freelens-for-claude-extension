@@ -82,7 +82,7 @@
     "react-markdown": "^8.0.7",
     "remark-gfm": "^3.0.1",
     "sass": "^1.101.0",
-    "typescript": "5.9.3",
+    "typescript": "7.0.2",
     "vite": "^8.1.2",
     "vite-plugin-sass-dts": "^1.3.37",
     "vitest": "^4.1.9",
