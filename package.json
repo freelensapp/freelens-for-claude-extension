@@ -65,7 +65,7 @@
     "@anthropic-ai/claude-agent-sdk": "^0.3.204",
     "@babel/plugin-proposal-decorators": "^8.0.2",
     "@electron-toolkit/tsconfig": "^2.0.0",
-    "@freelensapp/extensions": "^1.10.2",
+    "@freelensapp/extensions": "^1.10.3",
     "@kubernetes/client-node": "^1.4.0",
     "@testing-library/react": "^12.1.5",
     "@types/diff": "^7.0.0",
