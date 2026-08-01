@@ -100,8 +100,12 @@ export interface SetModelRequest {
 /**
  * The model aliases offered by the picker and accepted by `POST .../model`.
  * A `null`/absent selection means "Claude Code default".
+ *
+ * These are Claude Code family aliases (not pinned IDs), so each resolves to
+ * the newest model of its family: `fable` -> Fable 5, `opus` -> Opus 5,
+ * `sonnet` -> Sonnet 5, `haiku` -> Haiku 4.5. Ordered most-capable first.
  */
-export const MODEL_CHOICES = ["sonnet", "opus", "haiku"] as const;
+export const MODEL_CHOICES = ["fable", "opus", "sonnet", "haiku"] as const;
 
 /** Whether a value is one of the known model aliases. */
 export function isModelChoice(value: unknown): value is (typeof MODEL_CHOICES)[number] {
