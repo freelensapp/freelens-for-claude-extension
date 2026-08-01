@@ -68,7 +68,7 @@
     "@freelensapp/extensions": "^1.10.2",
     "@kubernetes/client-node": "^1.4.0",
     "@testing-library/react": "^12.1.5",
-    "@types/diff": "^7.0.0",
+    "@types/diff": "^7.0.2",
     "@types/node": "~24.12.4",
     "@types/react": "^17.0.93",
     "@vitejs/plugin-react": "^6.0.3",
