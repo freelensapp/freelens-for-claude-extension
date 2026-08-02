@@ -15,6 +15,7 @@ import commandMenu from "./command-menu.module.scss?inline";
 import contextDialog from "./context-dialog.module.scss?inline";
 import contextDonut from "./context-donut.module.scss?inline";
 import markdown from "./markdown.module.scss?inline";
+import modelDialog from "./model-dialog.module.scss?inline";
 import onboarding from "./onboarding.module.scss?inline";
 import permissionDialog from "./permission-dialog.module.scss?inline";
 import preferences from "./preferences.module.scss?inline";
@@ -30,6 +31,7 @@ const css = [
   contextDialog,
   contextDonut,
   markdown,
+  modelDialog,
   onboarding,
   permissionDialog,
   preferences,

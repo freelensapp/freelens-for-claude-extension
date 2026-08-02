@@ -165,6 +165,13 @@ export interface ModelChoice {
  */
 export interface ClusterModelsResponse {
   models: ModelChoice[];
+  /**
+   * The wire model id the "Default" choice currently resolves to (e.g.
+   * "claude-sonnet-5"), taken from the SDK catalog's own "use the default"
+   * entry. Lets the picker show what "Default" means before any turn has run
+   * and set {@link SessionEventMap.session_meta}'s `resolvedModel`.
+   */
+  defaultResolvedModel?: string;
   error?: string;
 }
 
