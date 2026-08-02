@@ -166,7 +166,7 @@ jobs:
       # Sends the runtime findings to Security -> Code scanning, where they are
       # tracked and deduplicated across runs (the role OSV-Scanner used to fill).
       - name: Upload the scan to code scanning
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: grype.sarif
           category: grype-main
