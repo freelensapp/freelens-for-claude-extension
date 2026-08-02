@@ -1,0 +1,20 @@
+declare const classNames: {
+  readonly backdrop: "backdrop";
+  readonly dialog: "dialog";
+  readonly header: "header";
+  readonly title: "title";
+  readonly model: "model";
+  readonly summary: "summary";
+  readonly bar: "bar";
+  readonly segment: "segment";
+  readonly table: "table";
+  readonly row: "row";
+  readonly headRow: "headRow";
+  readonly category: "category";
+  readonly swatch: "swatch";
+  readonly tokens: "tokens";
+  readonly share: "share";
+  readonly empty: "empty";
+  readonly error: "error";
+};
+export = classNames;

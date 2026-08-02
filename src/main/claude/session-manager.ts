@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { Common } from "@freelensapp/extensions";
 import {
+  type ClusterContextResponse,
   type ClusterUsageResponse,
   type PermissionBehavior,
   type PermissionMode,
@@ -28,6 +29,7 @@ import {
   MCP_SERVER_NAME,
   unqualifyToolName,
 } from "../tools/mcp-server";
+import { buildContextResponse } from "./context";
 import { parseUserMcpConfig } from "./mcp-config";
 import { PermissionBroker, type ResolveResult } from "./permission-broker";
 import { buildAgents } from "./subagents";
@@ -187,6 +189,8 @@ class ClusterSession {
   private slashCommands?: string[];
   /** The last user prompt, kept so a failed turn can be retried without re-adding the bubble. */
   private lastUserText?: string;
+  /** The latest context-window occupancy, re-sent to new subscribers (not persisted). */
+  private lastContextEvent?: SessionEvent;
   /** Reasoning deltas accumulated for the current turn, attached to the next assistant message. */
   private thinkingText = "";
 
@@ -231,6 +235,9 @@ class ClusterSession {
     listener(sessionEvent("status", { state: this.working ? "working" : "idle" }));
     listener(this.sessionMetaEvent());
     for (const event of this.transcript) listener(event);
+    // The donut occupancy is not persisted; replay the latest value so a
+    // reconnecting page shows the current context without waiting for a turn.
+    if (this.lastContextEvent) listener(this.lastContextEvent);
     return () => {
       this.subscribers.delete(listener);
     };
@@ -732,6 +739,9 @@ class ClusterSession {
         this.emitUsage((message as { usage?: UsageTotals }).usage);
         this.setWorking(false);
         this.emit(sessionEvent("turn_complete", {}));
+        // Refresh the donut occupancy off the critical path (control request,
+        // no token cost); a failure just leaves the previous value in place.
+        void this.refreshContext();
         break;
       }
       default:
@@ -748,6 +758,49 @@ class ClusterSession {
       // Interrupt is best-effort; ignore if the query is not streaming.
     }
     this.setWorking(false);
+  }
+
+  /**
+   * The data behind `/context`: the current context-window occupancy broken
+   * down by category. Initializes the session so the SDK control channel
+   * exists, but never pushes a turn (no token cost). Returns an `error` field
+   * when the data cannot be fetched.
+   */
+  async getContext(): Promise<ClusterContextResponse> {
+    const empty: ClusterContextResponse = { model: "", categories: [], totalTokens: 0, maxTokens: 0, percentage: 0 };
+    if (!this.started) await this.start();
+    const handle = this.queryHandle;
+    if (!handle || typeof handle.getContextUsage !== "function") {
+      return { ...empty, error: "Context usage is not available for this Claude Code session." };
+    }
+    try {
+      return buildContextResponse(await handle.getContextUsage());
+    } catch (error) {
+      return { ...empty, error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
+  /**
+   * Refresh the cached donut occupancy from the SDK and push it to subscribers.
+   * Best-effort: any failure (older Claude Code, in-flight control channel)
+   * leaves the previous value untouched and emits nothing.
+   */
+  private async refreshContext(): Promise<void> {
+    const handle = this.queryHandle;
+    if (!handle || typeof handle.getContextUsage !== "function") return;
+    try {
+      const context = buildContextResponse(await handle.getContextUsage());
+      if (context.error || context.maxTokens <= 0) return;
+      this.lastContextEvent = sessionEvent("context", {
+        percentage: context.percentage,
+        totalTokens: context.totalTokens,
+        maxTokens: context.maxTokens,
+        model: context.model,
+      });
+      this.emit(this.lastContextEvent);
+    } catch {
+      // Best-effort; keep the last known occupancy.
+    }
   }
 
   /**
@@ -860,6 +913,11 @@ export class SessionManager {
   /** The `/usage` data for a cluster; initializes the session if needed. */
   async getClusterUsage(clusterId: string): Promise<ClusterUsageResponse> {
     return this.getOrCreate(clusterId).getUsage();
+  }
+
+  /** The `/context` breakdown for a cluster; initializes the session if needed. */
+  async getClusterContext(clusterId: string): Promise<ClusterContextResponse> {
+    return this.getOrCreate(clusterId).getContext();
   }
 
   /** Resolve a pending approval identified only by its request id. */

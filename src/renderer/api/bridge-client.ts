@@ -5,6 +5,7 @@
 
 import { BridgeStore } from "../../common/bridge-store";
 import {
+  type ClusterContextResponse,
   type ClusterUsageResponse,
   decodeSseFrame,
   type PermissionBehavior,
@@ -67,6 +68,15 @@ export class BridgeClient {
     });
     if (!response.ok) throw new Error(`usage request failed: ${response.status}`);
     return (await response.json()) as ClusterUsageResponse;
+  }
+
+  /** Fetch the `/context` breakdown: current context-window occupancy by category. */
+  async getContext(clusterId: string): Promise<ClusterContextResponse> {
+    const response = await fetch(`${this.baseUrl}/clusters/${encodeURIComponent(clusterId)}/context`, {
+      headers: this.authHeader,
+    });
+    if (!response.ok) throw new Error(`context request failed: ${response.status}`);
+    return (await response.json()) as ClusterContextResponse;
   }
 
   async interrupt(clusterId: string): Promise<void> {
