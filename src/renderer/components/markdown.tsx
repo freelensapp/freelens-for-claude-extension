@@ -3,6 +3,7 @@
  * Licensed under MIT License. See LICENSE in root directory for more information.
  */
 
+import { isValidElement } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { CodeViewer } from "./code-viewer";
@@ -10,21 +11,31 @@ import styles from "./markdown.module.scss";
 
 import type { ReactNode } from "react";
 
-interface CodeBlockProps {
-  inline?: boolean;
+/**
+ * Inline `` `code` `` spans. Fenced blocks are handled by the `pre` override
+ * below, which never renders its `<code>` child, so this only ever sees inline
+ * code. react-markdown 9 removed the `inline` prop that used to distinguish the
+ * two cases, so the split is now structural rather than prop-based.
+ */
+function InlineCode({ className, children }: { className?: string; children?: ReactNode }) {
+  return <code className={`${styles.inlineCode} ${className ?? ""}`.trim()}>{children}</code>;
+}
+
+interface CodeElementProps {
   className?: string;
   children?: ReactNode;
 }
 
-function CodeBlock({ inline, className, children }: CodeBlockProps) {
-  if (inline) {
-    return <code className={`${styles.inlineCode} ${className ?? ""}`.trim()}>{children}</code>;
-  }
-
-  // react-markdown tags fenced blocks with a `language-xxx` class; the file/code
-  // body renders in the shared Monaco-backed viewer.
-  const text = String(children ?? "").replace(/\n$/, "");
-  const language = /language-(\w+)/.exec(className ?? "")?.[1];
+/**
+ * Fenced code blocks. react-markdown renders them as `<pre><code>...</code></pre>`
+ * and tags the `<code>` with a `language-xxx` class; the file/code body renders
+ * in the shared Monaco-backed viewer. Unwrapping the child here (rather than
+ * rendering `children`) means the `code` override never fires for fenced blocks.
+ */
+function CodeBlock({ children }: { children?: ReactNode }) {
+  const code = isValidElement(children) ? (children.props as CodeElementProps) : undefined;
+  const text = String(code?.children ?? "").replace(/\n$/, "");
+  const language = /language-(\w+)/.exec(code?.className ?? "")?.[1];
   return <CodeViewer value={text} language={language} />;
 }
 
@@ -48,8 +59,9 @@ export function Markdown({ children }: { children: string }) {
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
-          code: CodeBlock as never,
-          a: ExternalLink as never,
+          code: InlineCode,
+          pre: CodeBlock,
+          a: ExternalLink,
         }}
       >
         {children}

@@ -20,5 +20,14 @@ export default defineConfig({
       // so swap it for a small stub - see `test/freelens-extensions.ts`.
       "@freelensapp/extensions": fileURLToPath(new URL("./test/freelens-extensions.ts", import.meta.url)),
     },
+    // react-markdown 10 imports the automatic JSX runtime as a bare specifier.
+    // React 17 ships `jsx-runtime.js` but has no `exports` map, so Node's ESM
+    // loader cannot resolve the extensionless path when the dep is externalized.
+    // Inlining lets vite transform and resolve it (as the extension build does).
+    server: {
+      deps: {
+        inline: ["react-markdown"],
+      },
+    },
   },
 });

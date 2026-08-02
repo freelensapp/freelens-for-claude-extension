@@ -8,6 +8,7 @@
 //
 // Only the surface actually exercised by the tests is stubbed here. Extend it
 // as your tests need more of the host API.
+import React from "react";
 import { vi } from "vitest";
 
 class LensExtensionKubeObject {
@@ -22,11 +23,21 @@ class LensExtensionKubeObject {
   }
 }
 
+// Minimal stand-in for the host Monaco editor. The real component pulls in the
+// full Monaco runtime; the stub renders the value as a plain <textarea> so that
+// components depending on it (e.g. `CodeViewer`) can be rendered in jsdom tests.
+function MonacoEditor({ value }: { value?: string }) {
+  return React.createElement("textarea", { readOnly: true, value: value ?? "" });
+}
+
 export const Renderer = {
   K8sApi: {
     LensExtensionKubeObject,
     KubeApi: class KubeApi {},
     KubeObjectStore: class KubeObjectStore {},
+  },
+  Component: {
+    MonacoEditor,
   },
 };
 
