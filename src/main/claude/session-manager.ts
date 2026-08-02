@@ -202,7 +202,12 @@ class ClusterSession {
   private slashCommands?: string[];
   /** The last user prompt, kept so a failed turn can be retried without re-adding the bubble. */
   private lastUserText?: string;
-  /** The latest context-window occupancy, re-sent to new subscribers (not persisted). */
+  /**
+   * The latest context-window occupancy, re-sent to new subscribers and
+   * persisted alongside the transcript (see {@link flushTranscript}) so a
+   * session resumed after an app restart shows the donut immediately instead
+   * of falling back to no occupancy data until the next turn.
+   */
   private lastContextEvent?: SessionEvent;
   /** Reasoning deltas accumulated for the current turn, attached to the next assistant message. */
   private thinkingText = "";
@@ -233,11 +238,24 @@ class ClusterSession {
     this.loadTranscript();
   }
 
-  /** Load the persisted transcript synchronously so the first subscriber replays it. */
+  /**
+   * Load the persisted transcript synchronously so the first subscriber
+   * replays it. Accepts both the current `{ events, lastContext }` shape and
+   * the legacy bare-array format (a transcript file written before context
+   * snapshots were persisted).
+   */
   private loadTranscript(): void {
     try {
-      const parsed = JSON.parse(readFileSync(this.transcriptFile, "utf8"));
-      if (Array.isArray(parsed)) this.transcript.push(...(parsed as SessionEvent[]));
+      const parsed: unknown = JSON.parse(readFileSync(this.transcriptFile, "utf8"));
+      if (Array.isArray(parsed)) {
+        this.transcript.push(...(parsed as SessionEvent[]));
+        return;
+      }
+      if (parsed && typeof parsed === "object") {
+        const { events, lastContext } = parsed as { events?: unknown; lastContext?: SessionEvent };
+        if (Array.isArray(events)) this.transcript.push(...(events as SessionEvent[]));
+        if (lastContext) this.lastContextEvent = lastContext;
+      }
     } catch {
       // No transcript yet (or unreadable); start with an empty history.
     }
@@ -248,8 +266,9 @@ class ClusterSession {
     listener(sessionEvent("status", { state: this.working ? "working" : "idle" }));
     listener(this.sessionMetaEvent());
     for (const event of this.transcript) listener(event);
-    // The donut occupancy is not persisted; replay the latest value so a
-    // reconnecting page shows the current context without waiting for a turn.
+    // Replay the latest context occupancy (loaded from disk on app restart,
+    // or set in-memory since) so a reconnecting page shows it immediately,
+    // without waiting for a turn.
     if (this.lastContextEvent) listener(this.lastContextEvent);
     return () => {
       this.subscribers.delete(listener);
@@ -310,6 +329,11 @@ class ClusterSession {
     if (PERSISTED_EVENTS.has(event.type)) {
       this.transcript.push(event);
       this.scheduleTranscriptWrite();
+    } else if (event.type === "context") {
+      // Not part of the append-only history (each refresh replaces the last
+      // one, see refreshContext), but its latest value is written to disk
+      // alongside the transcript so a resumed session has it immediately.
+      this.scheduleTranscriptWrite();
     }
     for (const listener of this.subscribers) listener(event);
   }
@@ -323,11 +347,14 @@ class ClusterSession {
     }, TRANSCRIPT_DEBOUNCE_MS);
   }
 
-  /** Write the in-memory transcript to disk; best-effort, never throws. */
+  /** Write the in-memory transcript and latest context snapshot to disk; best-effort, never throws. */
   private async flushTranscript(): Promise<void> {
     try {
       await mkdir(this.dir, { recursive: true });
-      await writeFile(this.transcriptFile, JSON.stringify(this.transcript));
+      await writeFile(
+        this.transcriptFile,
+        JSON.stringify({ events: this.transcript, lastContext: this.lastContextEvent }),
+      );
     } catch {
       // A failed transcript write must not break the live chat.
     }
