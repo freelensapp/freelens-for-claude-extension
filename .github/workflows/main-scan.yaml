@@ -30,6 +30,7 @@ jobs:
     permissions:
       contents: read
       discussions: write
+      security-events: write
 
     env:
       # Renovate keeps this in sync via the inline datasource hint (see
@@ -121,7 +122,10 @@ jobs:
           all=$(yq -pj -oj '.packages | length' sbom.spdx.json)
           run=$(yq -pj -oj '.packages | length' runtime.spdx.json)
           echo "::group::grype (${all} -> ${run} runtime packages)"
-          "$grype" "sbom:runtime.spdx.json" -o json=grype-raw.json
+          # json feeds the discussion table below; sarif is uploaded to code
+          # scanning. An empty results set is valid SARIF, so a clean branch
+          # auto-resolves any previously reported alerts.
+          "$grype" "sbom:runtime.spdx.json" -o json=grype-raw.json -o sarif=grype.sarif
           echo "::endgroup::"
           # grype leaves artifact.locations empty for SBOM scans; fill each
           # finding's location from the runtime map (its pnpm-store path), with a
@@ -133,6 +137,14 @@ jobs:
               .artifact.locations = [{"path": ($set[$key] // ("sbom/" + $key))}]
             )
           ' grype-raw.json > grype.json
+
+      # Sends the runtime findings to Security -> Code scanning, where they are
+      # tracked and deduplicated across runs (the role OSV-Scanner used to fill).
+      - name: Upload the scan to code scanning
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: grype.sarif
+          category: grype-main
 
       - name: Build the vulnerability table
         run: |
