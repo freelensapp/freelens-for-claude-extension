@@ -9,6 +9,7 @@ import {
   type ClusterModelsResponse,
   type ClusterUsageResponse,
   decodeSseFrame,
+  type EffortLevel,
   type PermissionBehavior,
   type PermissionMode,
   type SessionEvent,
@@ -131,6 +132,16 @@ export class BridgeClient {
       body: JSON.stringify({ model }),
     });
     if (!response.ok) throw new Error(`set model failed: ${response.status}`);
+  }
+
+  /** Switch the per-cluster reasoning-effort level; `null` restores the Claude Code default ("high"). */
+  async setEffort(clusterId: string, effort: EffortLevel | null): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/clusters/${encodeURIComponent(clusterId)}/effort`, {
+      method: "POST",
+      headers: { ...this.authHeader, "Content-Type": "application/json" },
+      body: JSON.stringify({ effort }),
+    });
+    if (!response.ok) throw new Error(`set effort failed: ${response.status}`);
   }
 
   /** Re-run the last failed turn. Resolves for a 202, rejects for a 409/other. */

@@ -13,6 +13,7 @@ import styles from "./chat-view.module.scss";
 import { CommandMenu } from "./command-menu";
 import { ContextDialog } from "./context-dialog";
 import { ContextDonut } from "./context-donut";
+import { EFFORT_TITLES, EffortDialog } from "./effort-dialog";
 import { Markdown } from "./markdown";
 import { ModelDialog } from "./model-dialog";
 import { PermissionDialog } from "./permission-dialog";
@@ -23,6 +24,7 @@ import { UsageDialog } from "./usage-dialog";
 import type { ChangeEvent, KeyboardEvent } from "react";
 
 import type {
+  EffortLevel,
   ModelChoice,
   PermissionBehavior,
   PermissionMode,
@@ -79,6 +81,7 @@ interface ChatState {
   resumed: boolean;
   model?: string;
   resolvedModel?: string;
+  effort?: EffortLevel;
   usage?: UsageTotals;
   context?: ContextUsage;
   error?: { message: string; kind: SessionErrorKind };
@@ -242,6 +245,7 @@ function reducer(state: ChatState, action: ChatAction): ChatState {
         resumed: action.data.resumed,
         model: action.data.model,
         resolvedModel: action.data.resolvedModel,
+        effort: action.data.effort,
         // Keep previously-known commands when a later meta event omits them.
         slashCommands: action.data.slashCommands ?? state.slashCommands,
       };
@@ -335,6 +339,7 @@ export function ChatView({ clusterId, client }: ChatViewProps) {
   const [usageOpen, setUsageOpen] = useState(false);
   const [contextOpen, setContextOpen] = useState(false);
   const [modelSwitchOpen, setModelSwitchOpen] = useState(false);
+  const [effortSwitchOpen, setEffortSwitchOpen] = useState(false);
   const [models, setModels] = useState<ModelChoice[] | null>(null);
   const [defaultResolvedModel, setDefaultResolvedModel] = useState<string | undefined>(undefined);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -541,6 +546,15 @@ export function ChatView({ clusterId, client }: ChatViewProps) {
     });
   };
 
+  const changeEffort = (value: EffortLevel | null) => {
+    void client.setEffort(clusterId, value).catch((error) => {
+      dispatch({
+        type: "error",
+        data: { message: `Failed to change effort: ${String(error)}`, kind: "other" },
+      });
+    });
+  };
+
   const lastIndex = state.items.length - 1;
   // Prefer the live session's own resolution (set once a turn has actually
   // run) over the model catalog's snapshot, so the label can't go stale if
@@ -549,6 +563,14 @@ export function ChatView({ clusterId, client }: ChatViewProps) {
   const defaultLabel = defaultResolved ? `Default (${defaultResolved})` : "Default";
   const modelOptions: ModelChoice[] =
     models ?? MODEL_CHOICES.map((value) => ({ value, displayName: value }) satisfies ModelChoice);
+  // The command-menu label shows the resolved wire model id for whatever is
+  // active — an explicit choice's own resolvedModel (falling back to its raw
+  // value for a custom-typed id not in the catalog), or the default's.
+  const activeModelResolved = state.model
+    ? (modelOptions.find((choice) => choice.value === state.model)?.resolvedModel ?? state.model)
+    : defaultResolved;
+  const switchModelLabel = activeModelResolved ? `Switch model (${activeModelResolved})...` : "Switch model...";
+  const effortLabel = `Effort (${EFFORT_TITLES[state.effort ?? "high"]})...`;
 
   // Quick-prompt chips: the built-ins plus any user-defined entries. Shown only
   // when the input is empty and no turn is in flight.
@@ -705,6 +727,9 @@ export function ChatView({ clusterId, client }: ChatViewProps) {
               }}
               onUsage={() => setUsageOpen(true)}
               onSwitchModel={() => setModelSwitchOpen(true)}
+              switchModelLabel={switchModelLabel}
+              onEffort={() => setEffortSwitchOpen(true)}
+              effortLabel={effortLabel}
               onClearConversation={() => void newChat()}
               onCompact={compact}
             />
@@ -751,6 +776,9 @@ export function ChatView({ clusterId, client }: ChatViewProps) {
           onSelect={changeModel}
           onClose={() => setModelSwitchOpen(false)}
         />
+      ) : null}
+      {effortSwitchOpen ? (
+        <EffortDialog current={state.effort} onSelect={changeEffort} onClose={() => setEffortSwitchOpen(false)} />
       ) : null}
     </div>
   );

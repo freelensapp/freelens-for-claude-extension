@@ -6,7 +6,9 @@
 import { describe, expect, it } from "vitest";
 import {
   decodeSseFrame,
+  EFFORT_LEVELS,
   encodeSseEvent,
+  isEffortLevel,
   isModelChoice,
   MODEL_CHOICES,
   RESERVED_MCP_SERVER_NAME,
@@ -101,5 +103,14 @@ describe("model choices", () => {
     expect(isModelChoice("gpt")).toBe(false);
     expect(isModelChoice(null)).toBe(false);
     expect(isModelChoice(undefined)).toBe(false);
+  });
+});
+
+describe("effort levels", () => {
+  it("recognizes the known levels and rejects anything else", () => {
+    for (const effort of EFFORT_LEVELS) expect(isEffortLevel(effort)).toBe(true);
+    expect(isEffortLevel("extreme")).toBe(false);
+    expect(isEffortLevel(null)).toBe(false);
+    expect(isEffortLevel(undefined)).toBe(false);
   });
 });

@@ -6,7 +6,7 @@
 import { Common } from "@freelensapp/extensions";
 import { makeObservable, observable } from "mobx";
 
-import type { PermissionMode } from "./protocol";
+import type { EffortLevel, PermissionMode } from "./protocol";
 
 // Per-cluster chat session state persisted by the main process and synced to the
 // renderer like the BridgeStore. It records the Claude Code session id (for
@@ -28,6 +28,8 @@ export interface ChatSessionEntry {
   permissionMode: PersistedPermissionMode;
   /** The selected model alias; absent means the Claude Code default. */
   model?: string;
+  /** The selected reasoning-effort level; absent means the Claude Code default ("high"). */
+  effort?: EffortLevel;
   /** ISO timestamp of the last write. */
   updatedAt: string;
 }
@@ -50,6 +52,8 @@ export interface ChatSessionState {
   writePermissionMode(clusterId: string, mode: PermissionMode): void;
   /** Persist the selected model alias; `undefined` clears it (Claude Code default). */
   writeModel(clusterId: string, model: string | undefined): void;
+  /** Persist the selected effort level; `undefined` clears it (Claude Code default). */
+  writeEffort(clusterId: string, effort: EffortLevel | undefined): void;
 }
 
 export class ChatSessionStore extends Common.Store.ExtensionStore<ChatSessionStoreModel> implements ChatSessionState {
@@ -99,6 +103,17 @@ export class ChatSessionStore extends Common.Store.ExtensionStore<ChatSessionSto
     this.sessions = {
       ...this.sessions,
       [clusterId]: { ...base, model, updatedAt: this.now() },
+    };
+  }
+
+  writeEffort(clusterId: string, effort: EffortLevel | undefined): void {
+    const existing = this.sessions[clusterId];
+    // Nothing to clear for a cluster we have never seen.
+    if (!existing && effort == null) return;
+    const base: ChatSessionEntry = existing ?? { permissionMode: "approve", updatedAt: this.now() };
+    this.sessions = {
+      ...this.sessions,
+      [clusterId]: { ...base, effort, updatedAt: this.now() },
     };
   }
 

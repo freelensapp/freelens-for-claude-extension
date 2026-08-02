@@ -127,6 +127,22 @@ export interface SetModelRequest {
   model: string | null;
 }
 
+/** Reasoning-effort level, mirroring the Claude Agent SDK's `EffortLevel`. */
+export type EffortLevel = "low" | "medium" | "high" | "xhigh" | "max";
+
+/** Every effort level, most to least reasoning. */
+export const EFFORT_LEVELS: readonly EffortLevel[] = ["low", "medium", "high", "xhigh", "max"];
+
+/** Whether a value is a known effort level. */
+export function isEffortLevel(value: unknown): value is EffortLevel {
+  return typeof value === "string" && (EFFORT_LEVELS as readonly string[]).includes(value);
+}
+
+/** Body of `POST /clusters/:id/effort`. `null` restores the Claude Code default ("high"). */
+export interface SetEffortRequest {
+  effort: EffortLevel | null;
+}
+
 /**
  * Static fallback model aliases, used before the live catalog (see
  * {@link ClusterModelsResponse}) has loaded and on the Preferences page,
@@ -255,6 +271,8 @@ export interface SessionEventMap {
     model?: string;
     /** The model id the SDK `init` message resolved to (for the Default label). */
     resolvedModel?: string;
+    /** Selected reasoning-effort level; absent means the Claude Code default ("high"). */
+    effort?: EffortLevel;
     /** Slash commands offered by Claude Code, from the SDK `init` message. */
     slashCommands?: string[];
     /** External MCP servers (never the built-in `freelens-kube`) and their status. */

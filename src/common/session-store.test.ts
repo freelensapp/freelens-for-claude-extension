@@ -72,4 +72,21 @@ describe("ChatSessionStore", () => {
     store.writeModel("ghost", undefined);
     expect(store.read("ghost")).toBeUndefined();
   });
+
+  it("persists and clears the per-cluster effort", () => {
+    const store = new ChatSessionStore();
+    store.writeEffort("c1", "xhigh");
+    expect(store.read("c1")?.effort).toBe("xhigh");
+    // An effort write on a fresh cluster defaults the permission mode.
+    expect(store.read("c1")?.permissionMode).toBe("approve");
+
+    store.writeEffort("c1", undefined);
+    expect(store.read("c1")?.effort).toBeUndefined();
+  });
+
+  it("clearing the effort on an unknown cluster does not create an entry", () => {
+    const store = new ChatSessionStore();
+    store.writeEffort("ghost", undefined);
+    expect(store.read("ghost")).toBeUndefined();
+  });
 });

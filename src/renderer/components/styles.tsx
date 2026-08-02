@@ -14,6 +14,7 @@ import codeViewer from "./code-viewer.module.scss?inline";
 import commandMenu from "./command-menu.module.scss?inline";
 import contextDialog from "./context-dialog.module.scss?inline";
 import contextDonut from "./context-donut.module.scss?inline";
+import effortDialog from "./effort-dialog.module.scss?inline";
 import markdown from "./markdown.module.scss?inline";
 import modelDialog from "./model-dialog.module.scss?inline";
 import onboarding from "./onboarding.module.scss?inline";
@@ -30,6 +31,7 @@ const css = [
   commandMenu,
   contextDialog,
   contextDonut,
+  effortDialog,
   markdown,
   modelDialog,
   onboarding,
