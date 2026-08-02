@@ -14,6 +14,8 @@ one conversation per cluster. Claude answers questions about the selected
 cluster and can act on it — but only through a set of typed,
 permission-gated Kubernetes tools, never through an unrestricted shell.
 
+![screenshot](docs/images/chat.png)
+
 Unlike
 [freelens-ai-extension](https://github.com/freelensapp/freelens-ai-extension),
 this extension is a frontend to **your own Claude Code installation**. There
@@ -71,8 +73,6 @@ You can also build and pack the extension yourself — see
 5. From any resource list you can also right-click a Pod, Deployment,
    DaemonSet, StatefulSet, Service, Node, or Event and choose **Ask
    Claude** to open the chat pre-filled with a prompt about that object.
-
-![screenshot](docs/images/chat.png)
 
 ## Features
 
