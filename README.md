@@ -7,6 +7,7 @@
 [![Release](https://img.shields.io/github/v/release/freelensapp/freelens-for-claude-extension?display_name=tag&sort=semver)](https://github.com/freelensapp/freelens-for-claude-extension/releases)
 [![Unit tests](https://github.com/freelensapp/freelens-for-claude-extension/actions/workflows/unit-tests.yaml/badge.svg?branch=main)](https://github.com/freelensapp/freelens-for-claude-extension/actions/workflows/unit-tests.yaml)
 [![Integration tests](https://github.com/freelensapp/freelens-for-claude-extension/actions/workflows/integration-tests.yaml/badge.svg?branch=main)](https://github.com/freelensapp/freelens-for-claude-extension/actions/workflows/integration-tests.yaml)
+[![Security scan](https://github.com/freelensapp/freelens-for-claude-extension/actions/workflows/main-scan.yaml/badge.svg?branch=main)](https://github.com/freelensapp/freelens-for-claude-extension/actions/workflows/main-scan.yaml)
 [![npm](https://img.shields.io/npm/v/@freelensapp/for-claude-extension.svg)](https://www.npmjs.com/package/@freelensapp/for-claude-extension)
 
 <!-- markdownlint-enable MD013 -->
