@@ -11,5 +11,10 @@ declare const classNames: {
   readonly rowText: "rowText";
   readonly rowName: "rowName";
   readonly rowResolved: "rowResolved";
+  readonly divider: "divider";
+  readonly customLabel: "customLabel";
+  readonly customRow: "customRow";
+  readonly customInput: "customInput";
+  readonly customButton: "customButton";
 };
 export = classNames;

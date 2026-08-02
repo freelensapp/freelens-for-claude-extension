@@ -93,3 +93,60 @@
   opacity: 0.6;
   font-family: var(--font-monospace, monospace);
 }
+
+.divider {
+  height: 1px;
+  margin: 0.7rem 0 0.6rem;
+  background: var(--borderColor, rgba(127, 127, 127, 0.25));
+}
+
+.customLabel {
+  margin: 0 0.1rem 0.4rem;
+  font-size: 0.8em;
+  font-weight: 600;
+  text-transform: uppercase;
+  opacity: 0.6;
+}
+
+.customRow {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.customInput {
+  flex: 1;
+  min-width: 0;
+  padding: 0.4em 0.6em;
+  border: 1px solid var(--borderColor, rgba(127, 127, 127, 0.4));
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-family: var(--font-monospace, monospace);
+  font-size: 0.85em;
+
+  &:focus {
+    outline: none;
+    border-color: var(--colorInfo, #61afef);
+  }
+}
+
+.customButton {
+  padding: 0.4em 0.8em;
+  border: 1px solid rgba(127, 127, 127, 0.5);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 0.85em;
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    background: rgba(127, 127, 127, 0.15);
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+}

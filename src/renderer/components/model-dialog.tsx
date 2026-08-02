@@ -4,7 +4,7 @@
  */
 
 import { Renderer } from "@freelensapp/extensions";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import styles from "./model-dialog.module.scss";
 
 import type { ModelChoice } from "../../common/protocol";
@@ -56,10 +56,14 @@ function ModelRow({ label, resolvedModel, active, onClick }: ModelRowProps) {
 /**
  * The "Switch model" modal opened from the command menu ("/" widget). Lists
  * the "Default" choice plus the live model catalog (or the static alias
- * fallback), with the active selection checked. Picking a row applies it and
- * closes the dialog.
+ * fallback), with the active selection checked, and a free-text field for an
+ * exact model id — the live catalog can lag behind what the backend actually
+ * accepts. Picking a row or submitting the field applies it and closes the
+ * dialog.
  */
 export function ModelDialog({ models, current, defaultLabel, onSelect, onClose }: ModelDialogProps) {
+  const [customValue, setCustomValue] = useState("");
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") onClose();
@@ -72,6 +76,12 @@ export function ModelDialog({ models, current, defaultLabel, onSelect, onClose }
     onSelect(value);
     onClose();
   };
+
+  // The live catalog can lag behind what the backend actually accepts (e.g. a
+  // newly released model the installed Claude Code build doesn't list yet in
+  // its own supportedModels() catalog). If the active model isn't among the
+  // known choices, surface it as its own checked row instead of hiding it.
+  const customActive = current !== undefined && !models.some((choice) => choice.value === current);
 
   return (
     <div className={styles.backdrop} onClick={onClose}>
@@ -93,7 +103,30 @@ export function ModelDialog({ models, current, defaultLabel, onSelect, onClose }
               onClick={() => choose(choice.value)}
             />
           ))}
+          {customActive ? <ModelRow label={current ?? ""} active onClick={() => choose(current ?? null)} /> : null}
         </div>
+        <div className={styles.divider} />
+        <div className={styles.customLabel}>Custom model id</div>
+        <form
+          className={styles.customRow}
+          onSubmit={(event) => {
+            event.preventDefault();
+            const value = customValue.trim();
+            if (value) choose(value);
+          }}
+        >
+          <input
+            type="text"
+            className={styles.customInput}
+            placeholder="e.g. claude-opus-5"
+            value={customValue}
+            onChange={(event) => setCustomValue(event.target.value)}
+            aria-label="Custom model id"
+          />
+          <button type="submit" className={styles.customButton} disabled={!customValue.trim()}>
+            Use
+          </button>
+        </form>
       </div>
     </div>
   );
