@@ -128,8 +128,10 @@ export interface SetModelRequest {
 }
 
 /**
- * The model aliases offered by the picker and accepted by `POST .../model`.
- * A `null`/absent selection means "Claude Code default".
+ * Static fallback model aliases, used before the live catalog (see
+ * {@link ClusterModelsResponse}) has loaded and on the Preferences page,
+ * which has no cluster session to query. A `null`/absent selection means
+ * "Claude Code default".
  *
  * These are Claude Code family aliases (not pinned IDs), so each resolves to
  * the newest model of its family: `fable` -> Fable 5, `opus` -> Opus 5,
@@ -137,9 +139,33 @@ export interface SetModelRequest {
  */
 export const MODEL_CHOICES = ["fable", "opus", "sonnet", "haiku"] as const;
 
-/** Whether a value is one of the known model aliases. */
+/** Whether a value is one of the static fallback model aliases. */
 export function isModelChoice(value: unknown): value is (typeof MODEL_CHOICES)[number] {
   return typeof value === "string" && (MODEL_CHOICES as readonly string[]).includes(value);
+}
+
+/** One entry in the live model picker, sourced from the installed Claude Code build. */
+export interface ModelChoice {
+  /** Value to POST to `/clusters/:id/model` — an alias (e.g. "opus") or a pinned id. */
+  value: string;
+  /** Human-readable name, e.g. "Claude Opus 5". */
+  displayName: string;
+  /** The wire model id this choice resolves to, e.g. "claude-opus-5". */
+  resolvedModel?: string;
+}
+
+/**
+ * Response of `GET /clusters/:id/models`: the live list of model choices the
+ * installed Claude Code build actually supports, sourced from the SDK's own
+ * catalog so it always matches what `POST .../model` will accept (including
+ * pinned versions like a specific Opus release, when the SDK exposes them).
+ * Fetching initializes the cluster's Claude Code session (without running a
+ * turn). `error` is present when the list could not be fetched at all, in
+ * which case the renderer falls back to {@link MODEL_CHOICES}.
+ */
+export interface ClusterModelsResponse {
+  models: ModelChoice[];
+  error?: string;
 }
 
 /** The classification attached to an `error` event. */

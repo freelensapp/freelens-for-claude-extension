@@ -4,7 +4,7 @@
  */
 
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { encodeSseEvent, isModelChoice, SSE_HEARTBEAT, type StatusResponse } from "../../common/protocol";
+import { encodeSseEvent, SSE_HEARTBEAT, type StatusResponse } from "../../common/protocol";
 
 import type { SessionManager } from "../claude/session-manager";
 
@@ -131,6 +131,12 @@ export class BridgeServer {
       return;
     }
 
+    const modelsId = matchCluster(pathname, "models");
+    if (req.method === "GET" && modelsId) {
+      sendJson(res, 200, await this.deps.sessionManager.getClusterModels(modelsId));
+      return;
+    }
+
     const messagesId = matchCluster(pathname, "messages");
     if (req.method === "POST" && messagesId) {
       const body = (await readJsonBody(req)) as { text?: unknown };
@@ -173,12 +179,16 @@ export class BridgeServer {
     const modelId = matchCluster(pathname, "model");
     if (req.method === "POST" && modelId) {
       const body = (await readJsonBody(req)) as { model?: unknown };
-      if (body.model !== null && !isModelChoice(body.model)) {
+      const model = body.model;
+      // Validated loosely: the picker now sources its options live from the
+      // SDK (see GET .../models), so any non-empty string may be a valid
+      // choice — the SDK itself rejects an unknown model when the turn runs.
+      if (model !== null && (typeof model !== "string" || !model.trim())) {
         sendJson(res, 400, { error: "Invalid model" });
         return;
       }
-      this.deps.sessionManager.setModel(modelId, body.model ?? undefined);
-      sendJson(res, 200, { model: body.model });
+      this.deps.sessionManager.setModel(modelId, model ?? undefined);
+      sendJson(res, 200, { model });
       return;
     }
 

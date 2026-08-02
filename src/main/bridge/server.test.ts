@@ -33,6 +33,10 @@ const getClusterUsage = vi.fn(async (_clusterId: string) => ({
   contributing: null,
 }));
 
+const getClusterModels = vi.fn(async (_clusterId: string) => ({
+  models: [{ value: "opus", displayName: "Opus", resolvedModel: "claude-opus-5" }],
+}));
+
 const sessionManager = {
   subscribe: vi.fn(() => () => {}),
   sendMessage: vi.fn(async () => {}),
@@ -43,6 +47,7 @@ const sessionManager = {
   setModel: vi.fn(() => {}),
   retry,
   getClusterUsage,
+  getClusterModels,
   resolvePermission,
 } as unknown as SessionManager;
 
@@ -156,9 +161,30 @@ describe("model route", () => {
     expect(sessionManager.setModel).toHaveBeenCalledWith("c1", undefined);
   });
 
-  it("rejects garbage", async () => {
-    const response = await authedPost("/clusters/c1/model", { model: "gpt" });
+  it("accepts a model string outside the static alias list (e.g. a pinned version from the live catalog)", async () => {
+    const response = await authedPost("/clusters/c1/model", { model: "claude-opus-4-8" });
+    expect(response.status).toBe(200);
+    expect(sessionManager.setModel).toHaveBeenCalledWith("c1", "claude-opus-4-8");
+  });
+
+  it("rejects an empty or blank string", async () => {
+    const response = await authedPost("/clusters/c1/model", { model: "   " });
     expect(response.status).toBe(400);
+  });
+
+  it("rejects a non-string, non-null value", async () => {
+    const response = await authedPost("/clusters/c1/model", { model: 42 });
+    expect(response.status).toBe(400);
+  });
+});
+
+describe("models route", () => {
+  it("returns the live model catalog", async () => {
+    const response = await fetch(`${baseUrl}/clusters/c1/models`, { headers: { Authorization: `Bearer ${TOKEN}` } });
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.models).toEqual([{ value: "opus", displayName: "Opus", resolvedModel: "claude-opus-5" }]);
+    expect(getClusterModels).toHaveBeenCalledWith("c1");
   });
 });
 
