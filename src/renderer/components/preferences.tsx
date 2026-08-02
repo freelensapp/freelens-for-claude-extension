@@ -183,7 +183,11 @@ export function PreferencesInput() {
   );
 }
 
-/** The empty hint slot; the page body carries its own per-field hints. */
+/** A discreet fine-print disclaimer shown in the preferences hint slot. */
 export function PreferencesHint() {
-  return <span />;
+  return (
+    <span className={styles.hint}>
+      Community project — not affiliated with or endorsed by Anthropic. Claude is a trademark of Anthropic, PBC.
+    </span>
+  );
 }
