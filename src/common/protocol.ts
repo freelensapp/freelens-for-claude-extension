@@ -165,7 +165,8 @@ export type PermissionBehavior = "allow" | "deny";
  */
 export interface SessionEventMap {
   status: { state: SessionState };
-  user_message: { text: string };
+  /** `timestamp` is the ISO 8601 time the prompt was sent; absent on transcripts saved before it was added. */
+  user_message: { text: string; timestamp?: string };
   assistant_delta: { text: string };
   /** Live-only reasoning deltas, accumulated into the streaming answer's fold; not persisted. */
   assistant_thinking: { delta: string };
