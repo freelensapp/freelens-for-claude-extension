@@ -36,8 +36,8 @@ importers:
         specifier: ^17.0.93
         version: 17.0.93
       '@vitejs/plugin-react':
-        specifier: ^6.0.3
-        version: 6.0.3(vite@8.1.2(@types/node@24.12.4)(esbuild@0.27.2)(jiti@2.4.2)(less@4.4.0)(sass-embedded@1.89.2)(sass@1.101.0)(stylus@0.62.0)(terser@5.39.0)(yaml@2.9.0))
+        specifier: ^6.0.5
+        version: 6.0.5(vite@8.1.2(@types/node@24.12.4)(esbuild@0.27.2)(jiti@2.4.2)(less@4.4.0)(sass-embedded@1.89.2)(sass@1.101.0)(stylus@0.62.0)(terser@5.39.0)(yaml@2.9.0))
       diff:
         specifier: ^7.0.0
         version: 7.0.0
@@ -1501,8 +1501,8 @@ packages:
   '@ungap/structured-clone@1.3.3':
     resolution: {integrity: sha512-60YRaenCQcVjYEKOcG824+DRGGIQ3VKErcBoAEDJZz5bKIs2ZG+X/H9Nk+Q6EVkwJk5QNApxbrc5QtBSwtrXAg==}
 
-  '@vitejs/plugin-react@6.0.3':
-    resolution: {integrity: sha512-vmFvco5/QuC2f9Oj+wTk0+9XeDFkHxSamwZKYc7MxYwKICfvUvlMhqKI0VuICPltGqh1neqBKDvO4kes1ya8vg==}
+  '@vitejs/plugin-react@6.0.5':
+    resolution: {integrity: sha512-BOVzne/NL162sMdResB25mUv+vWMF5NoAjNf09TeGlE7ZpszZWSD3winycicLJw72yeVsoCn/2kOhEuCvEShMA==}
     engines: {node: ^20.19.0 || >=22.12.0}
     peerDependencies:
       '@rolldown/plugin-babel': ^0.1.7 || ^0.2.0
@@ -5943,7 +5943,7 @@ snapshots:
 
   '@ungap/structured-clone@1.3.3': {}
 
-  '@vitejs/plugin-react@6.0.3(vite@8.1.2(@types/node@24.12.4)(esbuild@0.27.2)(jiti@2.4.2)(less@4.4.0)(sass-embedded@1.89.2)(sass@1.101.0)(stylus@0.62.0)(terser@5.39.0)(yaml@2.9.0))':
+  '@vitejs/plugin-react@6.0.5(vite@8.1.2(@types/node@24.12.4)(esbuild@0.27.2)(jiti@2.4.2)(less@4.4.0)(sass-embedded@1.89.2)(sass@1.101.0)(stylus@0.62.0)(terser@5.39.0)(yaml@2.9.0))':
     dependencies:
       '@rolldown/pluginutils': 1.0.1
       vite: 8.1.2(@types/node@24.12.4)(esbuild@0.27.2)(jiti@2.4.2)(less@4.4.0)(sass-embedded@1.89.2)(sass@1.101.0)(stylus@0.62.0)(terser@5.39.0)(yaml@2.9.0)
