@@ -679,8 +679,6 @@ export function ChatView({ clusterId, client }: ChatViewProps) {
               onClearConversation={() => void newChat()}
               onCompact={compact}
             />
-          </div>
-          <div className={styles.composerRight}>
             {state.context ? (
               <ContextDonut percentage={state.context.percentage} onClick={() => setContextOpen(true)} />
             ) : state.usage ? (
@@ -691,6 +689,8 @@ export function ChatView({ clusterId, client }: ChatViewProps) {
                 {formatUsage(state.usage)}
               </span>
             ) : null}
+          </div>
+          <div className={styles.composerRight}>
             <select
               className={styles.modeSelect}
               value={state.model ?? ""}
