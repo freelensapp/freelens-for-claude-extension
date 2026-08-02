@@ -1,0 +1,40 @@
+.donut {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0;
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  color: inherit;
+  line-height: 1;
+
+  &:hover .label {
+    opacity: 1;
+  }
+}
+
+.label {
+  font-size: 0.8em;
+  opacity: 0.7;
+  font-variant-numeric: tabular-nums;
+}
+
+.track {
+  stroke: rgba(127, 127, 127, 0.3);
+}
+
+.low {
+  stroke: var(--primary, #3d90ce);
+  transition: stroke-dasharray 0.3s ease;
+}
+
+.medium {
+  stroke: var(--colorWarning, #d9a441);
+  transition: stroke-dasharray 0.3s ease;
+}
+
+.high {
+  stroke: var(--colorError, #e06c75);
+  transition: stroke-dasharray 0.3s ease;
+}

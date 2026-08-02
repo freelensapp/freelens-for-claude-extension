@@ -82,6 +82,36 @@ export interface ClusterUsageResponse {
   error?: string;
 }
 
+/** One category in the context-window breakdown (mirrors Claude Code `/context`). */
+export interface ContextCategory {
+  /** e.g. "System prompt", "System tools", "MCP tools", "Memory files", "Skills", "Messages". */
+  name: string;
+  /** Tokens attributed to this category. */
+  tokens: number;
+  /** CSS color the SDK assigns the category, reused for the donut segments and swatches. */
+  color: string;
+}
+
+/**
+ * Response of `GET /clusters/:id/context`: the data behind the `/context`
+ * command. The current context-window occupancy broken down by category.
+ * Fetching initializes the cluster's Claude Code session (without running a
+ * turn). `error` is present when the breakdown could not be fetched at all.
+ */
+export interface ClusterContextResponse {
+  /** The model id the context was measured against, e.g. "claude-opus-5". */
+  model: string;
+  categories: ContextCategory[];
+  /** Tokens currently occupying the context window (sum of the categories). */
+  totalTokens: number;
+  /** The usable context window size in tokens. */
+  maxTokens: number;
+  /** Percentage of the context window in use, 0-100. */
+  percentage: number;
+  /** Present when the context data could not be fetched. */
+  error?: string;
+}
+
 /** Body of `POST /permissions/:requestId`. */
 export interface ResolvePermissionRequest {
   behavior: PermissionBehavior;
@@ -156,6 +186,12 @@ export interface SessionEventMap {
   turn_complete: Record<string, never>;
   /** Per-turn token usage from the SDK `result` message. */
   usage: { inputTokens: number; cachedInputTokens: number; outputTokens: number };
+  /**
+   * Live context-window occupancy for the composer donut, refreshed after each
+   * turn. Not persisted: the session re-emits the latest value to new
+   * subscribers. Absent on Claude Code builds without the context API.
+   */
+  context: { percentage: number; totalTokens: number; maxTokens: number; model: string };
   /** Native Claude Code conversation compaction. */
   compaction: { trigger: "manual" | "auto"; preTokens: number };
   /** `canRetry` marks errors a Retry button can re-run (a user turn exists). */

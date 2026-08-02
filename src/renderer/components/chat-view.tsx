@@ -11,6 +11,8 @@ import { MODEL_CHOICES } from "../../common/protocol";
 import { pendingPrompt } from "../api/pending-prompt";
 import styles from "./chat-view.module.scss";
 import { CommandMenu } from "./command-menu";
+import { ContextDialog } from "./context-dialog";
+import { ContextDonut } from "./context-donut";
 import { Markdown } from "./markdown";
 import { PermissionDialog } from "./permission-dialog";
 import { SlashMenu } from "./slash-menu";
@@ -63,6 +65,8 @@ interface UsageTotals {
   output: number;
 }
 
+type ContextUsage = SessionEventMap["context"];
+
 interface ChatState {
   items: ChatItem[];
   draft: string;
@@ -74,6 +78,7 @@ interface ChatState {
   model?: string;
   resolvedModel?: string;
   usage?: UsageTotals;
+  context?: ContextUsage;
   error?: { message: string; kind: SessionErrorKind };
   slashCommands?: string[];
 }
@@ -189,6 +194,8 @@ function reducer(state: ChatState, action: ChatAction): ChatState {
         },
       };
     }
+    case "context":
+      return { ...state, context: action.data };
     case "compaction":
       return {
         ...state,
@@ -310,6 +317,7 @@ export function ChatView({ clusterId, client }: ChatViewProps) {
   const [menuIndex, setMenuIndex] = useState(0);
   const [menuDismissed, setMenuDismissed] = useState(false);
   const [usageOpen, setUsageOpen] = useState(false);
+  const [contextOpen, setContextOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [atBottom, setAtBottom] = useState(true);
@@ -658,7 +666,17 @@ export function ChatView({ clusterId, client }: ChatViewProps) {
             />
           </div>
           <div className={styles.composerRight}>
-            {state.usage ? (
+            {state.context ? (
+              <ContextDonut
+                percentage={state.context.percentage}
+                title={
+                  state.usage
+                    ? `Context ${Math.round(state.context.percentage)}% used\n${formatUsage(state.usage)}`
+                    : `Context ${Math.round(state.context.percentage)}% used`
+                }
+                onClick={() => setContextOpen(true)}
+              />
+            ) : state.usage ? (
               <span
                 className={styles.usage}
                 title="Tokens used this session (input, cached input, output). Resets when the chat is cleared."
@@ -707,6 +725,9 @@ export function ChatView({ clusterId, client }: ChatViewProps) {
       </div>
 
       {usageOpen ? <UsageDialog clusterId={clusterId} client={client} onClose={() => setUsageOpen(false)} /> : null}
+      {contextOpen ? (
+        <ContextDialog clusterId={clusterId} client={client} onClose={() => setContextOpen(false)} />
+      ) : null}
     </div>
   );
 }

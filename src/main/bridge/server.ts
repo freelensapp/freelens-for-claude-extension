@@ -125,6 +125,12 @@ export class BridgeServer {
       return;
     }
 
+    const contextId = matchCluster(pathname, "context");
+    if (req.method === "GET" && contextId) {
+      sendJson(res, 200, await this.deps.sessionManager.getClusterContext(contextId));
+      return;
+    }
+
     const messagesId = matchCluster(pathname, "messages");
     if (req.method === "POST" && messagesId) {
       const body = (await readJsonBody(req)) as { text?: unknown };
