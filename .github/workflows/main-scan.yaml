@@ -1,0 +1,202 @@
+name: Main Scan
+
+# Scans what the main branch currently builds: the SBOM of the workspace,
+# reduced to the npm packages actually bundled into out/ (prod-packages.json,
+# written by the production build). Its counterpart is release-scan.yaml, which
+# runs the same filter and table over what the last release shipped - same
+# report, different subject. The result is posted to discussion #40.
+
+on:
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: 38 5 * * *
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: main-scan
+  cancel-in-progress: true
+
+jobs:
+  scan:
+    name: scan the main branch
+
+    runs-on: ubuntu-24.04-arm
+
+    permissions:
+      contents: read
+      discussions: write
+
+    env:
+      # Renovate keeps this in sync via the inline datasource hint (see
+      # .renovaterc.json5 customManagers).
+      GRYPE_VERSION: v0.116.0 # datasource=github-releases depName=anchore/grype
+      DISCUSSION_NUMBER: 40
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      VITE_PRESERVE_MODULES: "false"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup node
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+
+      - name: Setup pnpm
+        run: corepack enable
+
+      - name: Get pnpm cache directory
+        run: echo "pnpm_cache_dir=$(pnpm store path)" >> "${GITHUB_ENV}"
+
+      - name: Use pnpm cache
+        uses: actions/cache@v6
+        with:
+          path: ${{ env.pnpm_cache_dir }}
+          key: ubuntu-24.04-arm-node-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ubuntu-24.04-arm-node-
+
+      - name: Install pnpm dependencies
+        run: pnpm install --color=always --prefer-offline --frozen-lockfile
+
+      # Produces out/ and prod-packages.json (the bundled npm closure). The
+      # SBOM below covers the whole workspace; prod-packages.json is what
+      # narrows it to what actually ships.
+      - name: Build
+        run: pnpm --color=always --stream build
+
+      # yq comes from mise so its version has a single source (mise.toml) and
+      # the download is verified against mise.lock.
+      - name: Set up mise
+        uses: jdx/mise-action@v4
+        with:
+          version: 2026.7.13 # datasource=github-releases depName=jdx/mise
+          install_args: yq
+
+      - name: Install Grype
+        id: grype
+        uses: anchore/scan-action/download-grype@v7
+        with:
+          grype-version: ${{ env.GRYPE_VERSION }}
+          cache-db: true
+
+      - name: Create SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          format: spdx-json
+          output-file: sbom.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+
+      - name: Scan the runtime packages with Grype
+        run: |
+          set -eo pipefail
+          grype="${{ steps.grype.outputs.cmd }}"
+          # prod-packages.json is the runtime closure: npm <name>@<version> ->
+          # pnpm-store path. Refuse to scan an empty set - every finding would
+          # be dropped and the report would look falsely clean.
+          if [[ "$(yq -pj -oj 'length' prod-packages.json)" -eq 0 ]]; then
+            echo "Runtime package set is empty - refusing to scan" >&2
+            exit 1
+          fi
+          # Reduce the SBOM to runtime packages before scanning: keep only npm
+          # packages present in the bundled set. This extension ships no non-npm
+          # binaries, so npm is the whole runtime surface; build-time dev tools
+          # (typescript, vitest, electron-vite, ...) drop out.
+          yq -pj -oj '
+            (load("prod-packages.json")) as $set |
+            .packages |= map(
+              ( ((.externalRefs // []) | map(select(.referenceType == "purl")))[0].referenceLocator // "" ) as $purl |
+              (.name + "@" + (.versionInfo // "")) as $key |
+              select(($purl | test("^pkg:npm/")) and ($set[$key] != null))
+            )
+          ' sbom.spdx.json > runtime.spdx.json
+          all=$(yq -pj -oj '.packages | length' sbom.spdx.json)
+          run=$(yq -pj -oj '.packages | length' runtime.spdx.json)
+          echo "::group::grype (${all} -> ${run} runtime packages)"
+          "$grype" "sbom:runtime.spdx.json" -o json=grype-raw.json
+          echo "::endgroup::"
+          # grype leaves artifact.locations empty for SBOM scans; fill each
+          # finding's location from the runtime map (its pnpm-store path), with a
+          # synthetic fallback so a row never renders a blank location.
+          yq -pj -oj '
+            (load("prod-packages.json")) as $set |
+            .matches |= map(
+              (.artifact.name + "@" + .artifact.version) as $key |
+              .artifact.locations = [{"path": ($set[$key] // ("sbom/" + $key))}]
+            )
+          ' grype-raw.json > grype.json
+
+      - name: Build the vulnerability table
+        run: |
+          set -eo pipefail
+          # severity/risk/type/installed/fixed-in come straight from grype's JSON
+          # (mirroring its own default table columns); the advisory link uses
+          # vulnerability.dataSource; the location was resolved above. negrisk is
+          # a sort-only helper: yq has no unary minus, so descending-by-risk
+          # needs the value pre-negated.
+          yq -pj -oj '
+            ({"Critical":0,"High":1,"Medium":2,"Low":3,"Negligible":4,"Unknown":5}) as $rank
+            | (.matches // [])
+            | map(
+                {
+                  "severity": .vulnerability.severity,
+                  "risk": (.vulnerability.risk // 0),
+                  "package": .artifact.name,
+                  "type": .artifact.type,
+                  "installed": .artifact.version,
+                  "fixed": ((.vulnerability.fix.versions // []) | join(", ")),
+                  "advisory": ("[" + .vulnerability.id + "](" + (.vulnerability.dataSource // "") + ")"),
+                  "location": (.artifact.locations[0].path // ""),
+                  "rank": ($rank[.vulnerability.severity] // 9),
+                  "negrisk": (0 - (.vulnerability.risk // 0))
+                }
+              )
+            | sort_by(.rank, .negrisk, .package)
+            | map(del(.rank) | del(.negrisk))
+          ' grype.json > rows.json
+          count=$(yq -pj -oj 'length' rows.json)
+          {
+            echo "Grype runtime vulnerability scan of the \`main\` branch: the packages bundled into \`out/\`, reduced from the workspace SBOM. Updated $(date -u +'%Y-%m-%d %H:%M UTC') by [this run]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)."
+            echo
+            if [[ "$count" -eq 0 ]]; then
+              echo "No runtime vulnerabilities found."
+            else
+              echo "| Severity | Risk | Package | Type | Installed | Fixed In | Advisory | Location |"
+              echo "| --- | --- | --- | --- | --- | --- | --- | --- |"
+              # LC_ALL=C: printf "%.1f" must use a period regardless of the
+              # runner's locale, or it silently truncates "6.6" to "6" and
+              # re-renders it as "6,0".
+              yq -pj -ot rows.json | tail -n +2 |
+                LC_ALL=C awk -F'\t' '{printf "| %s | %.1f | %s | %s | %s | %s | %s | %s |\n", $1, $2, $3, $4, $5, $6, $7, $8}'
+            fi
+          } > body.md
+          echo "runtime vulnerabilities: $count"
+
+      - name: Update discussion
+        run: |-
+          set -eo pipefail
+          discussion_id=$(gh api graphql -f query='
+            query($owner:String!,$repo:String!,$num:Int!){
+              repository(owner:$owner,name:$repo){
+                discussion(number:$num){ id }
+              }
+            }' -f owner="${{ github.repository_owner }}" -f repo="${{ github.event.repository.name }}" -F num="$DISCUSSION_NUMBER" \
+            --jq '.data.repository.discussion.id')
+          if [[ -z "$discussion_id" || "$discussion_id" == "null" ]]; then
+            echo "Discussion #$DISCUSSION_NUMBER not found" >&2
+            exit 1
+          fi
+          gh api graphql -f query='
+            mutation($id:ID!,$body:String!){
+              updateDiscussion(input:{discussionId:$id, body:$body}){
+                discussion{ id }
+              }
+            }' -f id="$discussion_id" -F body=@body.md

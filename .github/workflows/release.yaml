@@ -153,10 +153,22 @@ jobs:
             mv sbom.spdx.json "${f%.tgz}-spdx.json"
           done
 
+      # The production build (build/prod-packages.js) writes prod-packages.json:
+      # the npm packages actually bundled into out/, mapped to their pnpm-store
+      # path. release-scan.yaml downloads it to reduce the SBOM to what ships
+      # before scanning. Renamed to travel next to the SBOM as a release asset.
+      - name: Normalize runtime package list filename
+        shell: bash
+        run: |
+          test -f prod-packages.json
+          for f in *.tgz; do
+            mv prod-packages.json "${f%.tgz}-prod-packages.json"
+          done
+
       - name: Make checksums
         shell: bash
         run: |
-          for f in *.tgz *-spdx.json; do
+          for f in *.tgz *-spdx.json *-prod-packages.json; do
             sha256sum "$f" | tee "$f.sha256"
           done
 
@@ -169,3 +181,5 @@ jobs:
             *.tgz.sha256
             *-spdx.json
             *-spdx.json.sha256
+            *-prod-packages.json
+            *-prod-packages.json.sha256
