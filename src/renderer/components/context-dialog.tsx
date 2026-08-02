@@ -5,6 +5,7 @@
 
 import { Renderer } from "@freelensapp/extensions";
 import { useEffect, useState } from "react";
+import { categoryColor } from "./context-colors";
 import styles from "./context-dialog.module.scss";
 
 import type { ClusterContextResponse } from "../../common/protocol";
@@ -109,13 +110,13 @@ export function ContextDialog({ clusterId, client, onClose }: ContextDialogProps
             </div>
 
             <div className={styles.bar}>
-              {data.categories.map((category) => (
+              {data.categories.map((category, index) => (
                 <div
                   key={category.name}
                   className={styles.segment}
                   style={{
                     width: `${data.maxTokens > 0 ? (category.tokens / data.maxTokens) * 100 : 0}%`,
-                    background: category.color,
+                    background: categoryColor(category.name, category.color, index),
                   }}
                   title={`${category.name}: ${formatTokens(category.tokens)}`}
                 />
@@ -128,13 +129,13 @@ export function ContextDialog({ clusterId, client, onClose }: ContextDialogProps
                 <span className={styles.tokens}>Tokens</span>
                 <span className={styles.share}>Usage</span>
               </div>
-              {data.categories.map((category) => (
+              {data.categories.map((category, index) => (
                 <CategoryRow
                   key={category.name}
                   name={category.name}
                   tokens={category.tokens}
                   maxTokens={data.maxTokens}
-                  color={category.color}
+                  color={categoryColor(category.name, category.color, index)}
                 />
               ))}
               <CategoryRow name="Free space" tokens={freeTokens} maxTokens={data.maxTokens} />
