@@ -4,7 +4,7 @@
  */
 
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { encodeSseEvent, SSE_HEARTBEAT, type StatusResponse } from "../../common/protocol";
+import { encodeSseEvent, isEffortLevel, SSE_HEARTBEAT, type StatusResponse } from "../../common/protocol";
 
 import type { SessionManager } from "../claude/session-manager";
 
@@ -189,6 +189,19 @@ export class BridgeServer {
       }
       this.deps.sessionManager.setModel(modelId, model ?? undefined);
       sendJson(res, 200, { model });
+      return;
+    }
+
+    const effortId = matchCluster(pathname, "effort");
+    if (req.method === "POST" && effortId) {
+      const body = (await readJsonBody(req)) as { effort?: unknown };
+      const effort = body.effort;
+      if (effort !== null && !isEffortLevel(effort)) {
+        sendJson(res, 400, { error: "Invalid effort" });
+        return;
+      }
+      this.deps.sessionManager.setEffort(effortId, effort ?? undefined);
+      sendJson(res, 200, { effort });
       return;
     }
 

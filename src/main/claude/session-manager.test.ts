@@ -103,6 +103,7 @@ function makeManager(prefs: Partial<PreferencesState> = {}) {
     writeSessionId: () => {},
     writePermissionMode: () => {},
     writeModel: () => {},
+    writeEffort: () => {},
   };
   return new SessionManager(() => "/usr/bin/claude", baseDir, store, preferences);
 }

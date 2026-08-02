@@ -17,6 +17,12 @@ interface CommandMenuProps {
   onUsage: () => void;
   /** Open the Switch model dialog. */
   onSwitchModel: () => void;
+  /** Full "Switch model..." button text, with the current model shown in parens (e.g. "Switch model (claude-opus-5)..."). */
+  switchModelLabel: string;
+  /** Open the Effort dialog. */
+  onEffort: () => void;
+  /** Full "Effort..." button text, with the current level shown in parens (e.g. "Effort (High)..."). */
+  effortLabel: string;
   /** Clear the conversation (New chat). */
   onClearConversation: () => void;
   /** Compact the conversation (native `/compact`). */
@@ -25,10 +31,10 @@ interface CommandMenuProps {
 
 /**
  * The "[/]" command widget in the composer. It opens a popover listing a
- * "Context" group (Account & Usage, Switch model, Clear conversation, Compact)
- * followed by a "Slash Commands" group with every available command. Command
- * entries complete via mousedown so the composer textarea keeps focus,
- * mirroring the slash autocomplete popup.
+ * "Context" group (Account & Usage, Switch model, Effort, Clear conversation,
+ * Compact) followed by a "Slash Commands" group with every available command.
+ * Command entries complete via mousedown so the composer textarea keeps
+ * focus, mirroring the slash autocomplete popup.
  */
 export function CommandMenu({
   commands,
@@ -36,6 +42,9 @@ export function CommandMenu({
   onCommand,
   onUsage,
   onSwitchModel,
+  switchModelLabel,
+  onEffort,
+  effortLabel,
   onClearConversation,
   onCompact,
 }: CommandMenuProps) {
@@ -98,7 +107,17 @@ export function CommandMenu({
                 run(onSwitchModel);
               }}
             >
-              Switch model...
+              {switchModelLabel}
+            </button>
+            <button
+              type="button"
+              className={styles.item}
+              onMouseDown={(event) => {
+                event.preventDefault();
+                run(onEffort);
+              }}
+            >
+              {effortLabel}
             </button>
             <button
               type="button"

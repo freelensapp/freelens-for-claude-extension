@@ -45,6 +45,7 @@ const sessionManager = {
   disposeAll: vi.fn(async () => {}),
   setPermissionMode: vi.fn(() => {}),
   setModel: vi.fn(() => {}),
+  setEffort: vi.fn(() => {}),
   retry,
   getClusterUsage,
   getClusterModels,
@@ -174,6 +175,25 @@ describe("model route", () => {
 
   it("rejects a non-string, non-null value", async () => {
     const response = await authedPost("/clusters/c1/model", { model: 42 });
+    expect(response.status).toBe(400);
+  });
+});
+
+describe("effort route", () => {
+  it("accepts a known effort level", async () => {
+    const response = await authedPost("/clusters/c1/effort", { effort: "xhigh" });
+    expect(response.status).toBe(200);
+    expect(sessionManager.setEffort).toHaveBeenCalledWith("c1", "xhigh");
+  });
+
+  it("accepts null to restore the default", async () => {
+    const response = await authedPost("/clusters/c1/effort", { effort: null });
+    expect(response.status).toBe(200);
+    expect(sessionManager.setEffort).toHaveBeenCalledWith("c1", undefined);
+  });
+
+  it("rejects an unknown level", async () => {
+    const response = await authedPost("/clusters/c1/effort", { effort: "extreme" });
     expect(response.status).toBe(400);
   });
 });

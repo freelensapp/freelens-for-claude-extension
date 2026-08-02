@@ -13,6 +13,7 @@ import {
   type ClusterContextResponse,
   type ClusterModelsResponse,
   type ClusterUsageResponse,
+  type EffortLevel,
   type ModelChoice,
   type PermissionBehavior,
   type PermissionMode,
@@ -196,6 +197,8 @@ class ClusterSession {
   private selectedModel?: string;
   /** The model id the SDK `init` message reported (for the Default label). */
   private resolvedModel?: string;
+  /** The selected reasoning-effort level; `undefined` means the Claude Code default ("high"). */
+  private selectedEffort?: EffortLevel;
   /** External MCP servers (never the built-in one) reported by the SDK `init` message. */
   private externalMcpServers?: { name: string; status: string }[];
   /** Slash commands offered by Claude Code, reported by the SDK `init` message. */
@@ -235,6 +238,7 @@ class ClusterSession {
     // Initialize the model from the stored per-cluster choice, or the default
     // preference when the cluster has never picked one.
     this.selectedModel = persisted?.model ?? (this.preferences.defaultModel.trim() || undefined);
+    this.selectedEffort = persisted?.effort;
     this.loadTranscript();
   }
 
@@ -275,13 +279,14 @@ class ClusterSession {
     };
   }
 
-  /** Build a `session_meta` event carrying the current mode, resume flag, and model. */
+  /** Build a `session_meta` event carrying the current mode, resume flag, model, and effort. */
   private sessionMetaEvent(): SessionEvent {
     return sessionEvent("session_meta", {
       permissionMode: this.broker.getMode(),
       resumed: this.resumed,
       model: this.selectedModel,
       resolvedModel: this.resolvedModel,
+      effort: this.selectedEffort,
       ...(this.slashCommands ? { slashCommands: this.slashCommands } : {}),
       ...(this.externalMcpServers ? { mcpServers: this.externalMcpServers } : {}),
     });
@@ -312,6 +317,30 @@ class ClusterSession {
         this.emit(
           sessionEvent("error", {
             message: `Could not switch the model on the live session: ${error instanceof Error ? error.message : String(error)}`,
+            kind: "other",
+          }),
+        );
+      }
+    }
+    this.emit(this.sessionMetaEvent());
+  }
+
+  /**
+   * Switch the reasoning-effort level used for subsequent turns. Persists
+   * the choice and updates a live query best-effort via the SDK's flag
+   * settings layer (never restarting the conversation), then echoes the new
+   * selection through `session_meta`.
+   */
+  setEffort(effort: EffortLevel | undefined): void {
+    this.selectedEffort = effort;
+    this.store.writeEffort(this.clusterId, effort);
+    if (this.queryHandle) {
+      try {
+        void this.queryHandle.applyFlagSettings({ effortLevel: effort ?? null });
+      } catch (error) {
+        this.emit(
+          sessionEvent("error", {
+            message: `Could not switch the effort level on the live session: ${error instanceof Error ? error.message : String(error)}`,
             kind: "other",
           }),
         );
@@ -471,6 +500,7 @@ class ClusterSession {
         canUseTool: (toolName, input, extra) => this.canUseTool(toolName, input, extra),
         ...(resume ? { resume } : {}),
         ...(this.selectedModel ? { model: this.selectedModel } : {}),
+        ...(this.selectedEffort ? { effort: this.selectedEffort } : {}),
         systemPrompt: {
           type: "preset",
           preset: "claude_code",
@@ -979,6 +1009,11 @@ export class SessionManager {
   /** Set the per-cluster model, creating the session state if needed. */
   setModel(clusterId: string, model: string | undefined): void {
     this.getOrCreate(clusterId).setModel(model);
+  }
+
+  /** Set the per-cluster reasoning-effort level, creating the session state if needed. */
+  setEffort(clusterId: string, effort: EffortLevel | undefined): void {
+    this.getOrCreate(clusterId).setEffort(effort);
   }
 
   /** Re-run the last user turn after a failure; reports whether it was accepted. */
