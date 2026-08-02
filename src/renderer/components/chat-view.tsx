@@ -5,6 +5,7 @@
 
 import { Renderer } from "@freelensapp/extensions";
 import { useEffect, useReducer, useRef, useState } from "react";
+import { formatPromptTimestamp } from "../../common/format-timestamp";
 import { PreferencesStore } from "../../common/preferences-store";
 import { BUILTIN_PROMPT_SHORTCUTS, parsePromptShortcuts } from "../../common/prompt-shortcuts";
 import { MODEL_CHOICES } from "../../common/protocol";
@@ -42,7 +43,7 @@ interface ChatViewProps {
 type PermissionRequest = SessionEventMap["permission_request"];
 
 type ChatItem =
-  | { kind: "user"; text: string }
+  | { kind: "user"; text: string; timestamp?: string }
   | { kind: "assistant"; text: string; reasoning?: string }
   | { kind: "tool"; callId: string; toolName: string; input: unknown; result?: string; children?: ToolChild[] }
   | { kind: "tool_call"; toolName: string }
@@ -99,7 +100,7 @@ function reducer(state: ChatState, action: ChatAction): ChatState {
       // A new user turn clears any stale banner error.
       return {
         ...state,
-        items: [...state.items, { kind: "user", text: action.data.text }],
+        items: [...state.items, { kind: "user", text: action.data.text, timestamp: action.data.timestamp }],
         draft: "",
         draftReasoning: "",
         error: undefined,
@@ -274,6 +275,24 @@ const MODE_LABELS: Record<PermissionMode, string> = {
 
 function ToolNotice({ label }: { label: string }) {
   return <div className={styles.toolNotice}>{label}</div>;
+}
+
+/**
+ * A user prompt bubble. When the prompt carries a timestamp, hovering shows the
+ * same "<age> ago (<local ISO>)" tooltip Freelens uses for a resource's
+ * "Created" field. The title is recomputed on hover so the relative age stays
+ * fresh instead of freezing at the last render.
+ */
+function UserBubble({ text, timestamp }: { text: string; timestamp?: string }) {
+  const [title, setTitle] = useState<string | undefined>(undefined);
+  const refresh = () => {
+    if (timestamp) setTitle(formatPromptTimestamp(timestamp));
+  };
+  return (
+    <div className={styles.userBubble} title={title} onMouseEnter={refresh} onFocus={refresh} tabIndex={-1}>
+      {text}
+    </div>
+  );
 }
 
 /**
@@ -510,11 +529,7 @@ export function ChatView({ clusterId, client }: ChatViewProps) {
           {state.items.map((item, index) => {
             const key = `${index}-${item.kind}`;
             if (item.kind === "user") {
-              return (
-                <div key={key} className={styles.userBubble}>
-                  {item.text}
-                </div>
-              );
+              return <UserBubble key={key} text={item.text} timestamp={item.timestamp} />;
             }
             if (item.kind === "assistant") {
               return (
