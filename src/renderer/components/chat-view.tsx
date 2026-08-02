@@ -682,15 +682,7 @@ export function ChatView({ clusterId, client }: ChatViewProps) {
           </div>
           <div className={styles.composerRight}>
             {state.context ? (
-              <ContextDonut
-                percentage={state.context.percentage}
-                title={
-                  state.usage
-                    ? `Context ${Math.round(state.context.percentage)}% used\n${formatUsage(state.usage)}`
-                    : `Context ${Math.round(state.context.percentage)}% used`
-                }
-                onClick={() => setContextOpen(true)}
-              />
+              <ContextDonut percentage={state.context.percentage} onClick={() => setContextOpen(true)} />
             ) : state.usage ? (
               <span
                 className={styles.usage}

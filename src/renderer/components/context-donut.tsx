@@ -8,8 +8,6 @@ import styles from "./context-donut.module.scss";
 interface ContextDonutProps {
   /** Percentage of the context window in use, 0-100. */
   percentage: number;
-  /** Native tooltip text (the session token counts). */
-  title: string;
   onClick: () => void;
 }
 
@@ -28,9 +26,9 @@ function fillClass(pct: number): string {
 /**
  * A small context-usage ring for the composer status strip. The arc length
  * tracks the percentage of the context window in use; clicking opens the
- * detailed breakdown modal. The token counts ride along as the native tooltip.
+ * detailed breakdown modal.
  */
-export function ContextDonut({ percentage, title, onClick }: ContextDonutProps) {
+export function ContextDonut({ percentage, onClick }: ContextDonutProps) {
   const pct = Math.max(0, Math.min(100, percentage));
   const filled = (pct / 100) * CIRCUMFERENCE;
   const rounded = Math.round(pct);
@@ -39,7 +37,6 @@ export function ContextDonut({ percentage, title, onClick }: ContextDonutProps) 
       type="button"
       className={styles.donut}
       onClick={onClick}
-      title={title}
       aria-label={`Context ${rounded}% used. Open context details.`}
     >
       <svg width={SIZE} height={SIZE} viewBox={`0 0 ${SIZE} ${SIZE}`} aria-hidden="true">
