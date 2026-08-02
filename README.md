@@ -72,7 +72,8 @@ You can also build and pack the extension yourself — see
 2. Choose **Freelens for Claude** in the cluster's side menu.
 3. If Claude Code is not detected, an onboarding panel explains what is
    missing. Install Claude Code and log in, or point the extension at the
-   binary with the **Claude Code path** preference, then reopen the page.
+   binary with the **Claude Code executable path** preference, then reopen
+   the page.
 4. Send your first message — either a quick-prompt chip (for example
    "Cluster health") or free text.
 5. From any resource list you can also right-click a Pod, Deployment,
@@ -87,12 +88,58 @@ You can also build and pack the extension yourself — see
 - A live **Reasoning** fold that shows Claude's thinking as it streams.
 - **Stop** the current turn and **Retry** the last one.
 - Per-cluster transcripts that survive restarts, backed by Claude Code
-  session resume.
-- A token-usage counter (input, cached input, output) for the session.
-- Automatic native context compaction, with a notice in the transcript when
-  it happens.
-- A **model** picker over the Claude Code aliases (`sonnet`, `opus`,
-  `haiku`, or the Claude Code default).
+  session resume. Hovering a prompt shows when it was sent.
+- Tool calls render as collapsible cards. Calls made by the analysis
+  subagent are nested under the card that delegated to them.
+- A **context donut** in the composer showing how full the context window
+  is; clicking it opens a per-category token breakdown.
+- Context compaction, automatic or on demand, with a notice in the
+  transcript when it happens.
+
+### The command menu
+
+The **[/]** button in the composer opens a popover with two groups. The
+**Context** group holds the actions that are not prompts:
+
+<!-- markdownlint-disable MD013 -->
+
+| Entry | What it does |
+| --- | --- |
+| **Account & Usage...** | Your account and plan, the plan's rate-limit windows, and what has been contributing to them |
+| **Switch model (`<current>`)...** | Pick the model for this cluster (see below) |
+| **Effort (`<current>`)...** | Pick the reasoning-effort level for this cluster (see below) |
+| **Clear conversation** | Start a new chat: drops the transcript and the resumed session id |
+| **Compact** | Compact the conversation now, rather than waiting for it to happen automatically |
+
+<!-- markdownlint-enable MD013 -->
+
+The model and effort entries show the active selection in parentheses, so
+the menu doubles as a readout of what the next turn will use.
+
+The **Slash Commands** group lists every command your Claude Code
+installation exposes, and inserts the chosen one into the composer.
+
+#### Switching model
+
+The model list is read from the Claude Code build you actually have
+installed, so it offers exactly what that build supports and labels each
+entry with the wire model it resolves to (for example
+`Opus - claude-opus-5`). The **Default** row names what the default
+currently resolves to, so it is clear what you get by not choosing.
+
+If you need a model the installed build does not list - a pinned or
+freshly released id - type it into **Custom model id**. It is accepted as
+given; an unknown id is rejected by Claude Code when the turn runs.
+
+The choice is remembered per cluster. To go back to the default, pick the
+**Default** row.
+
+#### Effort
+
+**Effort** sets how much reasoning Claude spends per turn: **Low**,
+**Medium**, **High**, **Extra High**, or **Max**, plus a **Default** row
+(High). A change applies to the running session immediately and is
+remembered per cluster.
 
 ### Built-in tools
 
@@ -124,11 +171,12 @@ context. They are a fallback for actions the dedicated tools do not cover.
 
 ### Permissions and safety
 
-- Three per-cluster **modes**, selectable in the chat status strip:
+- Three per-cluster **modes**, selected next to the send button:
   **Read-only** (mutating tools are refused), **Approve** (the default —
   each mutating call prompts), and **Accept all** (mutations run without a
-  prompt). The mode is never persisted; every new session starts from the
-  default.
+  prompt). Read-only and Approve are remembered per cluster; **Accept all
+  is never persisted**, so a restart always comes back in a mode that still
+  prompts.
 - The approval card shows the proposed manifest as YAML, a backup of the
   current resource, and a diff for updates and patches.
 - A preference requires your consent before Claude reads pod logs.
@@ -139,9 +187,10 @@ context. They are a fallback for actions the dedicated tools do not cover.
 ### Slash commands and shortcuts
 
 - `/` autocomplete over your Claude Code commands, with local command output
-  shown in the transcript. `/clear` maps to starting a new chat.
+  shown in the transcript. `/clear` maps to starting a new chat. The same
+  commands are also listed in the **[/]** menu.
 - Quick-prompt chips above the input: built-in shortcuts plus any you define
-  in preferences.
+  in preferences. They appear while the input is empty.
 
 ### Cluster analyzer subagent
 
@@ -166,14 +215,14 @@ where noted, changes apply to the next new chat.
 
 | Preference | Default | Meaning |
 | --- | --- | --- |
-| Require approval to read pod logs | on | Prompt before `freelens_pod_logs` runs |
-| Pod logs tail lines | 1000 | Lines read from the end of a log when Claude does not request an amount |
+| Claude Code executable path | empty (auto-detect) | Absolute path to the `claude` binary |
+| Default model | empty (Claude Code default) | Used for clusters that have not picked a model in the chat |
 | Custom agent rules | empty | Extra rules appended to the system prompt of every new session |
-| Claude Code path | empty (auto-detect) | Absolute path to the `claude` binary |
-| Default model | empty (Claude Code default) | Model alias for clusters that have not picked one |
+| Require approval before reading pod logs | on | Prompt before `freelens_pod_logs` runs |
+| Default tail lines | 1000 | Lines read from the end of a log when Claude does not request an amount |
 | Enable MCP servers | off | Start your MCP servers alongside the built-in tools |
-| MCP configuration | empty `mcpServers` | Claude-Desktop-style JSON, applied at the next new session |
-| Analysis subagent | on | Allow delegation to the read-only `cluster-analyzer` subagent |
+| MCP JSON configuration | empty `mcpServers` | Claude-Desktop-style JSON, applied at the next new chat |
+| Enable analysis subagent | on | Allow delegation to the read-only `cluster-analyzer` subagent |
 | Prompt shortcuts | `[]` | JSON array of `{ "title", "prompt" }` rendered as quick-prompt chips |
 
 <!-- markdownlint-enable MD013 -->
@@ -205,8 +254,8 @@ otherwise send.
 ## Troubleshooting
 
 - **Claude Code not detected.** Ensure the `claude` binary is on the `PATH`
-  Freelens sees, or set an absolute path in the **Claude Code path**
-  preference, then reopen the chat page.
+  Freelens sees, or set an absolute path in the **Claude Code executable
+  path** preference, then reopen the chat page.
 - **Not logged in.** Run `claude` in a terminal and complete
   authentication; the extension inherits that session.
 - **Where transcripts live.** Each cluster gets its own scratch directory
