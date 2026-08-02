@@ -22,6 +22,7 @@ import { UsageDialog } from "./usage-dialog";
 import type { ChangeEvent, KeyboardEvent } from "react";
 
 import type {
+  ModelChoice,
   PermissionBehavior,
   PermissionMode,
   SessionErrorKind,
@@ -337,6 +338,7 @@ export function ChatView({ clusterId, client }: ChatViewProps) {
   const [menuDismissed, setMenuDismissed] = useState(false);
   const [usageOpen, setUsageOpen] = useState(false);
   const [contextOpen, setContextOpen] = useState(false);
+  const [models, setModels] = useState<ModelChoice[] | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [atBottom, setAtBottom] = useState(true);
@@ -393,6 +395,26 @@ export function ChatView({ clusterId, client }: ChatViewProps) {
     });
     return close;
   }, [clusterId, client, epoch]);
+
+  // Live model picker catalog, sourced from the installed Claude Code build so
+  // labels show the resolved wire model (e.g. "Opus (claude-opus-5)") and any
+  // pinned versions the SDK exposes. Falls back to the static alias list
+  // (rendered without a resolved suffix) while loading or on failure.
+  useEffect(() => {
+    let cancelled = false;
+    setModels(null);
+    client
+      .getModels(clusterId)
+      .then((response) => {
+        if (!cancelled && !response.error && response.models.length > 0) setModels(response.models);
+      })
+      .catch(() => {
+        // Best-effort: keep the static fallback list.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [clusterId, client]);
 
   // Stick-to-bottom: only follow new content when the user is already parked
   // near the bottom; otherwise leave their scroll position alone.
@@ -521,6 +543,8 @@ export function ChatView({ clusterId, client }: ChatViewProps) {
 
   const lastIndex = state.items.length - 1;
   const defaultLabel = state.resolvedModel ? `Default (${state.resolvedModel})` : "Default";
+  const modelOptions: ModelChoice[] =
+    models ?? MODEL_CHOICES.map((value) => ({ value, displayName: value }) satisfies ModelChoice);
 
   // Quick-prompt chips: the built-ins plus any user-defined entries. Shown only
   // when the input is empty and no turn is in flight.
@@ -699,9 +723,11 @@ export function ChatView({ clusterId, client }: ChatViewProps) {
               aria-label="Model"
             >
               <option value="">{defaultLabel}</option>
-              {MODEL_CHOICES.map((model) => (
-                <option key={model} value={model}>
-                  {model}
+              {modelOptions.map((choice) => (
+                <option key={choice.value} value={choice.value}>
+                  {choice.resolvedModel && choice.resolvedModel !== choice.displayName
+                    ? `${choice.displayName} (${choice.resolvedModel})`
+                    : choice.displayName}
                 </option>
               ))}
             </select>

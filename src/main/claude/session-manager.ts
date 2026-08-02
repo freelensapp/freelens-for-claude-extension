@@ -11,7 +11,9 @@ import { query } from "@anthropic-ai/claude-agent-sdk";
 import { Common } from "@freelensapp/extensions";
 import {
   type ClusterContextResponse,
+  type ClusterModelsResponse,
   type ClusterUsageResponse,
+  type ModelChoice,
   type PermissionBehavior,
   type PermissionMode,
   type SessionErrorKind,
@@ -35,7 +37,7 @@ import { PermissionBroker, type ResolveResult } from "./permission-broker";
 import { buildAgents } from "./subagents";
 import { buildUsageResponse } from "./usage";
 
-import type { McpServerConfig, Query, SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+import type { McpServerConfig, ModelInfo, Query, SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 
 import type { PreferencesState } from "../../common/preferences-store";
 import type { ChatSessionState } from "../../common/session-store";
@@ -58,6 +60,17 @@ const DISALLOWED_BUILTIN_TOOLS = [
   "Task",
   "TodoWrite",
 ];
+
+/**
+ * Whether an SDK `supportedModels()` entry is the "use the default" pseudo-
+ * choice (observed as value `"default"`, display name `"Default (recommended)"`)
+ * rather than a selectable model/alias. Matched loosely on both fields since
+ * the exact value is not documented.
+ */
+function isDefaultModelEntry(info: ModelInfo): boolean {
+  const value = info.value.trim().toLowerCase();
+  return value.length === 0 || value === "default" || /^default\b/i.test(info.displayName);
+}
 
 /** Event types kept for transcript replay when a page remounts. */
 const PERSISTED_EVENTS = new Set<SessionEvent["type"]>([
@@ -781,6 +794,37 @@ class ClusterSession {
   }
 
   /**
+   * The data behind the model picker: the live catalog of model choices the
+   * installed Claude Code build supports, straight from the SDK. Initializes
+   * the session so the SDK control channel exists, but never pushes a turn
+   * (no token cost). Returns an `error` field when the catalog cannot be
+   * fetched, so the renderer can fall back to the static alias list.
+   */
+  async getModels(): Promise<ClusterModelsResponse> {
+    if (!this.started) await this.start();
+    const handle = this.queryHandle;
+    if (!handle || typeof handle.supportedModels !== "function") {
+      return { models: [], error: "Model list is not available for this Claude Code session." };
+    }
+    try {
+      const models: ModelChoice[] = (await handle.supportedModels())
+        // The SDK's own catalog includes a "use the default" pseudo-entry
+        // (e.g. value "default", display name "Default (recommended)"). The
+        // picker already renders its own "Default" option for that (an empty
+        // selection), so drop the SDK's copy to avoid showing it twice.
+        .filter((info) => !isDefaultModelEntry(info))
+        .map((info) => ({
+          value: info.value,
+          displayName: info.displayName,
+          resolvedModel: info.resolvedModel,
+        }));
+      return { models };
+    } catch (error) {
+      return { models: [], error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
+  /**
    * Refresh the cached donut occupancy from the SDK and push it to subscribers.
    * Best-effort: any failure (older Claude Code, in-flight control channel)
    * leaves the previous value untouched and emits nothing.
@@ -918,6 +962,11 @@ export class SessionManager {
   /** The `/context` breakdown for a cluster; initializes the session if needed. */
   async getClusterContext(clusterId: string): Promise<ClusterContextResponse> {
     return this.getOrCreate(clusterId).getContext();
+  }
+
+  /** The live model picker catalog for a cluster; initializes the session if needed. */
+  async getClusterModels(clusterId: string): Promise<ClusterModelsResponse> {
+    return this.getOrCreate(clusterId).getModels();
   }
 
   /** Resolve a pending approval identified only by its request id. */

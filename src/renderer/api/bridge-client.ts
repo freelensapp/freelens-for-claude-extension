@@ -6,6 +6,7 @@
 import { BridgeStore } from "../../common/bridge-store";
 import {
   type ClusterContextResponse,
+  type ClusterModelsResponse,
   type ClusterUsageResponse,
   decodeSseFrame,
   type PermissionBehavior,
@@ -77,6 +78,15 @@ export class BridgeClient {
     });
     if (!response.ok) throw new Error(`context request failed: ${response.status}`);
     return (await response.json()) as ClusterContextResponse;
+  }
+
+  /** Fetch the live model picker catalog from the installed Claude Code build. */
+  async getModels(clusterId: string): Promise<ClusterModelsResponse> {
+    const response = await fetch(`${this.baseUrl}/clusters/${encodeURIComponent(clusterId)}/models`, {
+      headers: this.authHeader,
+    });
+    if (!response.ok) throw new Error(`models request failed: ${response.status}`);
+    return (await response.json()) as ClusterModelsResponse;
   }
 
   async interrupt(clusterId: string): Promise<void> {
