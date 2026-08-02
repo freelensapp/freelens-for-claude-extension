@@ -125,7 +125,7 @@ jobs:
           # json feeds the discussion table below; sarif is uploaded to code
           # scanning. An empty results set is valid SARIF, so a clean branch
           # auto-resolves any previously reported alerts.
-          "$grype" "sbom:runtime.spdx.json" -o json=grype-raw.json -o sarif=grype.sarif
+          "$grype" "sbom:runtime.spdx.json" -o json=grype-raw.json -o sarif=grype-raw.sarif
           echo "::endgroup::"
           # grype leaves artifact.locations empty for SBOM scans; fill each
           # finding's location from the runtime map (its pnpm-store path), with a
@@ -137,6 +137,26 @@ jobs:
               .artifact.locations = [{"path": ($set[$key] // ("sbom/" + $key))}]
             )
           ' grype-raw.json > grype.json
+          # Same gap in the SARIF: for an SBOM source grype emits an empty
+          # artifact-location URI, which code scanning rejects ("expected
+          # artifact location"). Give every result exactly one non-empty
+          # location - the package's pnpm-store path when its coordinate is
+          # known (from logicalLocations), else its name/purl, else a constant -
+          # preserving grype's region.
+          yq -pj -oj '
+            (load("prod-packages.json")) as $set |
+            .runs |= map(
+              .results |= map(
+                .locations = ([ (.locations // [] | .[0] // {}) ] | map(
+                  ( (.logicalLocations // [])[0] ) as $ll |
+                  ( $ll.name // $ll.fullyQualifiedName // "" ) as $name |
+                  ( [ (.physicalLocation.artifactLocation.uri // ""), ($set[$name] // ""), $name, "runtime-dependency" ]
+                    | map(select(. != "")) | .[0] ) as $uri |
+                  .physicalLocation.artifactLocation.uri = $uri
+                ))
+              )
+            )
+          ' grype-raw.sarif > grype.sarif
 
       # Sends the runtime findings to Security -> Code scanning, where they are
       # tracked and deduplicated across runs (the role OSV-Scanner used to fill).
