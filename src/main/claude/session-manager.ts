@@ -822,10 +822,11 @@ class ClusterSession {
 
   /**
    * The data behind the model picker: the live catalog of model choices the
-   * installed Claude Code build supports, straight from the SDK. Initializes
-   * the session so the SDK control channel exists, but never pushes a turn
-   * (no token cost). Returns an `error` field when the catalog cannot be
-   * fetched, so the renderer can fall back to the static alias list.
+   * installed Claude Code build supports, straight from the SDK, plus the
+   * wire model id "Default" currently resolves to. Initializes the session
+   * so the SDK control channel exists, but never pushes a turn (no token
+   * cost). Returns an `error` field when the catalog cannot be fetched, so
+   * the renderer can fall back to the static alias list.
    */
   async getModels(): Promise<ClusterModelsResponse> {
     if (!this.started) await this.start();
@@ -834,18 +835,22 @@ class ClusterSession {
       return { models: [], error: "Model list is not available for this Claude Code session." };
     }
     try {
-      const models: ModelChoice[] = (await handle.supportedModels())
-        // The SDK's own catalog includes a "use the default" pseudo-entry
-        // (e.g. value "default", display name "Default (recommended)"). The
-        // picker already renders its own "Default" option for that (an empty
-        // selection), so drop the SDK's copy to avoid showing it twice.
+      const supported = await handle.supportedModels();
+      // The SDK's own catalog includes a "use the default" pseudo-entry (e.g.
+      // value "default", display name "Default (recommended)"). The picker
+      // already renders its own "Default" row for that (an empty selection),
+      // so drop the SDK's copy to avoid showing it twice — but keep its
+      // resolvedModel so the picker can show what "Default" actually means
+      // before any turn has run.
+      const defaultEntry = supported.find(isDefaultModelEntry);
+      const models: ModelChoice[] = supported
         .filter((info) => !isDefaultModelEntry(info))
         .map((info) => ({
           value: info.value,
           displayName: info.displayName,
           resolvedModel: info.resolvedModel,
         }));
-      return { models };
+      return { models, defaultResolvedModel: defaultEntry?.resolvedModel };
     } catch (error) {
       return { models: [], error: error instanceof Error ? error.message : String(error) };
     }

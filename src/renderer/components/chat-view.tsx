@@ -336,6 +336,7 @@ export function ChatView({ clusterId, client }: ChatViewProps) {
   const [contextOpen, setContextOpen] = useState(false);
   const [modelSwitchOpen, setModelSwitchOpen] = useState(false);
   const [models, setModels] = useState<ModelChoice[] | null>(null);
+  const [defaultResolvedModel, setDefaultResolvedModel] = useState<string | undefined>(undefined);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [atBottom, setAtBottom] = useState(true);
@@ -400,10 +401,13 @@ export function ChatView({ clusterId, client }: ChatViewProps) {
   useEffect(() => {
     let cancelled = false;
     setModels(null);
+    setDefaultResolvedModel(undefined);
     client
       .getModels(clusterId)
       .then((response) => {
-        if (!cancelled && !response.error && response.models.length > 0) setModels(response.models);
+        if (cancelled) return;
+        if (!response.error && response.models.length > 0) setModels(response.models);
+        if (response.defaultResolvedModel) setDefaultResolvedModel(response.defaultResolvedModel);
       })
       .catch(() => {
         // Best-effort: keep the static fallback list.
@@ -538,7 +542,11 @@ export function ChatView({ clusterId, client }: ChatViewProps) {
   };
 
   const lastIndex = state.items.length - 1;
-  const defaultLabel = state.resolvedModel ? `Default (${state.resolvedModel})` : "Default";
+  // Prefer the live session's own resolution (set once a turn has actually
+  // run) over the model catalog's snapshot, so the label can't go stale if
+  // the two ever disagree; the catalog value only fills the gap before that.
+  const defaultResolved = state.resolvedModel ?? defaultResolvedModel;
+  const defaultLabel = defaultResolved ? `Default (${defaultResolved})` : "Default";
   const modelOptions: ModelChoice[] =
     models ?? MODEL_CHOICES.map((value) => ({ value, displayName: value }) satisfies ModelChoice);
 
