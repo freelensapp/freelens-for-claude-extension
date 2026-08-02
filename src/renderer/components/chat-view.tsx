@@ -5,7 +5,6 @@
 
 import { Renderer } from "@freelensapp/extensions";
 import { useEffect, useReducer, useRef, useState } from "react";
-import { formatPromptTimestamp } from "../../common/format-timestamp";
 import { PreferencesStore } from "../../common/preferences-store";
 import { BUILTIN_PROMPT_SHORTCUTS, parsePromptShortcuts } from "../../common/prompt-shortcuts";
 import { MODEL_CHOICES } from "../../common/protocol";
@@ -279,18 +278,19 @@ function ToolNotice({ label }: { label: string }) {
 
 /**
  * A user prompt bubble. When the prompt carries a timestamp, hovering shows the
- * same "<age> ago (<local ISO>)" tooltip Freelens uses for a resource's
- * "Created" field. The title is recomputed on hover so the relative age stays
- * fresh instead of freezing at the last render.
+ * same "<age> ago (<local date>)" tooltip Freelens uses for a resource's
+ * "Created" field, rendered by the host's `DurationAbsoluteTimestamp` (its
+ * relative age self-refreshes, so no manual recompute is needed).
  */
-function UserBubble({ text, timestamp }: { text: string; timestamp?: string }) {
-  const [title, setTitle] = useState<string | undefined>(undefined);
-  const refresh = () => {
-    if (timestamp) setTitle(formatPromptTimestamp(timestamp));
-  };
+function UserBubble({ id, text, timestamp }: { id: string; text: string; timestamp?: string }) {
   return (
-    <div className={styles.userBubble} title={title} onMouseEnter={refresh} onFocus={refresh} tabIndex={-1}>
+    <div className={styles.userBubble} id={timestamp ? id : undefined}>
       {text}
+      {timestamp ? (
+        <Renderer.Component.Tooltip targetId={id}>
+          <Renderer.Component.DurationAbsoluteTimestamp timestamp={timestamp} />
+        </Renderer.Component.Tooltip>
+      ) : null}
     </div>
   );
 }
@@ -529,7 +529,7 @@ export function ChatView({ clusterId, client }: ChatViewProps) {
           {state.items.map((item, index) => {
             const key = `${index}-${item.kind}`;
             if (item.kind === "user") {
-              return <UserBubble key={key} text={item.text} timestamp={item.timestamp} />;
+              return <UserBubble key={key} id={`user-prompt-${index}`} text={item.text} timestamp={item.timestamp} />;
             }
             if (item.kind === "assistant") {
               return (
