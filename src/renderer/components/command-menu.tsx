@@ -15,6 +15,8 @@ interface CommandMenuProps {
   onCommand: (name: string) => void;
   /** Open the Account & Usage dialog (`/usage`). */
   onUsage: () => void;
+  /** Open the Switch model dialog. */
+  onSwitchModel: () => void;
   /** Clear the conversation (New chat). */
   onClearConversation: () => void;
   /** Compact the conversation (native `/compact`). */
@@ -23,15 +25,17 @@ interface CommandMenuProps {
 
 /**
  * The "[/]" command widget in the composer. It opens a popover listing a
- * "Context" group (Clear conversation, Compact) followed by a "Slash Commands"
- * group with every available command. Command entries complete via mousedown so
- * the composer textarea keeps focus, mirroring the slash autocomplete popup.
+ * "Context" group (Account & Usage, Switch model, Clear conversation, Compact)
+ * followed by a "Slash Commands" group with every available command. Command
+ * entries complete via mousedown so the composer textarea keeps focus,
+ * mirroring the slash autocomplete popup.
  */
 export function CommandMenu({
   commands,
   compactDisabled,
   onCommand,
   onUsage,
+  onSwitchModel,
   onClearConversation,
   onCompact,
 }: CommandMenuProps) {
@@ -85,6 +89,16 @@ export function CommandMenu({
               }}
             >
               Account &amp; Usage...
+            </button>
+            <button
+              type="button"
+              className={styles.item}
+              onMouseDown={(event) => {
+                event.preventDefault();
+                run(onSwitchModel);
+              }}
+            >
+              Switch model...
             </button>
             <button
               type="button"

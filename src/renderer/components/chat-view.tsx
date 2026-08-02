@@ -14,6 +14,7 @@ import { CommandMenu } from "./command-menu";
 import { ContextDialog } from "./context-dialog";
 import { ContextDonut } from "./context-donut";
 import { Markdown } from "./markdown";
+import { ModelDialog } from "./model-dialog";
 import { PermissionDialog } from "./permission-dialog";
 import { SlashMenu } from "./slash-menu";
 import { ToolCard } from "./tool-card";
@@ -333,6 +334,7 @@ export function ChatView({ clusterId, client }: ChatViewProps) {
   const [menuDismissed, setMenuDismissed] = useState(false);
   const [usageOpen, setUsageOpen] = useState(false);
   const [contextOpen, setContextOpen] = useState(false);
+  const [modelSwitchOpen, setModelSwitchOpen] = useState(false);
   const [models, setModels] = useState<ModelChoice[] | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -526,9 +528,8 @@ export function ChatView({ clusterId, client }: ChatViewProps) {
     });
   };
 
-  const changeModel = (event: ChangeEvent<HTMLSelectElement>) => {
-    const value = event.target.value;
-    void client.setModel(clusterId, value || null).catch((error) => {
+  const changeModel = (value: string | null) => {
+    void client.setModel(clusterId, value).catch((error) => {
       dispatch({
         type: "error",
         data: { message: `Failed to change model: ${String(error)}`, kind: "other" },
@@ -695,6 +696,7 @@ export function ChatView({ clusterId, client }: ChatViewProps) {
                 textareaRef.current?.focus();
               }}
               onUsage={() => setUsageOpen(true)}
+              onSwitchModel={() => setModelSwitchOpen(true)}
               onClearConversation={() => void newChat()}
               onCompact={compact}
             />
@@ -703,22 +705,6 @@ export function ChatView({ clusterId, client }: ChatViewProps) {
             ) : null}
           </div>
           <div className={styles.composerRight}>
-            <select
-              className={styles.modeSelect}
-              value={state.model ?? ""}
-              onChange={changeModel}
-              title="Model"
-              aria-label="Model"
-            >
-              <option value="">{defaultLabel}</option>
-              {modelOptions.map((choice) => (
-                <option key={choice.value} value={choice.value}>
-                  {choice.resolvedModel && choice.resolvedModel !== choice.displayName
-                    ? `${choice.displayName} (${choice.resolvedModel})`
-                    : choice.displayName}
-                </option>
-              ))}
-            </select>
             <select
               className={state.mode === "acceptAll" ? `${styles.modeSelect} ${styles.modeWarning}` : styles.modeSelect}
               value={state.mode}
@@ -748,6 +734,15 @@ export function ChatView({ clusterId, client }: ChatViewProps) {
       {usageOpen ? <UsageDialog clusterId={clusterId} client={client} onClose={() => setUsageOpen(false)} /> : null}
       {contextOpen ? (
         <ContextDialog clusterId={clusterId} client={client} onClose={() => setContextOpen(false)} />
+      ) : null}
+      {modelSwitchOpen ? (
+        <ModelDialog
+          models={modelOptions}
+          current={state.model}
+          defaultLabel={defaultLabel}
+          onSelect={changeModel}
+          onClose={() => setModelSwitchOpen(false)}
+        />
       ) : null}
     </div>
   );
