@@ -325,11 +325,6 @@ function ReasoningFold({ reasoning, hasAnswer }: { reasoning: string; hasAnswer:
   );
 }
 
-function formatUsage(usage: UsageTotals): string {
-  const n = (value: number) => value.toLocaleString("en-US");
-  return `in:${n(usage.input)} (cached:${n(usage.cached)}) + out:${n(usage.output)}`;
-}
-
 export function ChatView({ clusterId, client }: ChatViewProps) {
   const [state, dispatch] = useReducer(reducer, initialState);
   const [input, setInput] = useState("");
@@ -705,13 +700,6 @@ export function ChatView({ clusterId, client }: ChatViewProps) {
             />
             {state.context ? (
               <ContextDonut percentage={state.context.percentage} onClick={() => setContextOpen(true)} />
-            ) : state.usage ? (
-              <span
-                className={styles.usage}
-                title="Tokens used this session (input, cached input, output). Resets when the chat is cleared."
-              >
-                {formatUsage(state.usage)}
-              </span>
             ) : null}
           </div>
           <div className={styles.composerRight}>
