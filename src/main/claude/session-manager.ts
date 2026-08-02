@@ -322,7 +322,7 @@ class ClusterSession {
     this.lastUserText = text;
     // Start a fresh reasoning accumulator for the new turn.
     this.thinkingText = "";
-    this.emit(sessionEvent("user_message", { text }));
+    this.emit(sessionEvent("user_message", { text, timestamp: new Date().toISOString() }));
     await this.pushUserTurn(text);
   }
 
