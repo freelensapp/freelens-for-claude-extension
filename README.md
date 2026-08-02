@@ -72,8 +72,7 @@ You can also build and pack the extension yourself — see
    DaemonSet, StatefulSet, Service, Node, or Event and choose **Ask
    Claude** to open the chat pre-filled with a prompt about that object.
 
-<!-- TODO(maintainer): add a screenshot of the chat page here (needs a
-     running Freelens with a live cluster and an authenticated Claude Code). -->
+![screenshot](docs/images/chat.png)
 
 ## Features
 
