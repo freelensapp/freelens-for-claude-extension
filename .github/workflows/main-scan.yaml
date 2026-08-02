@@ -27,6 +27,11 @@ jobs:
 
     runs-on: ubuntu-24.04-arm
 
+    # Carries the GH_TOKEN secret (a PAT) used to update the discussion: the
+    # default GITHUB_TOKEN cannot write discussions in this repo even with
+    # discussions: write. The SARIF upload still uses the Actions token.
+    environment: automated
+
     permissions:
       contents: read
       discussions: write
@@ -213,6 +218,10 @@ jobs:
           echo "runtime vulnerabilities: $count"
 
       - name: Update discussion
+        env:
+          # PAT from the automated environment; the default GITHUB_TOKEN is
+          # forbidden from updateDiscussion in this repo.
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |-
           set -eo pipefail
           discussion_id=$(gh api graphql -f query='
