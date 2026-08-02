@@ -4,6 +4,7 @@ import react from "@vitejs/plugin-react";
 import { defineConfig } from "electron-vite";
 import sassDts from "vite-plugin-sass-dts";
 import { globalExternals } from "./build/global-externals.js";
+import { prodPackages } from "./build/prod-packages.js";
 
 // Modules provided by the Node.js/Electron runtime in the Freelens host. They
 // must stay external (left as `require(...)`) instead of being bundled. We list
@@ -65,6 +66,8 @@ export default defineConfig({
         "@freelensapp/extensions": "global.LensExtensions",
         mobx: "global.Mobx",
       }),
+      // records the npm packages inlined into this bundle (see build/prod-packages.js)
+      prodPackages(),
     ],
   },
   // renderer process in Freelens can use Node.js modules then it is configured
@@ -126,6 +129,8 @@ export default defineConfig({
         "react-router-dom": "global.ReactRouterDom",
         "react/jsx-runtime": "global.ReactJsxRuntime",
       }),
+      // records the npm packages inlined into this bundle (see build/prod-packages.js)
+      prodPackages(),
     ],
   },
 });
