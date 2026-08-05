@@ -1,6 +1,6 @@
 {
   "name": "@freelensapp/for-claude-extension",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Claude-powered chat for Freelens that drives the user's own Claude Code installation with permission-gated Kubernetes tools",
   "homepage": "https://github.com/freelensapp/freelens-for-claude-extension",
   "repository": {
