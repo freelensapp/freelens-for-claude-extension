@@ -8,6 +8,6 @@ onlyBuiltDependencies:
 overrides:
   # GHSA-52cp-r559-cp3m: js-yaml < 4.3.0 is vulnerable; pulled in transitively
   # via @kubernetes/client-node. Force the patched release.
-  js-yaml@4: ^4.3.0
+  js-yaml@4: ^4.3.1
 
 shellEmulator: true
