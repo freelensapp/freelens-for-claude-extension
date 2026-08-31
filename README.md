@@ -19,7 +19,7 @@ one conversation per cluster. Claude answers questions about the selected
 cluster and can act on it — but only through a set of typed,
 permission-gated Kubernetes tools, never through an unrestricted shell.
 
-![screenshot](docs/images/chat.png)
+[Video Demo](https://github.com/user-attachments/assets/77e4804d-6b3d-4911-b7af-66820be96ec8)
 
 Unlike
 [freelens-ai-extension](https://github.com/freelensapp/freelens-ai-extension),
