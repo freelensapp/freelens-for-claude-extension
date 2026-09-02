@@ -30,7 +30,7 @@ importers:
         specifier: ^12.1.5
         version: 12.1.5(@types/react@17.0.93)(react-dom@17.0.2(react@17.0.2))(react@17.0.2)
       '@types/diff':
-        specifier: ^7.0.0
+        specifier: ^7.0.2
         version: 7.0.2
       '@types/node':
         specifier: ~24.12.4
