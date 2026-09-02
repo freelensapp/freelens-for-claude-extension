@@ -71,7 +71,7 @@
     "@types/diff": "^7.0.0",
     "@types/node": "~24.12.4",
     "@types/react": "^17.0.93",
-    "@vitejs/plugin-react": "^6.0.3",
+    "@vitejs/plugin-react": "^6.1.1",
     "diff": "^7.0.0",
     "electron-vite": "^5.0.0",
     "jsdom": "^29.1.1",
