@@ -72,7 +72,7 @@
     "@types/node": "~24.12.4",
     "@types/react": "^17.0.93",
     "@vitejs/plugin-react": "^6.0.3",
-    "diff": "^7.0.0",
+    "diff": "^8.0.3",
     "electron-vite": "^5.0.0",
     "jsdom": "^29.1.1",
     "mobx": "6.13.7",
