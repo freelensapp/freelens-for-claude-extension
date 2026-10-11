@@ -3,10 +3,9 @@
  * Licensed under MIT License. See LICENSE in root directory for more information.
  */
 
-import { PatchStrategy } from "@kubernetes/client-node";
 import { z } from "zod";
 
-import type { KubernetesObject, KubernetesObjectApi } from "@kubernetes/client-node";
+import type { KubeRequests } from "./kube-client";
 
 export const deleteResourceSchema = {
   apiVersion: z.string().describe('API group and version, e.g. "v1" or "apps/v1".'),
@@ -27,27 +26,24 @@ const deleteResourceInput = z.object(deleteResourceSchema);
 export type DeleteResourceInput = z.infer<typeof deleteResourceInput>;
 
 /** The slice of the Kubernetes client the delete tool needs. */
-export interface DeleteResourceClient {
-  objects: Pick<KubernetesObjectApi, "delete" | "patch">;
-}
+export type DeleteResourceClient = Pick<KubeRequests, "delete" | "patch">;
 
 /** Delete any Kubernetes resource, optionally forcing or clearing finalizers. */
 export async function runDeleteResource(client: DeleteResourceClient, input: DeleteResourceInput): Promise<string> {
   const { apiVersion, kind, namespace, name } = input;
   const mode = input.mode ?? "delete";
-  const spec = { apiVersion, kind, metadata: { name, namespace } } as KubernetesObject;
+  const ref = { apiVersion, kind, namespace, name };
 
   if (mode === "force_finalize") {
-    const patch = { apiVersion, kind, metadata: { name, namespace, finalizers: [] } } as KubernetesObject;
-    await client.objects.patch(patch, undefined, undefined, undefined, undefined, PatchStrategy.MergePatch);
+    await client.patch(ref, { metadata: { finalizers: [] } }, "merge");
     return `Cleared finalizers on ${kind} "${name}"${namespace ? ` in namespace "${namespace}"` : ""}.`;
   }
 
   if (mode === "force_delete") {
-    await client.objects.delete(spec, undefined, undefined, 0, undefined, "Background");
+    await client.delete(ref, { gracePeriodSeconds: 0, propagationPolicy: "Background" });
     return `Force-deleted ${kind} "${name}"${namespace ? ` in namespace "${namespace}"` : ""}.`;
   }
 
-  await client.objects.delete(spec);
+  await client.delete(ref);
   return `Deleted ${kind} "${name}"${namespace ? ` in namespace "${namespace}"` : ""}.`;
 }

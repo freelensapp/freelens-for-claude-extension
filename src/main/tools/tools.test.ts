@@ -3,7 +3,6 @@
  * Licensed under MIT License. See LICENSE in root directory for more information.
  */
 
-import { PatchStrategy } from "@kubernetes/client-node";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { type ClusterVersionClient, runClusterVersion } from "./cluster-version";
@@ -18,31 +17,21 @@ import { type RolloutRestartClient, rolloutRestartSchema, runRolloutRestart } fr
 import { runUpdateResource, type UpdateResourceClient } from "./update-resource";
 import { runWarningEvents, type WarningEventsClient } from "./warning-events";
 
-const resourcesClient = (objects: { read: unknown; list: unknown }): ResourcesClient =>
-  ({ objects }) as unknown as ResourcesClient;
-const podLogsClient = (core: { readNamespacedPodLog: unknown }): PodLogsClient =>
-  ({ core }) as unknown as PodLogsClient;
-const warningEventsClient = (core: {
-  listEventForAllNamespaces: unknown;
-  listNamespacedEvent: unknown;
-}): WarningEventsClient => ({ core }) as unknown as WarningEventsClient;
-const clusterVersionClient = (version: { getCode: unknown }): ClusterVersionClient =>
+const resourcesClient = (client: { read: unknown; list: unknown }): ResourcesClient =>
+  client as unknown as ResourcesClient;
+const podLogsClient = (podLog: unknown): PodLogsClient => ({ podLog }) as unknown as PodLogsClient;
+const warningEventsClient = (list: unknown): WarningEventsClient => ({ list }) as unknown as WarningEventsClient;
+const clusterVersionClient = (version: unknown): ClusterVersionClient =>
   ({ version }) as unknown as ClusterVersionClient;
-const createResourceClient = (create: unknown): CreateResourceClient =>
-  ({ objects: { create } }) as unknown as CreateResourceClient;
-const updateResourceClient = (objects: { read: unknown; replace: unknown }): UpdateResourceClient =>
-  ({ objects }) as unknown as UpdateResourceClient;
-const patchResourceClient = (objects: { patch: unknown }, patchSubresource: unknown): PatchResourceClient =>
-  ({ objects, patchSubresource }) as unknown as PatchResourceClient;
-const deleteResourceClient = (objects: { delete: unknown; patch: unknown }): DeleteResourceClient =>
-  ({ objects }) as unknown as DeleteResourceClient;
-const deletePodClient = (core: {
-  createNamespacedPodEviction: unknown;
-  deleteNamespacedPod: unknown;
-  patchNamespacedPod: unknown;
-}): DeletePodClient => ({ core }) as unknown as DeletePodClient;
-const rolloutRestartClient = (objects: { patch: unknown }): RolloutRestartClient =>
-  ({ objects }) as unknown as RolloutRestartClient;
+const createResourceClient = (create: unknown): CreateResourceClient => ({ create }) as unknown as CreateResourceClient;
+const updateResourceClient = (client: { read: unknown; replace: unknown }): UpdateResourceClient =>
+  client as unknown as UpdateResourceClient;
+const patchResourceClient = (patch: unknown): PatchResourceClient => ({ patch }) as unknown as PatchResourceClient;
+const deleteResourceClient = (client: { delete: unknown; patch: unknown }): DeleteResourceClient =>
+  client as unknown as DeleteResourceClient;
+const deletePodClient = (client: { evictPod: unknown; delete: unknown; patch: unknown }): DeletePodClient =>
+  client as unknown as DeletePodClient;
+const rolloutRestartClient = (patch: unknown): RolloutRestartClient => ({ patch }) as unknown as RolloutRestartClient;
 
 describe("kube-format", () => {
   it("strips metadata.managedFields from a single resource", () => {
@@ -138,9 +127,10 @@ describe("runResources", () => {
     const yaml = await runResources(resourcesClient({ read, list: vi.fn() }), {
       apiVersion: "v1",
       kind: "Pod",
+      namespace: "default",
       name: "web",
     });
-    expect(read).toHaveBeenCalled();
+    expect(read).toHaveBeenCalledWith({ apiVersion: "v1", kind: "Pod", namespace: "default", name: "web" });
     expect(yaml).toContain("name: web");
     expect(yaml).not.toContain("managedFields");
   });
@@ -154,8 +144,25 @@ describe("runResources", () => {
       limit: 2,
     });
     // limit+1 requested to detect overflow
-    expect(list).toHaveBeenCalledWith("v1", "Pod", undefined, undefined, undefined, undefined, undefined, undefined, 3);
+    expect(list).toHaveBeenCalledWith(expect.objectContaining({ apiVersion: "v1", kind: "Pod", limit: 3 }));
     expect(out).toContain("truncated to 2 items");
+  });
+
+  it("forwards the namespace and label selector of a list", async () => {
+    const list = vi.fn(async () => ({ items: [{ metadata: { name: "web" } }] }));
+    await runResources(resourcesClient({ read: vi.fn(), list }), {
+      apiVersion: "apps/v1",
+      kind: "Deployment",
+      namespace: "default",
+      labelSelector: "app=web",
+    });
+    expect(list).toHaveBeenCalledWith({
+      apiVersion: "apps/v1",
+      kind: "Deployment",
+      namespace: "default",
+      labelSelector: "app=web",
+      limit: 51,
+    });
   });
 
   it("reports when no resources are found", async () => {
@@ -198,6 +205,20 @@ describe("runResources", () => {
     });
     expect(out).toContain("managedFields");
   });
+
+  it("writes the timestamps of a resource as the API server sent them", async () => {
+    const read = vi.fn(async () => ({
+      apiVersion: "v1",
+      kind: "Pod",
+      metadata: { name: "web", creationTimestamp: "2026-01-01T00:00:00Z" },
+    }));
+    const out = await runResources(resourcesClient({ read, list: vi.fn() }), {
+      apiVersion: "v1",
+      kind: "Pod",
+      name: "web",
+    });
+    expect(out).toContain("creationTimestamp: 2026-01-01T00:00:00Z");
+  });
 });
 
 describe("runCreateResource", () => {
@@ -229,7 +250,7 @@ describe("runUpdateResource", () => {
     await runUpdateResource(updateResourceClient({ read, replace }), {
       manifest: { apiVersion: "v1", kind: "Service", metadata: { name: "web", namespace: "default" } },
     });
-    expect(read).toHaveBeenCalled();
+    expect(read).toHaveBeenCalledWith({ apiVersion: "v1", kind: "Service", namespace: "default", name: "web" });
     const replaced = replace.mock.calls[0][0] as { metadata: Record<string, unknown> };
     expect(replaced.metadata.resourceVersion).toBe("99");
   });
@@ -246,30 +267,24 @@ describe("runUpdateResource", () => {
 
 describe("runPatchResource", () => {
   it("uses a JSON merge patch for the resource itself", async () => {
-    const patch = vi.fn(async (spec: Record<string, unknown>) => spec);
-    const patchSubresource = vi.fn(async () => {});
-    await runPatchResource(patchResourceClient({ patch }, patchSubresource), {
+    const patch = vi.fn(async (..._args: unknown[]) => ({}));
+    await runPatchResource(patchResourceClient(patch), {
       apiVersion: "apps/v1",
       kind: "Deployment",
       namespace: "default",
       name: "nginx",
       patch: { spec: { replicas: 2 } },
     });
-    expect(patchSubresource).not.toHaveBeenCalled();
     expect(patch).toHaveBeenCalledWith(
-      expect.objectContaining({ apiVersion: "apps/v1", kind: "Deployment" }),
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      PatchStrategy.MergePatch,
+      { apiVersion: "apps/v1", kind: "Deployment", namespace: "default", name: "nginx" },
+      { spec: { replicas: 2 } },
+      "merge",
     );
   });
 
   it("routes to a strategic-merge subresource patch for scale", async () => {
-    const patch = vi.fn(async (spec: Record<string, unknown>) => spec);
-    const patchSubresource = vi.fn(async () => {});
-    await runPatchResource(patchResourceClient({ patch }, patchSubresource), {
+    const patch = vi.fn(async (..._args: unknown[]) => ({}));
+    await runPatchResource(patchResourceClient(patch), {
       apiVersion: "apps/v1",
       kind: "Deployment",
       namespace: "default",
@@ -277,9 +292,10 @@ describe("runPatchResource", () => {
       patch: { spec: { replicas: 3 } },
       subresource: "Scale",
     });
-    expect(patch).not.toHaveBeenCalled();
-    expect(patchSubresource).toHaveBeenCalledWith(
-      expect.objectContaining({ subresource: "scale", name: "nginx", patch: { spec: { replicas: 3 } } }),
+    expect(patch).toHaveBeenCalledWith(
+      expect.objectContaining({ subresource: "scale", name: "nginx" }),
+      { spec: { replicas: 3 } },
+      "strategic",
     );
   });
 });
@@ -307,7 +323,7 @@ describe("runDeleteResource", () => {
       name: "web",
       mode: "force_delete",
     });
-    expect(del).toHaveBeenCalledWith(expect.anything(), undefined, undefined, 0, undefined, "Background");
+    expect(del).toHaveBeenCalledWith(expect.anything(), { gracePeriodSeconds: 0, propagationPolicy: "Background" });
   });
 
   it("force-finalizes by clearing finalizers with a merge patch", async () => {
@@ -318,9 +334,11 @@ describe("runDeleteResource", () => {
       name: "pv",
       mode: "force_finalize",
     });
-    const spec = patch.mock.calls[0][0] as { metadata: { finalizers: unknown[] } };
-    expect(spec.metadata.finalizers).toEqual([]);
-    expect(patch.mock.calls[0][5]).toBe(PatchStrategy.MergePatch);
+    expect(patch).toHaveBeenCalledWith(
+      { apiVersion: "v1", kind: "PersistentVolume", namespace: undefined, name: "pv" },
+      { metadata: { finalizers: [] } },
+      "merge",
+    );
   });
 });
 
@@ -330,28 +348,37 @@ describe("runDeletePod", () => {
   });
 
   it("creates an Eviction for evict mode", async () => {
-    const createNamespacedPodEviction = vi.fn(async (..._args: unknown[]) => ({}));
-    await runDeletePod(
-      deletePodClient({
-        createNamespacedPodEviction,
-        deleteNamespacedPod: vi.fn(),
-        patchNamespacedPod: vi.fn(),
-      }),
-      { namespace: "default", name: "web", mode: "evict" },
-    );
-    const arg = createNamespacedPodEviction.mock.calls[0][0] as { body: { kind: string } };
-    expect(arg.body.kind).toBe("Eviction");
+    const evictPod = vi.fn(async (..._args: unknown[]) => ({}));
+    await runDeletePod(deletePodClient({ evictPod, delete: vi.fn(), patch: vi.fn() }), {
+      namespace: "default",
+      name: "web",
+      mode: "evict",
+    });
+    expect(evictPod).toHaveBeenCalledWith("default", "web");
   });
 
-  it("clears finalizers then deletes for delete_with_finalizers", async () => {
-    const patchNamespacedPod = vi.fn(async () => ({}));
-    const deleteNamespacedPod = vi.fn(async () => ({}));
-    await runDeletePod(
-      deletePodClient({ createNamespacedPodEviction: vi.fn(), deleteNamespacedPod, patchNamespacedPod }),
-      { namespace: "default", name: "web", mode: "delete_with_finalizers" },
-    );
-    expect(patchNamespacedPod).toHaveBeenCalled();
-    expect(deleteNamespacedPod).toHaveBeenCalled();
+  it("force-deletes with grace period 0", async () => {
+    const del = vi.fn(async (..._args: unknown[]) => ({}));
+    await runDeletePod(deletePodClient({ evictPod: vi.fn(), delete: del, patch: vi.fn() }), {
+      namespace: "default",
+      name: "web",
+      mode: "force_delete",
+    });
+    expect(del).toHaveBeenCalledWith(expect.objectContaining({ kind: "Pod", name: "web" }), { gracePeriodSeconds: 0 });
+  });
+
+  it("clears finalizers with a merge patch, then deletes, for delete_with_finalizers", async () => {
+    const patch = vi.fn(async (..._args: unknown[]) => ({}));
+    const del = vi.fn(async (..._args: unknown[]) => ({}));
+    await runDeletePod(deletePodClient({ evictPod: vi.fn(), delete: del, patch }), {
+      namespace: "default",
+      name: "web",
+      mode: "delete_with_finalizers",
+    });
+    const ref = { apiVersion: "v1", kind: "Pod", namespace: "default", name: "web" };
+    expect(patch).toHaveBeenCalledWith(ref, { metadata: { finalizers: [] } }, "merge");
+    expect(del).toHaveBeenCalledWith(ref);
+    expect(patch.mock.invocationCallOrder[0]).toBeLessThan(del.mock.invocationCallOrder[0]);
   });
 });
 
@@ -365,29 +392,30 @@ describe("runRolloutRestart", () => {
   it("stamps the restartedAt annotation with a strategic-merge patch", async () => {
     const patch = vi.fn(async (..._args: unknown[]) => ({}));
     await runRolloutRestart(
-      rolloutRestartClient({ patch }),
+      rolloutRestartClient(patch),
       { kind: "Deployment", namespace: "default", name: "nginx" },
       () => "2026-01-01T00:00:00Z",
     );
-    const spec = patch.mock.calls[0][0] as {
-      spec: { template: { metadata: { annotations: Record<string, string> } } };
-    };
-    expect(spec.spec.template.metadata.annotations["kubectl.kubernetes.io/restartedAt"]).toBe("2026-01-01T00:00:00Z");
-    expect(patch.mock.calls[0][5]).toBe(PatchStrategy.StrategicMergePatch);
+    const annotations = { "kubectl.kubernetes.io/restartedAt": "2026-01-01T00:00:00Z" };
+    expect(patch).toHaveBeenCalledWith(
+      { apiVersion: "apps/v1", kind: "Deployment", namespace: "default", name: "nginx" },
+      { spec: { template: { metadata: { annotations } } } },
+      "strategic",
+    );
   });
 });
 
 describe("runClusterVersion", () => {
   it("summarizes the API server version", async () => {
-    const getCode = vi.fn(async () => ({
+    const version = vi.fn(async () => ({
       major: "1",
       minor: "30",
       gitVersion: "v1.30.2",
       platform: "linux/amd64",
       buildDate: "2024-06-11T00:00:00Z",
     }));
-    const out = await runClusterVersion(clusterVersionClient({ getCode }));
-    expect(getCode).toHaveBeenCalled();
+    const out = await runClusterVersion(clusterVersionClient(version));
+    expect(version).toHaveBeenCalled();
     expect(out).toContain("v1.30.2");
     expect(out).toContain("major/minor: 1.30");
     expect(out).toContain("linux/amd64");
@@ -396,8 +424,8 @@ describe("runClusterVersion", () => {
 
 describe("runPodLogs", () => {
   it("filters lines by the grep pattern", async () => {
-    const readNamespacedPodLog = vi.fn(async () => "info: ok\nerror: boom\ninfo: fine\n");
-    const out = await runPodLogs(podLogsClient({ readNamespacedPodLog }), {
+    const podLog = vi.fn(async () => "info: ok\nerror: boom\ninfo: fine\n");
+    const out = await runPodLogs(podLogsClient(podLog), {
       namespace: "default",
       name: "web",
       grep: "error",
@@ -406,13 +434,13 @@ describe("runPodLogs", () => {
   });
 
   it("caps oversized log output", async () => {
-    const readNamespacedPodLog = vi.fn(async () => "y".repeat(LOG_BYTE_CAP + 5000));
-    const out = await runPodLogs(podLogsClient({ readNamespacedPodLog }), { namespace: "default", name: "web" });
+    const podLog = vi.fn(async () => "y".repeat(LOG_BYTE_CAP + 5000));
+    const out = await runPodLogs(podLogsClient(podLog), { namespace: "default", name: "web" });
     expect(out).toContain("truncated");
   });
 
   it("reports an invalid grep pattern", async () => {
-    const out = await runPodLogs(podLogsClient({ readNamespacedPodLog: vi.fn(async () => "x") }), {
+    const out = await runPodLogs(podLogsClient(vi.fn(async () => "x")), {
       namespace: "default",
       name: "web",
       grep: "(",
@@ -420,38 +448,39 @@ describe("runPodLogs", () => {
     expect(out).toContain("Invalid grep pattern");
   });
 
-  it("forwards previous and timestamps to the API", async () => {
-    const readNamespacedPodLog = vi.fn(async () => "line");
-    await runPodLogs(podLogsClient({ readNamespacedPodLog }), {
+  it("forwards the container, previous and timestamps to the API", async () => {
+    const podLog = vi.fn(async (..._args: unknown[]) => "line");
+    await runPodLogs(podLogsClient(podLog), {
       namespace: "default",
       name: "web",
+      container: "app",
       previous: true,
       timestamps: true,
     });
-    expect(readNamespacedPodLog).toHaveBeenCalledWith(expect.objectContaining({ previous: true, timestamps: true }));
+    expect(podLog).toHaveBeenCalledWith(
+      "default",
+      "web",
+      expect.objectContaining({ container: "app", previous: true, timestamps: true }),
+    );
   });
 
   it("uses the configurable default tail lines when the model does not request an amount", async () => {
-    const readNamespacedPodLog = vi.fn(async () => "line");
-    await runPodLogs(podLogsClient({ readNamespacedPodLog }), { namespace: "default", name: "web" }, 500);
-    expect(readNamespacedPodLog).toHaveBeenCalledWith(expect.objectContaining({ tailLines: 500 }));
+    const podLog = vi.fn(async (..._args: unknown[]) => "line");
+    await runPodLogs(podLogsClient(podLog), { namespace: "default", name: "web" }, 500);
+    expect(podLog).toHaveBeenCalledWith("default", "web", expect.objectContaining({ tailLines: 500 }));
   });
 
   it("prefers an explicit tailLines argument over the configured default", async () => {
-    const readNamespacedPodLog = vi.fn(async () => "line");
-    await runPodLogs(
-      podLogsClient({ readNamespacedPodLog }),
-      { namespace: "default", name: "web", tailLines: 42 },
-      500,
-    );
-    expect(readNamespacedPodLog).toHaveBeenCalledWith(expect.objectContaining({ tailLines: 42 }));
+    const podLog = vi.fn(async (..._args: unknown[]) => "line");
+    await runPodLogs(podLogsClient(podLog), { namespace: "default", name: "web", tailLines: 42 }, 500);
+    expect(podLog).toHaveBeenCalledWith("default", "web", expect.objectContaining({ tailLines: 42 }));
   });
 
   it("returns a friendly message when there is no previous container instance", async () => {
-    const readNamespacedPodLog = vi.fn(async () => {
+    const podLog = vi.fn(async () => {
       throw new Error('previous terminated container "web" in pod "web" not found');
     });
-    const out = await runPodLogs(podLogsClient({ readNamespacedPodLog }), {
+    const out = await runPodLogs(podLogsClient(podLog), {
       namespace: "default",
       name: "web",
       previous: true,
@@ -462,7 +491,7 @@ describe("runPodLogs", () => {
 
 describe("runWarningEvents", () => {
   it("sorts warning events most-recent-first and scopes all namespaces", async () => {
-    const listEventForAllNamespaces = vi.fn(async () => ({
+    const list = vi.fn(async (..._args: unknown[]) => ({
       items: [
         {
           metadata: { namespace: "a" },
@@ -480,21 +509,25 @@ describe("runWarningEvents", () => {
         },
       ],
     }));
-    const out = await runWarningEvents(
-      warningEventsClient({ listEventForAllNamespaces, listNamespacedEvent: vi.fn() }),
-      {},
-    );
-    expect(listEventForAllNamespaces).toHaveBeenCalledWith({ fieldSelector: "type=Warning" });
+    const out = await runWarningEvents(warningEventsClient(list), {});
+    expect(list).toHaveBeenCalledWith({
+      apiVersion: "v1",
+      kind: "Event",
+      namespace: undefined,
+      fieldSelector: "type=Warning",
+    });
     expect(out.indexOf("new")).toBeLessThan(out.indexOf("old"));
   });
 
   it("scopes to a namespace when provided", async () => {
-    const listNamespacedEvent = vi.fn(async () => ({ items: [] }));
-    const out = await runWarningEvents(
-      warningEventsClient({ listEventForAllNamespaces: vi.fn(), listNamespacedEvent }),
-      { namespace: "kube-system" },
-    );
-    expect(listNamespacedEvent).toHaveBeenCalledWith({ namespace: "kube-system", fieldSelector: "type=Warning" });
+    const list = vi.fn(async (..._args: unknown[]) => ({ items: [] }));
+    const out = await runWarningEvents(warningEventsClient(list), { namespace: "kube-system" });
+    expect(list).toHaveBeenCalledWith({
+      apiVersion: "v1",
+      kind: "Event",
+      namespace: "kube-system",
+      fieldSelector: "type=Warning",
+    });
     expect(out).toContain("No warning events");
   });
 });

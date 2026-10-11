@@ -5,7 +5,7 @@
 
 import { z } from "zod";
 
-import type { CoreV1Api, CoreV1Event } from "@kubernetes/client-node";
+import type { KubeRequests } from "./kube-client";
 
 const EVENT_CAP = 50;
 
@@ -17,8 +17,18 @@ const warningEventsInput = z.object(warningEventsSchema);
 export type WarningEventsInput = z.infer<typeof warningEventsInput>;
 
 /** The slice of the Kubernetes client the warning-events tool needs. */
-export interface WarningEventsClient {
-  core: Pick<CoreV1Api, "listEventForAllNamespaces" | "listNamespacedEvent">;
+export type WarningEventsClient = Pick<KubeRequests, "list">;
+
+/** The fields of a core/v1 Event the tool reads. */
+interface CoreV1Event {
+  metadata?: { namespace?: string };
+  involvedObject?: { kind?: string; name?: string; namespace?: string };
+  reason?: string;
+  message?: string;
+  count?: number;
+  lastTimestamp?: string;
+  eventTime?: string;
+  firstTimestamp?: string;
 }
 
 /** The effective timestamp of an event, used for recency sorting. */
@@ -46,11 +56,9 @@ export async function runWarningEvents(client: WarningEventsClient, input: Warni
   const { namespace } = input;
   const fieldSelector = "type=Warning";
 
-  const list = namespace
-    ? await client.core.listNamespacedEvent({ namespace, fieldSelector })
-    : await client.core.listEventForAllNamespaces({ fieldSelector });
+  const list = await client.list({ apiVersion: "v1", kind: "Event", namespace, fieldSelector });
 
-  const items = Array.isArray(list.items) ? list.items : [];
+  const items = (Array.isArray(list.items) ? list.items : []) as CoreV1Event[];
   if (items.length === 0) {
     return `No warning events found${namespace ? ` in namespace "${namespace}"` : ""}.`;
   }

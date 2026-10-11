@@ -3,12 +3,9 @@
  * Licensed under MIT License. See LICENSE in root directory for more information.
  */
 
-import { PatchStrategy } from "@kubernetes/client-node";
 import { z } from "zod";
 
-import type { KubernetesObject, KubernetesObjectApi } from "@kubernetes/client-node";
-
-import type { SubresourcePatchArgs } from "./kube-client";
+import type { KubeRequests } from "./kube-client";
 
 export const patchResourceSchema = {
   apiVersion: z.string().describe('API group and version, e.g. "v1" or "apps/v1".'),
@@ -31,10 +28,7 @@ const patchResourceInput = z.object(patchResourceSchema);
 export type PatchResourceInput = z.infer<typeof patchResourceInput>;
 
 /** The slice of the Kubernetes client the patch tool needs. */
-export interface PatchResourceClient {
-  objects: Pick<KubernetesObjectApi, "patch">;
-  patchSubresource(args: SubresourcePatchArgs): Promise<void>;
-}
+export type PatchResourceClient = Pick<KubeRequests, "patch">;
 
 /** Patch a Kubernetes resource, or a subresource such as `scale`, with the appropriate patch strategy. */
 export async function runPatchResource(client: PatchResourceClient, input: PatchResourceInput): Promise<string> {
@@ -42,19 +36,10 @@ export async function runPatchResource(client: PatchResourceClient, input: Patch
   const subresource = input.subresource?.trim().toLowerCase();
 
   if (subresource) {
-    await client.patchSubresource({ apiVersion, kind, namespace, name, subresource, patch });
+    await client.patch({ apiVersion, kind, namespace, name, subresource }, patch, "strategic");
     return `Patched ${kind} "${name}" subresource "${subresource}"${namespace ? ` in namespace "${namespace}"` : ""}.`;
   }
 
-  const patchRecord = patch as Record<string, unknown>;
-  const patchMetadata = (patchRecord.metadata ?? {}) as Record<string, unknown>;
-  const spec = {
-    ...patchRecord,
-    apiVersion,
-    kind,
-    metadata: { ...patchMetadata, name, namespace },
-  } as KubernetesObject;
-
-  await client.objects.patch(spec, undefined, undefined, undefined, undefined, PatchStrategy.MergePatch);
+  await client.patch({ apiVersion, kind, namespace, name }, patch, "merge");
   return `Patched ${kind} "${name}"${namespace ? ` in namespace "${namespace}"` : ""}.`;
 }

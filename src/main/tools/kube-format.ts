@@ -3,7 +3,7 @@
  * Licensed under MIT License. See LICENSE in root directory for more information.
  */
 
-import { dumpYaml } from "@kubernetes/client-node";
+import { stringify } from "yaml";
 
 /** Default cap for pod-log output, in bytes. */
 export const LOG_BYTE_CAP = 50 * 1024;
@@ -34,7 +34,7 @@ export function stripManagedFields<T>(resource: T): T {
 
 /** Serialize a resource or list of resources to YAML. */
 export function toYaml(value: unknown): string {
-  return dumpYaml(value);
+  return stringify(value);
 }
 
 /** One step of a parsed field selector. */

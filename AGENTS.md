@@ -23,7 +23,7 @@ Node stack in main, an HTTP bridge between the processes).
 
 Library and tool versions follow the Freelens stack exactly: the catalog in
 Freelens's `pnpm-workspace.yaml` for libraries (a library the extension uses
-that is in the catalog, such as `@kubernetes/client-node` or `zod`, takes the
+that is in the catalog, such as `zod`, takes the
 catalog version), the root `package.json` scripts of Freelens for tools run
 with `pnpm dlx` (Biome, knip, Trunk launcher), and Freelens's `mise.toml` and
 `.nvmrc` for Node and the other mise tools. Renovate keeps them there: custom
@@ -47,8 +47,8 @@ host provides at runtime (`react`, `react-dom`, `mobx`, `mobx-react`,
 testing; `electron` is a devDependency for its types only. `monaco-editor` is
 declared although nothing imports it: `Renderer.Component.MonacoEditor` takes
 its `options` type from it, and without it they are `any`. The libraries the
-extension bundles (`@anthropic-ai/claude-agent-sdk`, `@kubernetes/client-node`,
-`diff`, `react-markdown`, `remark-gfm`, `yaml`, `zod`) are devDependencies too:
+extension bundles (`@anthropic-ai/claude-agent-sdk`, `diff`, `react-markdown`,
+`remark-gfm`, `yaml`, `zod`) are devDependencies too:
 the host installs no dependencies of an extension, so they reach it only
 through the bundle.
 
@@ -62,8 +62,7 @@ its pinned nightly is often adopted on the day it is published.
 own copy of a library it shares with the host is outside the peer range that
 `@freelensapp/extensions` declares for it (`react`, `react-dom`,
 `@types/react`, `@types/react-dom`, `mobx`, `mobx-react`, `monaco-editor`,
-`electron`). The override of `@types/node` for `@kubernetes/client-node`, the
-same as in Freelens, keeps one copy of the Node typings in the tree.
+`electron`).
 
 ## Common Commands
 
@@ -127,7 +126,7 @@ src/
     bridge/
       server.ts            # node:http server, routing, bearer auth, CORS, SSE, permission/model/retry/usage/context routes
     tools/
-      kube-client.ts       # KubeConfig + typed API surface from the cluster catalog entity
+      kube-client.ts       # requests through Main.K8sApi.KubeJsonApi.forCluster (Freelens proxy): discovery, timeout, Error conversion, connected check
       kube-format.ts       # YAML, managedFields stripping, truncation, selectFields, toDiff
       mcp-server.ts        # createSdkMcpServer; read-only vs mutating tool name sets (freelens_ prefix, incl. kubectl/helm); pod-logs tail-lines getter
       approval.ts          # describeApproval: action title + backup target (incl. READ POD LOGS, RUN KUBECTL, RUN HELM, USE MCP TOOL)
@@ -184,8 +183,16 @@ docs/RELEASE.md             # how a release is cut
 
 Build output goes to `dist/`: `main.js`, `renderer.js` and `renderer.css`,
 with source maps. `main` and `renderer` in `package.json` point at the two
-entries. The Agent SDK and `@kubernetes/client-node` are bundled but must only
-be imported from `src/main/**` (never the renderer).
+entries. The Agent SDK is bundled but must only be imported from
+`src/main/**` (never the renderer).
+
+The Kubernetes tools send their requests through
+`Main.K8sApi.KubeJsonApi.forCluster(clusterId)` (`kube-client.ts`), so they go
+through the Freelens proxy and the cluster's `freelens-k8s-proxy`, with the
+kubeconfig's authentication and the cluster's proxy setting, as the rest of
+Freelens does; a cluster that is not connected in Freelens is refused.
+`freelens_kubectl` and `freelens_helm` are the exception: they spawn the
+binaries with the cluster's kubeconfig file and context.
 
 The extension presents no custom resource, so `customResources` of the
 renderer extension stays empty, and it defines no KubeObject model of its own:
@@ -255,8 +262,8 @@ mechanism; this is the list to check a change against.
   ("Process-specific settings").
 - **Main is ESM, built for the `node` platform.** No `require()`,
   `__dirname` or `__filename` in main code. A bundled CommonJS package that
-  `require()`s a builtin (undici and ws through `@kubernetes/client-node`)
-  builds on the `browser` platform too, and the bundle then throws when the
+  `require()`s a builtin (the Node build of `yaml`) builds on the `browser`
+  platform too, and the bundle then throws when the
   host evaluates it. Only loading `dist/main.js` shows it ("Process-specific
   settings").
 - **One CSS asset, `dist/renderer.css`.** Any other name, or a second asset,
@@ -336,9 +343,9 @@ the bundle.
 - **Main**: Node builtins (`node:*` and bare) and `electron` stay external.
   Bundled packages resolve with Vite's server conditions, so main gets their
   Node builds rather than their browser builds. Rolldown builds main for the
-  `node` platform: the bundled CommonJS packages (undici and ws through
-  `@kubernetes/client-node`, among others) `require()` the builtins, and in an
-  ES module there is no `require`. For the browser platform Rolldown turns
+  `node` platform: a bundled CommonJS package (the Node build of `yaml`, which
+  `kube-format.ts` imports) `require()`s the builtins, and in an ES module
+  there is no `require`. For the browser platform Rolldown turns
   such a call into a shim that throws when the module is evaluated, so the
   extension would fail to load; for the `node` platform it creates `require`
   with `createRequire(import.meta.url)`.
@@ -352,10 +359,6 @@ the bundle.
 - The Agent SDK is bundled and always gets `pathToClaudeCodeExecutable`, the
   user's Claude Code. Without it the SDK looks for its own native binary next
   to `import.meta.url`, which in the bundle is `dist/main.js`.
-- The optional peers that ws loads with a guarded `require()` (`bufferutil`,
-  `utf-8-validate`) are not installed. Vite replaces each with a module that
-  throws when it is first required, which ws's `try`/`catch` handles, so they
-  need no setting.
 
 ### Decorators
 
@@ -467,7 +470,7 @@ Each line that must fail carries `// @ts-expect-error`, so a program that
 starts accepting it fails with an unused directive. The configs there extend
 the source configs and keep their `include`, so the probes are compiled
 together with the sources and every declaration the sources reach (the Agent
-SDK, `@kubernetes/client-node`, `react-markdown` and the rest). Compiled alone,
+SDK, `react-markdown` and the rest). Compiled alone,
 they would not see a declaration that a dependency of the sources brings in.
 
 When a declaration leaks, the environment tests fail; keep the leak out rather
@@ -506,8 +509,10 @@ test: it is a shim that reads `Common`, `Main` and `Renderer` off
 mocks. The `alias` in `vitest.config.ts` points the import at
 `test/freelens-extensions.ts`, for the tests and for the extension code they
 import. The stub covers only what the tests use (the `ExtensionStore` base
-class, `Common.logger`, `Common.App.Preferences`, `Renderer.Catalog`, and
-stand-ins for `Icon` and for `MonacoEditor`, which renders a `<textarea>`), at
+class, `Common.logger`, `Common.App.Preferences`, `Common.Clusters`,
+`Main.Catalog.getClusterById`, `Main.K8sApi.KubeJsonApi.forCluster`,
+`Renderer.Catalog`, and stand-ins for `Icon` and for `MonacoEditor`, which
+renders a `<textarea>`), at
 runtime only; the type check still uses the real declaration. As in the host, a
 store is a singleton per class, so a test that renders a component reading a
 store sets the same instance the component reads, and drops it afterwards with

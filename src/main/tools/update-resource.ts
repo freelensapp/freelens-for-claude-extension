@@ -6,7 +6,7 @@
 import { z } from "zod";
 import { stripManagedFields } from "./kube-format";
 
-import type { KubernetesObject, KubernetesObjectApi } from "@kubernetes/client-node";
+import type { KubeObjectData, KubeRequests } from "./kube-client";
 
 export const updateResourceSchema = {
   manifest: z
@@ -22,9 +22,7 @@ const updateResourceInput = z.object(updateResourceSchema);
 export type UpdateResourceInput = z.infer<typeof updateResourceInput>;
 
 /** The slice of the Kubernetes client the update tool needs. */
-export interface UpdateResourceClient {
-  objects: Pick<KubernetesObjectApi, "read" | "replace">;
-}
+export type UpdateResourceClient = Pick<KubeRequests, "read" | "replace">;
 
 function validateManifest(manifest: Record<string, unknown>): {
   apiVersion: string;
@@ -46,14 +44,14 @@ function validateManifest(manifest: Record<string, unknown>): {
 /** Replace any Kubernetes resource with a full manifest, carrying over the live resourceVersion. */
 export async function runUpdateResource(client: UpdateResourceClient, input: UpdateResourceInput): Promise<string> {
   const { apiVersion, kind, name, namespace } = validateManifest(input.manifest);
-  const manifest = stripManagedFields(input.manifest) as KubernetesObject;
-  const metadata = (manifest.metadata ?? {}) as Record<string, unknown>;
+  const manifest = stripManagedFields(input.manifest) as KubeObjectData;
+  const metadata = manifest.metadata ?? {};
 
   if (!metadata.resourceVersion) {
-    const current = await client.objects.read({ apiVersion, kind, metadata: { name, namespace } });
+    const current = await client.read({ apiVersion, kind, namespace, name });
     manifest.metadata = { ...metadata, resourceVersion: current.metadata?.resourceVersion };
   }
 
-  await client.objects.replace(manifest);
+  await client.replace(manifest);
   return `Updated ${kind} "${name}"${namespace ? ` in namespace "${namespace}"` : ""}.`;
 }

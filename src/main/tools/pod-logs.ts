@@ -7,7 +7,7 @@ import { z } from "zod";
 import { DEFAULT_POD_LOGS_TAIL_LINES } from "../../common/preferences-store";
 import { LOG_BYTE_CAP, truncateBytes } from "./kube-format";
 
-import type { CoreV1Api } from "@kubernetes/client-node";
+import type { KubeRequests } from "./kube-client";
 
 export const podLogsSchema = {
   namespace: z.string().describe("Namespace of the pod."),
@@ -31,9 +31,7 @@ const podLogsInput = z.object(podLogsSchema);
 export type PodLogsInput = z.infer<typeof podLogsInput>;
 
 /** The slice of the Kubernetes client the pod-logs tool needs. */
-export interface PodLogsClient {
-  core: Pick<CoreV1Api, "readNamespacedPodLog">;
-}
+export type PodLogsClient = Pick<KubeRequests, "podLog">;
 
 /**
  * Fetch a snapshot of a pod's logs, optionally filtered by a regex applied
@@ -59,14 +57,7 @@ export async function runPodLogs(
 
   let raw: string;
   try {
-    raw = await client.core.readNamespacedPodLog({
-      name,
-      namespace,
-      container,
-      tailLines,
-      previous,
-      timestamps,
-    });
+    raw = await client.podLog(namespace, name, { container, tailLines, previous, timestamps });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (previous && /previous terminated container.*not found/i.test(message)) {
