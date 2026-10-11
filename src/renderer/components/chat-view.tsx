@@ -4,6 +4,7 @@
  */
 
 import { Renderer } from "@freelensapp/extensions";
+import { observer } from "mobx-react";
 import { useEffect, useReducer, useRef, useState } from "react";
 import { PreferencesStore } from "../../common/preferences-store";
 import { BUILTIN_PROMPT_SHORTCUTS, parsePromptShortcuts } from "../../common/prompt-shortcuts";
@@ -330,7 +331,9 @@ function ReasoningFold({ reasoning, hasAnswer }: { reasoning: string; hasAnswer:
   );
 }
 
-export function ChatView({ clusterId, client }: ChatViewProps) {
+// An observer: the shortcut chips read PreferencesStore, which follows the
+// preferences page through the host's store sync.
+export const ChatView = observer(function ChatView({ clusterId, client }: ChatViewProps) {
   const [state, dispatch] = useReducer(reducer, initialState);
   const [input, setInput] = useState("");
   const [epoch, setEpoch] = useState(0);
@@ -782,4 +785,4 @@ export function ChatView({ clusterId, client }: ChatViewProps) {
       ) : null}
     </div>
   );
-}
+});

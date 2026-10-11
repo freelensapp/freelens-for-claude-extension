@@ -4,6 +4,7 @@
  */
 
 import { Renderer } from "@freelensapp/extensions";
+import { observer } from "mobx-react";
 import { useCallback, useEffect, useState } from "react";
 import { bridgeClient } from "../api/bridge-client";
 import styles from "./chat-page.module.scss";
@@ -12,9 +13,15 @@ import { Onboarding } from "./onboarding";
 
 import type { StatusResponse } from "../../common/protocol";
 
-/** Top-level cluster page: onboarding gate or the chat view. */
-export function ChatPage() {
+/**
+ * Top-level cluster page: onboarding gate or the chat view. An observer: the
+ * bridge port and token come from BridgeStore, which the host syncs from main
+ * and may fill in only after the page has rendered; the status is fetched
+ * again once they arrive.
+ */
+export const ChatPage = observer(function ChatPage() {
   const client = bridgeClient();
+  const ready = client.isReady;
   const [status, setStatus] = useState<StatusResponse | undefined>();
   const [failed, setFailed] = useState(false);
 
@@ -38,13 +45,17 @@ export function ChatPage() {
   );
 
   useEffect(() => {
+    if (!ready) {
+      setFailed(true);
+      return;
+    }
     void refresh(false);
-  }, [refresh]);
+  }, [ready, refresh]);
 
   if (!clusterId) {
     return <div className={styles.notice}>Open this page from within a connected cluster.</div>;
   }
-  if (failed || !client.isReady) {
+  if (failed || !ready) {
     return (
       <div className={styles.notice}>
         The Claude bridge is not ready yet.
@@ -61,4 +72,4 @@ export function ChatPage() {
     return <Onboarding status={status} onRecheck={() => refresh(true)} />;
   }
   return <ChatView clusterId={clusterId} client={client} />;
-}
+});
