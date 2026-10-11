@@ -16,7 +16,7 @@ overrides:
   # Left alone it installs a second major of the Node typings next to the
   # 24.19.1 that the extension compiles against (the Node of Electron). The
   # same override as in Freelens.
-  '@kubernetes/client-node>@types/node': 24.19.1
+  '@kubernetes/client-node>@types/node': 24.19.2
 
 shellEmulator: true
 
