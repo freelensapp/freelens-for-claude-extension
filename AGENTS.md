@@ -200,6 +200,8 @@ Each CRD file exports three classes: the KubeObject, the KubeApi, and the KubeOb
 ## Renderer Components
 
 - Detail views use the `observer` wrapper from `../../observer` (re-exports MobX `observer`).
+- Components import their CSS module for the class names only, with no `?inline` import and no `<style>` tag; the rules
+  reach the page through `renderer.css` (see "CSS").
 - SCSS modules get TypeScript declarations (`*.module.d.scss.ts`), written during the renderer build (see
   "CSS module declarations"). They are committed; commit the regenerated file with a change to its SCSS module.
   `pnpm clean:dts` removes them.
@@ -288,8 +290,10 @@ lower today.
 The host links the stylesheet named after the renderer entry, `renderer.css`
 next to `renderer.js`. Library mode extracts the CSS of the whole bundle into
 that one file (`build.lib.cssFileName`). A build that emits more than one CSS
-asset, or a differently named one, leaves the extension unstyled. CSS modules
-use `camelCaseOnly` class names.
+asset, or a differently named one, leaves the extension unstyled. A component
+imports its CSS module for the class names only and renders no `<style>` tag;
+the rules reach the page, and every dialog and popover in it, through
+`renderer.css`. CSS modules use `camelCaseOnly` class names.
 
 ### CSS module declarations
 
@@ -408,7 +412,8 @@ parameters and object literals JSDoc types where inference is too wide.
 - **Biome** formats **TypeScript/TSX, JS, JSON, CSS/SCSS, HTML**: double quotes, semicolons, trailing commas, 2-space indent, 120 char line width — use `pnpm biome:fix`
 - **Trunk** formats **Markdown, YAML**, and other formats not covered by biome — use `pnpm trunk:fix`
 - Import order (enforced by biome organizeImports): built-in modules → `@freelensapp/**` → packages → relative paths
-- React 17 (no `react/jsx-runtime` in tsconfig needed, but handled by build)
+- React 19; JSX compiles to `react/jsx-runtime` imports, which the build maps to the host's React. `JSX` is not a
+  global namespace: write `React.JSX.Element`, or import the type from `react`
 - **No emoji** in Markdown files (`.md`), comments, or any source code
 
 ## Security

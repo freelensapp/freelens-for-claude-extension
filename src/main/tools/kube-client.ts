@@ -4,7 +4,16 @@
  */
 
 import { Main } from "@freelensapp/extensions";
-import { CoreV1Api, KubeConfig, KubernetesObjectApi, VersionApi } from "@kubernetes/client-node";
+import {
+  CoreV1Api,
+  HttpMethod,
+  IsomorphicFetchHttpLibrary,
+  KubeConfig,
+  KubernetesObjectApi,
+  RequestContext,
+  type ResponseContext,
+  VersionApi,
+} from "@kubernetes/client-node";
 
 // Path 1 of the two viable tool backends in D4: a main-process
 // `@kubernetes/client-node` client built from the target cluster's kubeconfig
@@ -40,6 +49,33 @@ export interface KubeClient {
   patchSubresource(args: SubresourcePatchArgs): Promise<void>;
 }
 
+/**
+ * Send a raw request to the API server with the kubeconfig's authentication
+ * and TLS settings applied, through the HTTP library of the generated client.
+ */
+async function sendRequest(
+  config: KubeConfig,
+  url: string,
+  method: HttpMethod,
+  headers: Record<string, string> = {},
+  body?: string,
+): Promise<ResponseContext> {
+  const request = new RequestContext(url, method);
+  for (const [key, value] of Object.entries(headers)) {
+    request.setHeaderParam(key, value);
+  }
+  if (body !== undefined) {
+    request.setBody(body);
+  }
+  await config.applySecurityAuthentication(request);
+  return new IsomorphicFetchHttpLibrary().send(request).toPromise();
+}
+
+/** Whether a response has a 2xx status. */
+function isSuccess(response: ResponseContext): boolean {
+  return response.httpStatusCode >= 200 && response.httpStatusCode < 300;
+}
+
 /** Discover the plural resource name for an apiVersion/kind pair. */
 async function resolveResourceName(
   config: KubeConfig,
@@ -48,12 +84,11 @@ async function resolveResourceName(
   kind: string,
 ): Promise<string> {
   const groupPath = apiVersion.includes("/") ? `/apis/${apiVersion}` : `/api/${apiVersion}`;
-  const init = await config.applyToFetchOptions({ method: "GET" });
-  const response = await fetch(`${server}${groupPath}`, init as Parameters<typeof fetch>[1]);
-  if (!response.ok) {
-    throw new Error(`Failed to discover resources for "${apiVersion}" (${response.status}).`);
+  const response = await sendRequest(config, `${server}${groupPath}`, HttpMethod.GET);
+  if (!isSuccess(response)) {
+    throw new Error(`Failed to discover resources for "${apiVersion}" (${response.httpStatusCode}).`);
   }
-  const body = (await response.json()) as { resources?: Array<{ name: string; kind: string }> };
+  const body = JSON.parse(await response.body.text()) as { resources?: Array<{ name: string; kind: string }> };
   // Skip subresource entries (their names contain a slash, e.g. "deployments/scale").
   const match = body.resources?.find((resource) => resource.kind === kind && !resource.name.includes("/"));
   if (!match) {
@@ -71,17 +106,16 @@ async function patchSubresource(config: KubeConfig, args: SubresourcePatchArgs):
   const namespacePath = args.namespace ? `/namespaces/${args.namespace}` : "";
   const url = `${server}${groupPath}${namespacePath}/${plural}/${args.name}/${args.subresource}`;
 
-  const init = await config.applyToFetchOptions({
-    method: "PATCH",
-    headers: { "Content-Type": "application/strategic-merge-patch+json" },
-  });
-  init.method = "PATCH";
-  init.body = JSON.stringify(args.patch);
-
-  const response = await fetch(url, init as Parameters<typeof fetch>[1]);
-  if (!response.ok) {
-    const detail = await response.text().catch(() => "");
-    throw new Error(`Subresource PATCH failed (${response.status})${detail ? `: ${detail}` : ""}.`);
+  const response = await sendRequest(
+    config,
+    url,
+    HttpMethod.PATCH,
+    { "Content-Type": "application/strategic-merge-patch+json" },
+    JSON.stringify(args.patch),
+  );
+  if (!isSuccess(response)) {
+    const detail = await response.body.text().catch(() => "");
+    throw new Error(`Subresource PATCH failed (${response.httpStatusCode})${detail ? `: ${detail}` : ""}.`);
   }
 }
 
