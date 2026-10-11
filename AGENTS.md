@@ -126,7 +126,7 @@ src/
       kube-format.ts       # YAML, managedFields stripping, truncation, selectFields, toDiff
       mcp-server.ts        # createSdkMcpServer; read-only vs mutating tool name sets (freelens_ prefix, incl. kubectl/helm); pod-logs tail-lines getter
       approval.ts          # describeApproval: action title + backup target (incl. READ POD LOGS, RUN KUBECTL, RUN HELM, USE MCP TOOL)
-      cli-exec.ts          # shared spawn helper: binary resolution (prefers Freelens' downloaded version-matched kubectl), env hygiene, timeout, non-tty capture, process registry
+      cli-exec.ts          # shared spawn helper: binary resolution (prefers Freelens' downloaded version-matched kubectl, userData read from electron on activation), env hygiene, timeout, non-tty capture, process registry
       resources.ts         # freelens_resources tool (field selection, managedFields opt-in)
       pod-logs.ts          # freelens_pod_logs tool (previous, timestamps, configurable tail-lines default)
       warning-events.ts    # freelens_warning_events tool
@@ -295,6 +295,16 @@ the bundle.
   such a call into a shim that throws when the module is evaluated, so the
   extension would fail to load; for the `node` platform it creates `require`
   with `createRequire(import.meta.url)`.
+- **Main code** uses ESM only: no `require()`, `__dirname` or `__filename`. A
+  host module that a test cannot load is imported on demand with `await
+  import(...)` in a function that catches the failure, not at the top of a
+  module. `electron` is one: under Vitest it resolves to the npm package,
+  whose entry throws (or starts downloading the binary) outside Electron.
+  `loadHostUserDataPath()` in `cli-exec.ts` imports it once, on activation, to
+  read `app.getPath("userData")`, and the tests never call it.
+- The Agent SDK is bundled and always gets `pathToClaudeCodeExecutable`, the
+  user's Claude Code. Without it the SDK looks for its own native binary next
+  to `import.meta.url`, which in the bundle is `dist/main.js`.
 - The optional peers that ws loads with a guarded `require()` (`bufferutil`,
   `utf-8-validate`) are not installed. Vite replaces each with a module that
   throws when it is first required, which ws's `try`/`catch` handles, so they

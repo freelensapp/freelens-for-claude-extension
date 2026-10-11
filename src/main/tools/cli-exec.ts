@@ -108,18 +108,24 @@ export interface CliDeps {
   execFile: ExecFileFn;
 }
 
+/** Freelens' per-user data directory, once {@link loadHostUserDataPath} has read it. */
+let hostUserDataPath: string | undefined;
+
 /**
- * Freelens' per-user data directory via Electron's `app.getPath("userData")`,
- * or undefined when it cannot be resolved. Electron is a host runtime module
- * (external, absent under vitest), so it is required lazily and every failure
- * is swallowed - callers simply fall back to the bundled binary.
+ * Read Freelens' per-user data directory from Electron's
+ * `app.getPath("userData")`, for {@link defaultCliDeps}. Called once on
+ * activation. `electron` is a main-process module of the host, external in the
+ * main bundle; it is imported here, on demand, rather than at the top of the
+ * module, because under Vitest it resolves to the npm package, whose entry
+ * throws without the Electron binary. Never throws: on any failure the path
+ * stays unknown and kubectl resolution falls back to the bundled binary.
  */
-function hostUserDataPath(): string | undefined {
+export async function loadHostUserDataPath(): Promise<void> {
   try {
-    const electron = require("electron") as { app?: { getPath?(name: string): string } };
-    return electron.app?.getPath?.("userData");
+    const { app } = await import("electron");
+    hostUserDataPath = app.getPath("userData");
   } catch {
-    return undefined;
+    hostUserDataPath = undefined;
   }
 }
 
@@ -142,7 +148,7 @@ export function defaultCliDeps(): CliDeps {
     fileExists: (path) => existsSync(path),
     listDir: (path) => safeReadDir(path),
     getKubectlPath: () => Common.App.Preferences.getKubectlPath(),
-    getUserDataPath: () => hostUserDataPath(),
+    getUserDataPath: () => hostUserDataPath,
     execFile: execFile as unknown as ExecFileFn,
   };
 }
