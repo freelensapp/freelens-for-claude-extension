@@ -597,10 +597,11 @@ class ClusterSession {
   private async captureBackup(target: ApprovalTarget): Promise<string | undefined> {
     if (!this.client) return undefined;
     try {
-      const current = await this.client.objects.read({
+      const current = await this.client.read({
         apiVersion: target.apiVersion,
         kind: target.kind,
-        metadata: { name: target.name, namespace: target.namespace },
+        namespace: target.namespace,
+        name: target.name,
       });
       return toYaml(stripManagedFields(current));
     } catch {

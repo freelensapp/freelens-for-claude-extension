@@ -75,7 +75,26 @@ export const Common = {
       getKubectlPath: vi.fn<() => string | undefined>(() => undefined),
     },
   },
+  Clusters: {
+    ClusterConnectionStatus: {
+      CONNECTING: "connecting",
+      CONNECTED: "connected",
+      DISCONNECTED: "disconnected",
+      DISCONNECTING: "disconnecting",
+    },
+  },
   Store: {
     ExtensionStore,
+  },
+};
+
+export const Main = {
+  Catalog: {
+    getClusterById: vi.fn<(id: string) => unknown>(() => undefined),
+  },
+  K8sApi: {
+    KubeJsonApi: {
+      forCluster: vi.fn<(clusterId: string) => unknown>(),
+    },
   },
 };

@@ -127,7 +127,7 @@ src/
     bridge/
       server.ts            # node:http server, routing, bearer auth, CORS, SSE, permission/model/retry/usage/context routes
     tools/
-      kube-client.ts       # KubeConfig + typed API surface from the cluster catalog entity
+      kube-client.ts       # requests through Main.K8sApi.KubeJsonApi.forCluster (Freelens proxy): discovery, timeout, Error conversion, connected check
       kube-format.ts       # YAML, managedFields stripping, truncation, selectFields, toDiff
       mcp-server.ts        # createSdkMcpServer; read-only vs mutating tool name sets (freelens_ prefix, incl. kubectl/helm); pod-logs tail-lines getter
       approval.ts          # describeApproval: action title + backup target (incl. READ POD LOGS, RUN KUBECTL, RUN HELM, USE MCP TOOL)
@@ -506,8 +506,10 @@ test: it is a shim that reads `Common`, `Main` and `Renderer` off
 mocks. The `alias` in `vitest.config.ts` points the import at
 `test/freelens-extensions.ts`, for the tests and for the extension code they
 import. The stub covers only what the tests use (the `ExtensionStore` base
-class, `Common.logger`, `Common.App.Preferences`, `Renderer.Catalog`, and
-stand-ins for `Icon` and for `MonacoEditor`, which renders a `<textarea>`), at
+class, `Common.logger`, `Common.App.Preferences`, `Common.Clusters`,
+`Main.Catalog.getClusterById`, `Main.K8sApi.KubeJsonApi.forCluster`,
+`Renderer.Catalog`, and stand-ins for `Icon` and for `MonacoEditor`, which
+renders a `<textarea>`), at
 runtime only; the type check still uses the real declaration. As in the host, a
 store is a singleton per class, so a test that renders a component reading a
 store sets the same instance the component reads, and drops it afterwards with

@@ -6,7 +6,7 @@
 import { z } from "zod";
 import { stripManagedFields } from "./kube-format";
 
-import type { KubernetesObject, KubernetesObjectApi } from "@kubernetes/client-node";
+import type { KubeObjectData, KubeRequests } from "./kube-client";
 
 export const createResourceSchema = {
   manifest: z
@@ -21,9 +21,7 @@ const createResourceInput = z.object(createResourceSchema);
 export type CreateResourceInput = z.infer<typeof createResourceInput>;
 
 /** The slice of the Kubernetes client the create tool needs. */
-export interface CreateResourceClient {
-  objects: Pick<KubernetesObjectApi, "create">;
-}
+export type CreateResourceClient = Pick<KubeRequests, "create">;
 
 /** Read `apiVersion`, `kind`, and `metadata.name`, erroring with a clear message if any is missing. */
 function validateManifest(manifest: Record<string, unknown>): { apiVersion: string; kind: string; name: string } {
@@ -40,8 +38,8 @@ function validateManifest(manifest: Record<string, unknown>): { apiVersion: stri
 /** Create any Kubernetes resource from a full manifest. */
 export async function runCreateResource(client: CreateResourceClient, input: CreateResourceInput): Promise<string> {
   const { kind, name } = validateManifest(input.manifest);
-  const manifest = stripManagedFields(input.manifest) as KubernetesObject;
-  const created = await client.objects.create(manifest);
+  const manifest = stripManagedFields(input.manifest) as KubeObjectData;
+  const created = await client.create(manifest);
   const namespace = created.metadata?.namespace;
   return `Created ${kind} "${name}"${namespace ? ` in namespace "${namespace}"` : ""}.`;
 }

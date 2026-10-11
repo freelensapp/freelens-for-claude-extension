@@ -6,7 +6,7 @@
 import { z } from "zod";
 import { DEFAULT_LIST_LIMIT, selectFields, stripManagedFields, toYaml } from "./kube-format";
 
-import type { KubernetesObjectApi } from "@kubernetes/client-node";
+import type { KubeRequests } from "./kube-client";
 
 export const resourcesSchema = {
   apiVersion: z.string().describe('API group and version, e.g. "v1" or "apps/v1".'),
@@ -39,9 +39,7 @@ const resourcesInput = z.object(resourcesSchema);
 export type ResourcesInput = z.infer<typeof resourcesInput>;
 
 /** The slice of the Kubernetes client the resources tool needs. */
-export interface ResourcesClient {
-  objects: Pick<KubernetesObjectApi, "list" | "read">;
-}
+export type ResourcesClient = Pick<KubeRequests, "list" | "read">;
 
 /**
  * List or get Kubernetes resources of any kind. Returns YAML with
@@ -58,26 +56,12 @@ export async function runResources(client: ResourcesClient, input: ResourcesInpu
   };
 
   if (name) {
-    const resource = await client.objects.read({
-      apiVersion,
-      kind,
-      metadata: { name, namespace },
-    });
+    const resource = await client.read({ apiVersion, kind, namespace, name });
     return toYaml(project(resource));
   }
 
-  const list = await client.objects.list(
-    apiVersion,
-    kind,
-    namespace,
-    undefined,
-    undefined,
-    undefined,
-    undefined,
-    labelSelector,
-    // Request one extra item so we can tell whether more exist.
-    limit + 1,
-  );
+  // Request one extra item so we can tell whether more exist.
+  const list = await client.list({ apiVersion, kind, namespace, labelSelector, limit: limit + 1 });
 
   const items = Array.isArray(list.items) ? list.items : [];
   const truncated = items.length > limit;

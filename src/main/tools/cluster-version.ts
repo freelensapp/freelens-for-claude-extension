@@ -5,7 +5,7 @@
 
 import { z } from "zod";
 
-import type { VersionApi } from "@kubernetes/client-node";
+import type { KubeRequests } from "./kube-client";
 
 export const clusterVersionSchema = {};
 
@@ -13,16 +13,14 @@ const clusterVersionInput = z.object(clusterVersionSchema);
 export type ClusterVersionInput = z.infer<typeof clusterVersionInput>;
 
 /** The slice of the Kubernetes client the cluster-version tool needs. */
-export interface ClusterVersionClient {
-  version: Pick<VersionApi, "getCode">;
-}
+export type ClusterVersionClient = Pick<KubeRequests, "version">;
 
 /**
  * Report the API server version: gitVersion, major/minor, platform, buildDate.
- * Hits the `/version` endpoint through {@link VersionApi.getCode}.
+ * Hits the `/version` endpoint.
  */
 export async function runClusterVersion(client: ClusterVersionClient): Promise<string> {
-  const info = await client.version.getCode();
+  const info = await client.version();
   return [
     `Kubernetes ${info.gitVersion}`,
     `major/minor: ${info.major}.${info.minor}`,

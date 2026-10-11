@@ -123,7 +123,7 @@ function makeClusterVersionGetter(client: KubeClient): () => Promise<string | un
   let cached: string | undefined;
   return async () => {
     if (cached) return cached;
-    const info = await client.version.getCode();
+    const info = await client.version();
     cached = info.gitVersion;
     return cached;
   };

@@ -5,7 +5,7 @@
 
 import { z } from "zod";
 
-import type { CoreV1Api, V1Eviction } from "@kubernetes/client-node";
+import type { KubeRequests } from "./kube-client";
 
 export const deletePodSchema = {
   namespace: z.string().describe("Namespace of the pod."),
@@ -23,30 +23,24 @@ const deletePodInput = z.object(deletePodSchema);
 export type DeletePodInput = z.infer<typeof deletePodInput>;
 
 /** The slice of the Kubernetes client the delete-pod tool needs. */
-export interface DeletePodClient {
-  core: Pick<CoreV1Api, "createNamespacedPodEviction" | "deleteNamespacedPod" | "patchNamespacedPod">;
-}
+export type DeletePodClient = Pick<KubeRequests, "evictPod" | "delete" | "patch">;
 
 /** Delete or evict a pod with the requested strategy. */
 export async function runDeletePod(client: DeletePodClient, input: DeletePodInput): Promise<string> {
   const { namespace, name, mode } = input;
+  const ref = { apiVersion: "v1", kind: "Pod", namespace, name };
 
   if (mode === "evict") {
-    const body = {
-      apiVersion: "policy/v1",
-      kind: "Eviction",
-      metadata: { name, namespace },
-    } as V1Eviction;
-    await client.core.createNamespacedPodEviction({ name, namespace, body });
+    await client.evictPod(namespace, name);
     return `Evicted pod "${name}" in namespace "${namespace}".`;
   }
 
   if (mode === "force_delete") {
-    await client.core.deleteNamespacedPod({ name, namespace, gracePeriodSeconds: 0 });
+    await client.delete(ref, { gracePeriodSeconds: 0 });
     return `Force-deleted pod "${name}" in namespace "${namespace}".`;
   }
 
-  await client.core.patchNamespacedPod({ name, namespace, body: { metadata: { finalizers: [] } } });
-  await client.core.deleteNamespacedPod({ name, namespace });
+  await client.patch(ref, { metadata: { finalizers: [] } }, "merge");
+  await client.delete(ref);
   return `Cleared finalizers and deleted pod "${name}" in namespace "${namespace}".`;
 }

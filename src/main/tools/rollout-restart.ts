@@ -3,10 +3,9 @@
  * Licensed under MIT License. See LICENSE in root directory for more information.
  */
 
-import { PatchStrategy } from "@kubernetes/client-node";
 import { z } from "zod";
 
-import type { KubernetesObject, KubernetesObjectApi } from "@kubernetes/client-node";
+import type { KubeRequests } from "./kube-client";
 
 /** Workload kinds that support a rollout restart. */
 const RESTARTABLE_KINDS = ["Deployment", "DaemonSet", "StatefulSet"] as const;
@@ -21,9 +20,7 @@ const rolloutRestartInput = z.object(rolloutRestartSchema);
 export type RolloutRestartInput = z.infer<typeof rolloutRestartInput>;
 
 /** The slice of the Kubernetes client the rollout-restart tool needs. */
-export interface RolloutRestartClient {
-  objects: Pick<KubernetesObjectApi, "patch">;
-}
+export type RolloutRestartClient = Pick<KubeRequests, "patch">;
 
 /**
  * Trigger a rolling restart by stamping
@@ -36,10 +33,7 @@ export async function runRolloutRestart(
   now: () => string = () => new Date().toISOString(),
 ): Promise<string> {
   const { kind, namespace, name } = input;
-  const spec = {
-    apiVersion: "apps/v1",
-    kind,
-    metadata: { name, namespace },
+  const patch = {
     spec: {
       template: {
         metadata: {
@@ -47,8 +41,8 @@ export async function runRolloutRestart(
         },
       },
     },
-  } as KubernetesObject;
+  };
 
-  await client.objects.patch(spec, undefined, undefined, undefined, undefined, PatchStrategy.StrategicMergePatch);
+  await client.patch({ apiVersion: "apps/v1", kind, namespace, name }, patch, "strategic");
   return `Restarted ${kind} "${name}" in namespace "${namespace}".`;
 }

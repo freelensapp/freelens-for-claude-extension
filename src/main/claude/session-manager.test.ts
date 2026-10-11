@@ -76,7 +76,7 @@ vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
 }));
 
 vi.mock("../tools/kube-client", () => ({
-  getKubeClient: () => ({ clusterName: "test-cluster", objects: { read: async () => ({}) } }),
+  getKubeClient: () => ({ clusterName: "test-cluster", read: async () => ({}) }),
   disposeKubeClient: () => {},
 }));
 
