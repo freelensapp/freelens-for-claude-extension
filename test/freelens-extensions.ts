@@ -19,8 +19,18 @@ function MonacoEditor({ value }: { value?: string }) {
   return React.createElement("textarea", { readOnly: true, value: value ?? "" });
 }
 
+// Minimal stand-in for the host icon: the material name as text, or nothing
+// for an SVG icon.
+function Icon({ material }: { material?: string }) {
+  return React.createElement("i", null, material);
+}
+
 export const Renderer = {
+  Catalog: {
+    getActiveCluster: vi.fn<() => { id: string } | undefined>(() => undefined),
+  },
   Component: {
+    Icon,
     MonacoEditor,
   },
 };
@@ -28,18 +38,28 @@ export const Renderer = {
 // Minimal stand-in for the host `ExtensionStore` base class. The real one
 // persists to disk: it loads the saved model with `fromStore()` and saves it
 // whenever `toJSON()` changes. The stub keeps subclass state in memory so store
-// logic (e.g. `ChatSessionStore`) can be unit-tested.
+// logic (e.g. `ChatSessionStore`) can be unit-tested. As in the host, a store is
+// a singleton per class; `resetInstance()` drops it between tests.
+const instances = new Map<unknown, unknown>();
+
 class ExtensionStore<_T> {
   constructor(_params: unknown) {}
   loadExtension(_extension: unknown): void {}
   static createInstance<T>(this: new () => T): T {
-    return new this();
+    const instance = new this();
+    instances.set(this, instance);
+    return instance;
   }
   static getInstance<T>(this: new () => T): T {
-    return new this();
+    return instances.get(this) as T;
   }
   static getInstanceOrCreate<T>(this: new () => T): T {
-    return new this();
+    return (
+      (instances.get(this) as T | undefined) ?? (ExtensionStore.createInstance as (this: new () => T) => T).call(this)
+    );
+  }
+  static resetInstance(this: unknown): void {
+    instances.delete(this);
   }
 }
 

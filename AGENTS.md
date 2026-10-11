@@ -437,9 +437,12 @@ test: it is a shim that reads `Common`, `Main` and `Renderer` off
 mocks. The `alias` in `vitest.config.ts` points the import at
 `test/freelens-extensions.ts`, for the tests and for the extension code they
 import. The stub covers only what the tests use (the `ExtensionStore` base
-class, `Common.logger`, `Common.App.Preferences` and a `MonacoEditor` stand-in
-that renders a `<textarea>`), at runtime only; the type check still uses the
-real declaration. So a test that reaches a member the stub lacks compiles and
+class, `Common.logger`, `Common.App.Preferences`, `Renderer.Catalog`, and
+stand-ins for `Icon` and for `MonacoEditor`, which renders a `<textarea>`), at
+runtime only; the type check still uses the real declaration. As in the host, a
+store is a singleton per class, so a test that renders a component reading a
+store sets the same instance the component reads, and drops it afterwards with
+`resetInstance()`. So a test that reaches a member the stub lacks compiles and
 fails on `undefined`: add the member to the stub, as small as the test needs.
 The other host modules are not stubbed: `react`, `mobx` and `mobx-react`
 resolve to the devDependencies, the host's versions. `vitest.config.ts` also
