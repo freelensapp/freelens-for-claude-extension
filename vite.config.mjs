@@ -17,6 +17,14 @@ import { hostModules } from "./build/vite-plugin-host-modules.mjs";
 import { prodPackages } from "./build/vite-plugin-prod-packages.mjs";
 import { standardDecorators } from "./build/vite-plugin-standard-decorators.mjs";
 
+/**
+ * @type {Record<"renderer" | "main", {
+ *   entry: string;
+ *   emptyOutDir: boolean;
+ *   external: (string | RegExp)[];
+ *   platform: "browser" | "node";
+ * }>}
+ */
 const entryPoints = {
   renderer: {
     entry: "src/renderer/index.tsx",
