@@ -9,10 +9,43 @@ This file provides guidance to coding agents when working with code in this repo
 This repository serves as an example how to build and publish extensions for
 Freelens application.
 
-- **Language**: TypeScript 5.9.3
-- **Runtime**: Node.js >= 22.0.0, Freelens >= 1.8.0
-- **Package manager**: pnpm 10.x (locked)
+- **Language**: TypeScript 7.x
+- **Runtime**: Freelens >= 2.0.0 (extension API v2)
+- **Toolchain**: Node.js 24.x, yq 4.x and cosign 3.x (`mise.toml` with
+  `mise.lock`; Node also in `.nvmrc`)
+- **Package manager**: pnpm 12.x (`packageManager`, run through corepack)
 - **License**: MIT
+
+Library and tool versions follow the Freelens stack exactly: the catalog in
+Freelens's `pnpm-workspace.yaml` for libraries (a library the extension uses
+that is in the catalog, such as `@kubernetes/client-node` or `zod`, takes the
+catalog version), the root `package.json` scripts of Freelens for tools run
+with `pnpm dlx` (Biome, knip, Trunk launcher), and Freelens's `mise.toml` and
+`.nvmrc` for Node and the other mise tools. `mise.lock` pins a checksum and a
+URL per tool for every platform; after changing `mise.toml`, run `mise lock`.
+`@freelensapp/extensions` is pinned to one exact version. The libraries the
+host provides at runtime (`react`, `react-dom`, `mobx`, `mobx-react`,
+`monaco-editor`) and their types are devDependencies only, for compiling and
+testing; `electron` is a devDependency for its types only. `monaco-editor` is
+declared although nothing imports it: `Renderer.Component.MonacoEditor` takes
+its `options` type from it, and without it they are `any`. The libraries the
+extension bundles (`@anthropic-ai/claude-agent-sdk`, `@kubernetes/client-node`,
+`diff`, `react-markdown`, `remark-gfm`, `yaml`, `zod`) are devDependencies too:
+the host installs no dependencies of an extension, so they reach it only
+through the bundle.
+
+pnpm settings live in `pnpm-workspace.yaml`. A dependency runs its install
+scripts only when `allowBuilds` sets it to `true`; a new dependency with
+install scripts that is not listed there fails `pnpm install`, so add it with
+`true` or `false` deliberately. pnpm refuses versions younger than its
+`minimumReleaseAge` (1 day), with `@freelensapp/extensions` excluded because
+its pinned nightly is often adopted on the day it is published.
+`strictPeerDependencies: true` makes `pnpm install` fail when the extension's
+own copy of a library it shares with the host is outside the peer range that
+`@freelensapp/extensions` declares for it (`react`, `react-dom`,
+`@types/react`, `@types/react-dom`, `mobx`, `mobx-react`, `monaco-editor`,
+`electron`). The override of `@types/node` for `@kubernetes/client-node`, the
+same as in Freelens, keeps one copy of the Node typings in the tree.
 
 ## Common Commands
 
