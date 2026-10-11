@@ -34,8 +34,8 @@ that version, in one `Freelens dependencies` group PR together with the
 the Freelens catalog unless the catalog rule excludes it with `!`; one that
 Freelens does not have must be excluded there, or its lookup fails on the
 Dependency Dashboard. The bundled libraries that are not in the catalog
-(`@anthropic-ai/claude-agent-sdk`, `diff`, `@types/diff`, `react-markdown`,
-`remark-gfm`, `yaml`) are excluded and updated from the npm registry as usual.
+(`@anthropic-ai/claude-agent-sdk`, `diff`, `react-markdown`, `remark-gfm`,
+`yaml`) are excluded and updated from the npm registry as usual.
 pnpm is updated from the npm registry too, in a pull request of its own:
 `packageManager` carries a Corepack hash, which Renovate updates only from the
 digest of the new version, and a custom datasource has none. `mise.lock` pins a
