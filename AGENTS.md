@@ -140,18 +140,18 @@ src/
       kubectl.ts           # freelens_kubectl tool (argv contract, direct spawn via cli-exec)
       helm.ts              # freelens_helm tool (argv contract, direct spawn via cli-exec)
   renderer/
-    index.tsx              # clusterPages, clusterPageMenus, appPreferences, kubeObjectMenuItems
+    index.tsx              # clusterPages, clusterPageMenus, appPreferences, kubeObjectMenuItems (menuItemFor)
     api/
       bridge-client.ts     # fetch wrapper + SSE reader; resolvePermission, setPermissionMode, setModel, retry, getUsage, getContext
       pending-prompt.ts    # module-scoped handoff between "Ask Claude" menu entries and the chat page
     components/
-      chat-page.tsx        # page: onboarding gate or chat view
-      chat-view.tsx        # transcript + input + status strip (context donut / token counter, model + mode selectors, retry, slash popup, shortcut chips, reasoning fold, nested tool cards, command menu)
+      chat-page.tsx        # page (observer of BridgeStore): onboarding gate or chat view
+      chat-view.tsx        # observer of PreferencesStore: transcript + input + status strip (context donut / token counter, model + mode selectors, retry, slash popup, shortcut chips, reasoning fold, nested tool cards, command menu)
       context-donut.tsx    # composer status-strip ring showing context-window usage %; tooltip = token counts, click opens the details modal
       context-dialog.tsx   # Context usage modal (/context): model, occupancy bar, per-category token breakdown
       tool-card.tsx        # collapsible tool call/result card
       permission-dialog.tsx # inline approval card (proposed YAML, backup, diff)
-      menu-entry.tsx       # "Ask Claude" kube object menu item
+      menu-entry.tsx       # "Ask Claude" kube object menu item, generic over the host's model class
       preferences.tsx      # preferences page body + hint (incl. MCP switch/textarea, subagent toggle, shortcuts textarea)
       markdown.tsx         # react-markdown wrapper (code blocks, links)
       onboarding.tsx       # Claude Code missing / not detected panel
@@ -213,7 +213,19 @@ Each CRD file exports three classes: the KubeObject, the KubeApi, and the KubeOb
 
 ## Renderer Components
 
-- Detail views use the `observer` wrapper from `../../observer` (re-exports MobX `observer`).
+- A component that reads a store while it renders is an `observer` from `mobx-react`, which the build maps to the
+  host's copy. The host syncs the stores between main, the root frame and each cluster frame, possibly after the
+  component has rendered: `ChatPage` reads the bridge port and token from `BridgeStore` and asks for the status again
+  once they arrive, and `ChatView` reads the prompt shortcuts from `PreferencesStore`. A component that is not an
+  observer keeps what it read first until something else renders it again.
+- The one cluster page is registered as `Page: () => <ChatPage />`; the host renders a cluster page with `params`
+  only, and `ChatPage` takes the cluster from `Renderer.Catalog.getActiveCluster()`.
+- The "Ask Claude" items in `kubeObjectMenuItems` are made by `Renderer.K8sApi.menuItemFor(Pod, { MenuItem })` with the
+  host's model classes (`KubeEvent`, `Pod`, `Deployment`, `DaemonSet`, `StatefulSet`, `Service`, `Node`), not written
+  out with `kind` and `apiVersions`. The helper takes both from the class and types the item's props from it, so
+  `createAskClaudeMenuItem` gets the concrete object (`KubeEvent#message` without a cast). A menu item's props are
+  `Common.Types.KubeObjectMenuItemProps<K>`: `object` and `toolbar`, which is all the host passes; not
+  `Renderer.Component.KubeObjectMenuProps`, the props of the host's whole menu.
 - Components import their CSS module for the class names only, with no `?inline` import and no `<style>` tag; the rules
   reach the page through `renderer.css` (see "CSS").
 - SCSS modules get TypeScript declarations (`*.module.d.scss.ts`), written during the renderer build (see
