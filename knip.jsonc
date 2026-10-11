@@ -78,5 +78,11 @@
     ]
   },
 
+  // The `main` field of package.json makes the built dist/main.js an entry
+  // once `pnpm build` has run, as it has in check.yaml. The bundle inlines
+  // @kubernetes/client-node, whose spawnSync("wsl.exe") is then reported as an
+  // unlisted binary. The sources are the entries; the bundle is not analyzed.
+  "ignore": ["dist/**"],
+
   "exclude": ["exports"]
 }
