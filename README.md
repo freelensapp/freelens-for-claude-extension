@@ -36,10 +36,9 @@ affiliation with Anthropic.
 
 ## Requirements
 
-- **Freelens >= 1.10.0.** The extension is developed against
-  `@freelensapp/extensions` 1.10.x and its continuous integration installs
-  and smoke-tests it against Freelens 1.10.0. Older releases are not
-  verified to provide every host API the extension uses.
+- **Freelens >= 2.0.0.** The extension uses the Freelens v2 extension API
+  and does not load in Freelens 1.x. Its continuous integration installs and
+  smoke-tests it against a Freelens build with that API.
 - **Claude Code installed and logged in.** The extension drives the Claude
   Code binary found on your `PATH` (or at a path you set in preferences).
   Install it and run `claude` once in a terminal to authenticate.
@@ -169,6 +168,12 @@ run automatically; mutating tools always require your approval.
 no shell — and are always pinned to the current cluster's kubeconfig and
 context. They are a fallback for actions the dedicated tools do not cover.
 
+`freelens_kubectl` runs the kubectl set in the Freelens preferences when
+there is one, else the kubectl Freelens downloaded for the cluster's
+Kubernetes version, else the kubectl Freelens ships, else the first
+`kubectl` on the `PATH`. `freelens_helm` runs the helm Freelens ships, else
+the first `helm` on the `PATH`.
+
 ### Permissions and safety
 
 - Three per-cluster **modes**, selected next to the send button:
@@ -274,7 +279,7 @@ You can build the extension from this repository.
 Use [NVM](https://github.com/nvm-sh/nvm),
 [mise-en-place](https://mise.jdx.dev/), or
 [windows-nvm](https://github.com/coreybutler/nvm-windows) to install the
-required Node.js version.
+required Node.js version (24.x, from `.nvmrc` and `mise.toml`).
 
 From the root of this repository:
 
@@ -284,10 +289,10 @@ nvm install
 mise install
 ```
 
-Install pnpm:
+Install pnpm, at the version `packageManager` in `package.json` names:
 
 ```sh
-corepack install
+corepack enable
 # or
 curl -fsSL https://get.pnpm.io/install.sh | sh -
 ```
@@ -295,41 +300,87 @@ curl -fsSL https://get.pnpm.io/install.sh | sh -
 ### Build extension
 
 ```sh
-pnpm i
+pnpm install
+pnpm build
+```
+
+The build writes `dist/main.js`, `dist/renderer.js` and `dist/renderer.css`,
+which `main` and `renderer` in `package.json` point at. Both entries are ES
+modules.
+
+### Development loop
+
+For development, Freelens loads the extension straight from the checkout,
+and a rebuild reloads it without restarting Freelens. Nothing has to be
+packed.
+
+1. Build once, as above.
+2. In Freelens, open the **Extensions** page, enter the path of the
+   checkout's directory and press **Install**. Freelens asks whether to load
+   the extension in place; confirm. The extension is listed as installed in
+   place and enabled.
+3. Start the watch build:
+
+   ```sh
+   pnpm dev
+   ```
+
+   It rebuilds the main and the renderer entry on every change to the
+   sources, and Freelens reloads the extension whenever an entry is
+   rewritten. A single `pnpm build` reloads it the same way, the renderer
+   and then main: the main process stops the old bridge and starts a new
+   one, and the open chat page connects to the new one and resumes the
+   conversation.
+
+A change to `main` or `renderer` in `package.json` needs a restart of
+Freelens, which watches only the entries it loaded.
+
+Under a Freelens started from its own source (`pnpm dev` in a Freelens
+checkout), the host keeps its own kubectl and helm at another place than a
+packaged Freelens does, so `freelens_kubectl` and `freelens_helm` can fall
+back to the binaries on the `PATH` (see [Built-in tools](#built-in-tools)).
+
+### Pack and install the extension
+
+```sh
 pnpm build
 pnpm pack
 ```
 
-One script to build and pack the extension for testing:
+One script to bump the prerelease version, build and pack the extension
+for testing:
 
 ```sh
 pnpm pack:dev
 ```
 
-### Install built extension
+The tarball is placed in the current directory. In Freelens, navigate to
+the Extensions page and provide the path to the tarball, or drag and drop
+the `.tgz` file into the Freelens window.
 
-The tarball will be placed in the current directory. In Freelens, navigate
-to the Extensions page and provide the path to the tarball, or drag and
-drop the `.tgz` file into the Freelens window.
-
-### Check code statically
+### Check and test
 
 ```sh
+pnpm type:check
 pnpm lint:check
+pnpm test:unit
 ```
 
-or
+and, for the formats Biome does not cover (Markdown, YAML, SCSS):
 
 ```sh
 pnpm trunk:check
 ```
 
-and
+and, for unused files and dependencies:
 
 ```sh
 pnpm build
 pnpm knip:check
 ```
+
+`pnpm build` and `pnpm dev` do not run the type check; run
+`pnpm type:check` before a commit.
 
 ## License
 

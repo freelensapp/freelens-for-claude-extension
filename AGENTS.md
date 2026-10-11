@@ -6,8 +6,13 @@ This file provides guidance to coding agents when working with code in this repo
 
 ## Project Overview
 
-This repository serves as an example how to build and publish extensions for
-Freelens application.
+This repository is Freelens for Claude, a Freelens extension that embeds a
+Claude-powered chat per cluster and drives the user's own Claude Code
+installation with permission-gated Kubernetes tools. Its build, type-check and
+test setup follows freelensapp/freelens-example-extension, the template for
+Freelens extensions; this file describes that setup as it applies here, with
+the reason for each rule, and what is specific to this extension (a bundled
+Node stack in main, an HTTP bridge between the processes).
 
 - **Language**: TypeScript 7.x
 - **Runtime**: Freelens >= 2.0.0 (extension API v2)
@@ -149,8 +154,12 @@ src/
       chat-view.tsx        # observer of PreferencesStore: transcript + input + status strip (context donut / token counter, model + mode selectors, retry, slash popup, shortcut chips, reasoning fold, nested tool cards, command menu)
       context-donut.tsx    # composer status-strip ring showing context-window usage %; tooltip = token counts, click opens the details modal
       context-dialog.tsx   # Context usage modal (/context): model, occupancy bar, per-category token breakdown
+      context-colors.ts    # categoryColor: color of a context category (SDK color, name palette, per-index fallback)
+      model-dialog.tsx     # "Switch model" modal: Default row, live model catalog, custom model id
+      effort-dialog.tsx    # "Effort" modal: Default row and the reasoning-effort levels
       tool-card.tsx        # collapsible tool call/result card
       permission-dialog.tsx # inline approval card (proposed YAML, backup, diff)
+      code-viewer.tsx      # read-only code block in the host's MonacoEditor, with language label and copy button
       menu-entry.tsx       # "Ask Claude" kube object menu item, generic over the host's model class
       preferences.tsx      # preferences page body + hint (incl. MCP switch/textarea, subagent toggle, shortcuts textarea)
       markdown.tsx         # react-markdown wrapper (code blocks, links)
@@ -163,53 +172,34 @@ src/
       claude-icon.tsx      # cluster page menu icon
 ```
 
+Outside `src/`:
+
+```text
+build/                      # Vite plugins: host modules, standard decorators, CSS module declarations, bundled package list
+environment-tests/          # probes that prove each program has only its runtime's APIs ("Environment tests")
+test/freelens-extensions.ts # runtime stub of @freelensapp/extensions for the unit tests ("Tests and tooling")
+integration/__tests__/      # integration test, run inside a Freelens checkout by integration-tests.yaml
+docs/RELEASE.md             # how a release is cut
+```
+
 Build output goes to `dist/`: `main.js`, `renderer.js` and `renderer.css`,
 with source maps. `main` and `renderer` in `package.json` point at the two
 entries. The Agent SDK and `@kubernetes/client-node` are bundled but must only
 be imported from `src/main/**` (never the renderer).
 
-### CRD KubeObject template (not shipped by this extension)
+The extension presents no custom resource, so `customResources` of the
+renderer extension stays empty, and it defines no KubeObject model of its own:
+the "Ask Claude" items use the host's model classes.
 
-The `## CRD KubeObject Pattern` and gateway-api sections below document the
-upstream extension template's example CRD layout. This extension ships no CRD
-models; keep the pattern notes for reference if CRD views are added later.
-
-## CRD KubeObject Pattern
-
-K8s object classes MUST use `static readonly` properties for metadata. **Instance methods do NOT work and MUST NOT be used.** The Freelens host reads properties from the class constructor statically — instance methods are not available at runtime because the host creates plain object copies of the K8s resource data, not instances of the extension's class. This means:
-
-- **Allowed**: `object.spec?.someField`, `object.status?.conditions` — direct property access on typed `spec`/`status` interfaces
-- **Allowed**: helper functions like `hasTrueCondition(conditions, "Accepted")` from `types.ts`
-- **Forbidden**: `object.someMethod()` — instance methods will never exist at runtime
-- **Forbidden**: `typeof (object as any).someMethod === "function" ? ...` — anti-pattern that always falls through to the fallback path
-- **Forbidden**: `as any` — use the existing typed `spec`/`status` interfaces directly; all CRD models already define proper `Spec`/`Status` interfaces
-
-Always access `spec` and `status` properties directly via their typed interfaces. Do not define instance methods on KubeObject subclasses — they will not be callable at runtime.
-
-```typescript
-export class Gateway extends Renderer.K8sApi.LensExtensionKubeObject<
-  Renderer.K8sApi.KubeObjectMetadata,
-  GatewayStatus,
-  GatewaySpec
-> {
-  static readonly kind = "Gateway";
-  static readonly namespaced = true;
-  static readonly apiBase = "/apis/gateway.networking.k8s.io/v1/gateways";
-  static readonly crd: GatewayKubeObjectCRD = {
-    apiVersions: ["gateway.networking.k8s.io/v1"],
-    plural: "gateways",
-    singular: "gateway",
-    shortNames: ["gtw"],
-    title: "Gateways",
-  };
-}
-
-// Also export Api and Store classes (always needed):
-export class GatewayApi extends Renderer.K8sApi.KubeApi<Gateway> {}
-export class GatewayStore extends Renderer.K8sApi.KubeObjectStore<Gateway, GatewayApi> {}
-```
-
-Each CRD file exports three classes: the KubeObject, the KubeApi, and the KubeObjectStore. They are registered in `src/renderer/index.tsx` via `kubeObjectDetailItems`, `clusterPages`, and `clusterPageMenus`.
+The renderer talks to main over HTTP, not IPC: main writes the bridge's port
+and a random bearer token to `BridgeStore`, which the host syncs to every
+frame, and `bridge-client.ts` calls `http://127.0.0.1:<port>` with plain
+`fetch` and reads the event stream as SSE. The host's Content Security Policy
+has no `connect-src`, and the bridge echoes the request `Origin` for CORS, so
+the cluster frame (`https://<clusterId>.renderer.freelens.app`) reaches it.
+Main stops the bridge in `onDeactivate`, so a reload of the extension starts a
+new bridge with a new port and token. The client reads both from `BridgeStore`
+for every request, so the next request goes to the new bridge.
 
 ## Renderer Components
 
@@ -231,7 +221,64 @@ Each CRD file exports three classes: the KubeObject, the KubeApi, and the KubeOb
 - SCSS modules get TypeScript declarations (`*.module.d.scss.ts`), written during the renderer build (see
   "CSS module declarations"). They are committed; commit the regenerated file with a change to its SCSS module.
   `pnpm clean:dts` removes them.
-- Common detail view styles are in `src/renderer/details/gateway-api/common.module.scss`.
+- `appPreferences` registers `Input: () => <PreferencesInput />` and `Hint: () => <PreferencesHint />`; the host renders
+  both with no props. The preferences page copies the store into React state once and writes every change back to
+  `PreferencesStore`: it is the only writer of the preferences, so nothing can change them under it while it is open.
+  Main and the chat read the store when they use a value, so a change applies without a restart.
+
+## Rules That Fail Silently
+
+Each of these compiles when it is broken, and breaks the extension at runtime
+or not visibly at all. The sections named in parentheses explain the
+mechanism; this is the list to check a change against.
+
+- **The host's React and mobx, one copy each.** Import `react`, `react-dom`,
+  `mobx` and `mobx-react` by their bare module ids, in the extension and in
+  every library it bundles. A second React throws `invalid hook call`; a second
+  mobx throws nothing, and the host never reacts to its observables, so the
+  stores stop syncing between main and the frames. The build fails on the ways
+  a second copy gets in ("Modules provided by the host").
+- **Observable store fields through `makeObservable`.** The stores keep plain
+  fields and annotate them in the constructor with
+  `makeObservable(this, { field: observable })`. A field decorator without
+  `accessor` (`@observable field`) type-checks and builds; mobx's development
+  build throws when the class is defined, and its production build leaves the
+  field unobservable. A decorated field is `@observable accessor` and its class
+  does not call `makeObservable(this)` ("Decorators").
+- **A component that reads a store while it renders is an `observer`.** The
+  host syncs a store into a frame after the component may have rendered;
+  without `observer` the chat page stays on "not ready" and the chips keep the
+  old shortcuts. `chat-page.test.tsx` and `chat-view.test.tsx` fail without it
+  ("Renderer Components").
+- **No Node or Electron in renderer and common code.** They are `undefined` in
+  the renderer. The build fails on an import, `pnpm type:check` on a global
+  ("Process-specific settings").
+- **Main is ESM, built for the `node` platform.** No `require()`,
+  `__dirname` or `__filename` in main code. A bundled CommonJS package that
+  `require()`s a builtin (undici and ws through `@kubernetes/client-node`)
+  builds on the `browser` platform too, and the bundle then throws when the
+  host evaluates it. Only loading `dist/main.js` shows it ("Process-specific
+  settings").
+- **One CSS asset, `dist/renderer.css`.** Any other name, or a second asset,
+  leaves the extension unstyled, dialogs and popovers included. Nothing checks
+  it; look at `dist/` after a change to the CSS setup ("CSS").
+- **One tsconfig per environment.** Each program has only its runtime's `lib`
+  and `types`, and no declaration may load Node into the renderer or the DOM
+  into main; otherwise a wrong API type-checks and is `undefined` at runtime.
+  The environment tests fail on a leak ("TypeScript").
+- **The Agent SDK gets `pathToClaudeCodeExecutable`.** Without it the bundled
+  SDK looks for its own binary next to `dist/main.js`, where there is none
+  ("Process-specific settings").
+- **A cluster page gets `params` only.** The type check rejects a page that
+  requires another prop, but not one that declares it optional; that prop is
+  `undefined` ("Renderer Components").
+- **An ESM `main`, and the entries in `package.json` unchanged while
+  `pnpm dev` runs.** The host refuses to reload a CommonJS main and logs why,
+  and it watches only the entries it started with, so a manifest change needs
+  Freelens restarted.
+
+Neither `pnpm build` nor `pnpm dev` runs the type check, so a Node global in
+renderer code passes them; `pnpm type:check` and `type-check.yaml` catch it.
 
 ## Build
 
@@ -551,19 +598,97 @@ is an entry: Trunk runs SVGO, and no dependency turns the plugin on.
 | `main-scan.yaml`         | Grype over the packages in `prod-packages.json` of a `main` build             |
 | `release-scan.yaml`      | Grype over the `prod-packages.json` assets of the last release                |
 
+The other workflows automate releases, maintenance and the CI agent:
+
+| Workflow             | Does                                                                                      |
+| -------------------- | ----------------------------------------------------------------------------------------- |
+| `npm-version.yaml`   | bumps the version in a pull request, on demand and after each release (`docs/RELEASE.md`) |
+| `tag.yaml`           | tags `vX.Y.Z` when the version pull request of a stable version is merged                 |
+| `release.yaml`       | on a `v*` tag: builds, packs, publishes to npm and creates the GitHub release             |
+| `biome-migrate.yaml` | runs `biome migrate` on the Renovate branch of a Biome update and commits the result      |
+| `trunk-upgrade.yaml` | upgrades the Trunk plugins and linters in a pull request                                  |
+| `npm-audit.yaml`     | `pnpm audit fix` in a pull request                                                        |
+| `npm-dedupe.yaml`    | `pnpm dedupe` in a pull request                                                           |
+| `claude.yaml`        | the CI agent, started by a mention in an issue or pull request (see below)                |
+| `claude-task.yaml`   | the CI agent on a task given when the workflow is started by hand                         |
+
 The type check has a workflow of its own, on pull requests and on pushes to
 `main`, as in Freelens. It runs every program, tests, tooling and environment
 tests included, which no build reaches, and a type error shows as its own
 failed check rather than as a failed build. `check.yaml` builds without the
 type check for the same reason, so it does not run twice.
 
-The integration tests run inside a Freelens checkout of `main`, the only ref
-with the v2 extension API until 2.0.0 is released: the workflow builds the
-extension, packs it with a `.tgz.sha256` checksum next to the tarball, as the
-release publishes it, checks out and packages Freelens, copies
-`integration/__tests__/` into `freelens/integration/__tests__/` and runs them
-there under Freelens's Vitest, with its helpers. The test installs the tarball
-from the extensions page and fails on any error logged by either process.
+The integration tests run inside a Freelens checkout of the ref in the
+workflow's matrix, which has to be a Freelens with the v2 extension API: the
+workflow builds the extension, packs it with a `.tgz.sha256` checksum next to
+the tarball, as the release publishes it, checks out and packages Freelens,
+copies `integration/__tests__/` into `freelens/integration/__tests__/` and runs
+them there under Freelens's Vitest, with its helpers. The test installs the
+tarball from the extensions page and fails on any error logged by either
+process.
+
+## Checking the Extension in Freelens Dev
+
+The functional checks of a change run against Freelens started with
+`pnpm dev` from a freelensapp/freelens checkout, with a cluster to point the
+chat at. That script starts Electron with `--remoteDebuggingPort 9223`, so an
+agent can drive the app over the Chrome DevTools Protocol: with Playwright MCP
+attached as Freelens's `DEVELOPMENT.md` describes ("Inspecting the running dev
+app from an AI agent"), or with a `playwright-core` script that calls
+`chromium.connectOverCDP("http://127.0.0.1:9223")`. End such a script by
+exiting the process; do not close the browser, which belongs to Freelens.
+Playwright MCP writes its snapshots to `.playwright-mcp/`, which is
+git-ignored.
+
+### Installing the checkout
+
+1. `pnpm install`, then `pnpm build`. After a branch switch, `node_modules`
+   can still hold another stack, and Freelens loads the extension from
+   `dist/`.
+2. On the Extensions page, enter the checkout's directory and press
+   "Install". Freelens then asks whether to load the extension in place;
+   confirm that too. The table lists the extension as "in place, unverified"
+   and enabled.
+3. A rebuild, by `pnpm build` or by `pnpm dev` of the extension, reloads it
+   once in the root frame and once in each cluster frame, and reloads main.
+   Each main reload stops the bridge and logs
+   `[for-claude] bridge listening on 127.0.0.1:<port>` for the new one.
+
+### Driving the UI
+
+- Every cluster renders in a cross-origin `<clusterId>.renderer.freelens.app`
+  iframe. The chat page, the "Ask Claude" items and every dialog and popover
+  of the chat live in that frame, not in the main page; the preferences page
+  lives in the main page.
+- The chat page has the URL `/extension/freelensapp--for-claude-extension/chat`
+  inside the cluster frame. The "Freelens for Claude" sidebar entry navigates
+  in `onClick`; its `href` is not the page URL.
+- Playwright's actionability checks can fail on the hotbar, where
+  `#ScrollSpyRoot` intercepts pointer events; a DOM `click()` on the element
+  works.
+- The chat page connects once `BridgeStore` has synced into the frame, and an
+  answer streams in over seconds. Wait for the expected content, not a fixed
+  time.
+- In the default "Approve" mode, a mutating tool (`freelens_kubectl` and
+  `freelens_helm` included), a pod log read (unless its preference is off)
+  and every external MCP tool stop at an approval card; approve or deny it to
+  let the turn go on.
+- `freelens_kubectl` and `freelens_helm` look for the host's binaries in a
+  packaged Freelens's layout. Under Freelens dev, `process.resourcesPath` is
+  Electron's own resources directory, so they fall back to a version-matched
+  download, else to `PATH`. Check which binary ran before reading a version
+  mismatch as a bug.
+
+### Reading the console
+
+The renderer console also carries the output of Freelens's terminal dock
+(`%cMESSAGE` lines), which can include the user's shell prompt, account names
+and paths. Keep only warnings, errors, page errors and the extension's own
+lines (`[for-claude]`), and never paste the full console into a PR, an issue
+or a report. A transcript holds cluster data too; quote only what a report
+needs. React reports key problems as console errors ("Each child in a list
+should have a unique key", "Encountered two children with the same key");
+they count as failures of the "no error in DevTools" check.
 
 ## Code Style
 
@@ -611,7 +736,8 @@ Code in `src/common/` is shared between both processes.
 
 1. Check that files are not in ignored output directories (`dist/`, `node_modules/`)
 2. Full clean and rebuild: `pnpm clean:all && pnpm install && pnpm build`
-3. Reinstall the extension in Freelens (or restart the app in dev mode)
+3. With a directory install and `pnpm dev` running, look for a refused reload in the Freelens log, and restart
+   Freelens after a change to `main` or `renderer` in `package.json`; reinstall an extension installed from a tarball
 
 ### Build Failures
 
@@ -624,9 +750,9 @@ Code in `src/common/` is shared between both processes.
 
 1. Open Freelens DevTools and check the Console tab for renderer errors
 2. Check the terminal where Freelens was launched for main process errors
-3. Look for stack traces with file:line numbers
-4. Verify all CRD objects have proper `static readonly` properties (kind, apiBase, crd)
-5. Validate both with `pnpm type:check` **and** `pnpm build` — runtime failures can appear only in bundled `dist/` code
+3. Look for stack traces with file:line numbers; main-process lines of the extension start with `[for-claude]`
+4. Validate both with `pnpm type:check` **and** `pnpm build` — runtime failures can appear only in bundled `dist/` code
+5. Check the list in "Rules That Fail Silently"
 
 ## Best Practices
 
@@ -717,10 +843,41 @@ When asked to implement a change on a PR:
    to revert individually.
 5. **Push after every commit** — run a `git push` immediately after each
    commit, never batch several commits into a single push at the end. The
-   workflow has a total timeout of 60 minutes; a long task can be
-   interrupted mid-run. Pushing each commit as it lands means a later
+   workflow has a timeout and a turn limit (`timeout-minutes` and
+   `--max-turns` in `claude.yaml`); a long task can be interrupted mid-run.
+   Pushing each commit as it lands means a later
    `@claude resume after timeout` run picks up from the last pushed commit
    with no lost work. Unpushed commits are lost when the session times out.
+
+### Modifying GitHub Actions Workflows
+
+Claude cannot push changes to files under `.github/workflows/` directly,
+because the GitHub token used by the action lacks the `workflows` permission.
+Any patch to a workflow file MUST therefore be delivered as a new, complete
+file under the `github-workflow-fix/` directory in the repository root instead
+of editing the file in place:
+
+1. Write the full, final contents of the workflow to
+   `github-workflow-fix/<workflow-file-name>`, with the same file name as in
+   `.github/workflows/` (e.g. `github-workflow-fix/check.yaml`). Do **not**
+   edit the original file under `.github/workflows/`.
+2. Make it a **complete** file — the entire workflow as it should look after
+   the change, not just a diff or fragment — so it can be copied verbatim.
+3. Commit it with the change that needs it, and list it in the report. In the
+   PR description, note it as a proposed workflow change that a maintainer
+   must move from `github-workflow-fix/` to `.github/workflows/`.
+
+A maintainer moves the file into `.github/workflows/` in a separate commit and
+removes `github-workflow-fix/`, so the directory exists only on a branch with
+a proposed change that has not been moved yet. Pull before continuing on the
+branch, as it may have gained such a commit.
+
+Until the move, the checks of the pull request run the workflows under
+`.github/workflows/`, not the proposed ones. A check that the change itself
+breaks for the old workflow (a renamed script, a moved output directory) fails
+until then; say so in the report. knip reads `.github/workflows/` too, so a
+binary or script that only the old workflow names shows in
+`pnpm knip:check` until the move.
 
 ### Branch Naming Conventions
 
