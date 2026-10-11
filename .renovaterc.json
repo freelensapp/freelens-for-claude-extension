@@ -80,6 +80,19 @@
       "groupName": "Freelens dependencies"
     },
     {
+      "description": [
+        "The override of @kubernetes/client-node's @types/node in pnpm-workspace.yaml takes the @types/node of the Freelens catalog on main, as Freelens keeps its own override of it on its catalog's version. The rule above matches only dependencies and devDependencies, so without this one the override is looked up on npm and runs ahead of Freelens.",
+        "The custom datasource has no release dates, so minimumReleaseAge is off."
+      ],
+      "matchManagers": ["npm"],
+      "matchDepNames": ["@kubernetes/client-node>@types/node"],
+      "overrideDatasource": "custom.freelens-catalog",
+      "overridePackageName": "@types/node",
+      "rangeStrategy": "replace",
+      "minimumReleaseAge": "0 days",
+      "groupName": "Freelens dependencies"
+    },
+    {
       "description": "Tools run with pnpm dlx, and the Biome and Prettier that Trunk runs, take the version Freelens runs with pnpm dlx in the scripts of its root package.json on main, except the ones excluded with ! here, which Freelens does not run. The custom datasource has no release dates, so minimumReleaseAge is off.",
       "matchManagers": ["custom.regex"],
       "matchFileNames": ["package.json", ".trunk/trunk.yaml"],
