@@ -58,7 +58,6 @@
     // so they are devDependencies, which the --production --strict pass
     // reports as unlisted
     "@anthropic-ai/claude-agent-sdk",
-    "@kubernetes/client-node",
     "diff",
     "react-markdown",
     "remark-gfm",
@@ -79,9 +78,10 @@
   },
 
   // The `main` field of package.json makes the built dist/main.js an entry
-  // once `pnpm build` has run, as it has in check.yaml. The bundle inlines
-  // @kubernetes/client-node, whose spawnSync("wsl.exe") is then reported as an
-  // unlisted binary. The sources are the entries; the bundle is not analyzed.
+  // once `pnpm build` has run, as it has in check.yaml. The bundle inlines the
+  // libraries the extension bundles, and knip would report what they import or
+  // run as dependencies of the extension. The sources are the entries; the
+  // bundle is not analyzed.
   "ignore": ["dist/**"],
 
   "exclude": ["exports"]

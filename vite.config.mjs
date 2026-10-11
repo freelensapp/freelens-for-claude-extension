@@ -42,11 +42,10 @@ const entryPoints = {
     emptyOutDir: false,
     // Node and Electron resolve their own modules at runtime.
     external: ["electron", /^electron\//, /^node:/, ...builtinModules],
-    // Bundled CommonJS packages (undici and ws through
-    // `@kubernetes/client-node`, among others) `require()` the builtins. For
-    // the browser platform Rolldown turns such a call into a shim that throws
-    // in an ES module, where there is no `require`; for Node it creates one
-    // with `createRequire(import.meta.url)`.
+    // Bundled CommonJS packages (the Node build of `yaml`) `require()` the
+    // builtins. For the browser platform Rolldown turns such a call into a shim
+    // that throws in an ES module, where there is no `require`; for Node it
+    // creates one with `createRequire(import.meta.url)`.
     platform: "node",
   },
 };

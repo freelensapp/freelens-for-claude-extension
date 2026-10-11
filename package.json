@@ -68,7 +68,6 @@
   "devDependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.220",
     "@freelensapp/extensions": "2.0.0-0-nightly-2026-10-11",
-    "@kubernetes/client-node": "2.0.0",
     "@testing-library/dom": "10.4.2",
     "@testing-library/react": "16.3.3",
     "@types/diff": "^7.0.0",

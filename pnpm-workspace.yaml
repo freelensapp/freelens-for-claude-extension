@@ -11,13 +11,6 @@ engineStrict: true
 minimumReleaseAgeExclude:
   - '@freelensapp/extensions'
 
-overrides:
-  # @kubernetes/client-node declares @types/node ^26 as a runtime dependency.
-  # Left alone it installs a second major of the Node typings next to the
-  # 24.19.1 that the extension compiles against (the Node of Electron). The
-  # same override as in Freelens.
-  '@kubernetes/client-node>@types/node': 24.19.1
-
 shellEmulator: true
 
 # Fail the install, instead of printing one warning line, when a library the
