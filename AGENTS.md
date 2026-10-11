@@ -65,8 +65,8 @@ pnpm lint:fix             # Alias for biome:fix
 pnpm test:unit            # vitest
 
 # Build
-pnpm build                # Full build (type-check + electron-vite)
-pnpm build:production     # Production build (no preserveModules)
+pnpm build                # Both Vite runs, without the type check
+pnpm dev                  # Both Vite runs in watch mode, for a directory install
 
 # Pack for testing
 pnpm pack:dev             # Bump prerelease version, build, and create .tgz for install in Freelens app
@@ -145,8 +145,10 @@ src/
       claude-icon.tsx      # cluster page menu icon
 ```
 
-Build output goes to `out/`. The Agent SDK and `@kubernetes/client-node` are
-bundled but must only be imported from `src/main/**` (never the renderer).
+Build output goes to `dist/`: `main.js`, `renderer.js` and `renderer.css`,
+with source maps. `main` and `renderer` in `package.json` point at the two
+entries. The Agent SDK and `@kubernetes/client-node` are bundled but must only
+be imported from `src/main/**` (never the renderer).
 
 ### CRD KubeObject template (not shipped by this extension)
 
@@ -194,20 +196,116 @@ Each CRD file exports three classes: the KubeObject, the KubeApi, and the KubeOb
 ## Renderer Components
 
 - Detail views use the `observer` wrapper from `../../observer` (re-exports MobX `observer`).
-- SCSS modules generate TypeScript type files (`*.module.d.scss.ts`) via `vite-plugin-sass-dts`. These are auto-generated and should be cleaned with `pnpm clean:dts` when SCSS changes.
+- SCSS modules get TypeScript declarations (`*.module.d.scss.ts`), written during the renderer build (see
+  "CSS module declarations"). They are committed; commit the regenerated file with a change to its SCSS module.
+  `pnpm clean:dts` removes them.
 - Common detail view styles are in `src/renderer/details/gateway-api/common.module.scss`.
 
-## Key Dependencies (provided by Freelens host at runtime)
+## Build
 
-These are NOT bundled, they come from the Freelens host as globals:
-- `@freelensapp/extensions` → `global.LensExtensions`
-- `mobx` → `global.Mobx`
-- `react` → `global.React`
-- `react-dom` → `global.ReactDom`
-- `mobx-react` → `global.MobxReact`
-- `react-router-dom` → `global.ReactRouterDom`
+`vite.config.mjs` builds one entry point per run, in library mode, as ESM:
+`vite build` builds the renderer and empties `dist/`, and `vite build --mode
+main` builds main next to it. The two runs share no chunk; each bundle carries
+its own copy of the `src/common/` code it imports. Nothing is minified.
 
-Other dependencies ARE bundled into the extension output.
+`pnpm dev` runs the same two builds in watch mode, side by side, for a
+directory install: the host reloads the extension when either entry is
+rewritten. Its renderer run passes `--no-emptyOutDir`. In watch mode Vite
+empties the output directory again before every rebuild, so a renderer rebuild
+would delete `dist/main.js`, and the host would have no main entry to reload.
+
+### Modules provided by the host
+
+The host publishes its singletons on `globalThis.FreelensExtensionApi`, and
+each process publishes only the ones it has. This is contract C3 of the
+Freelens extension API (`docs/extensions/api.md`):
+
+| Module id           | Global            | Published in |
+| ------------------- | ----------------- | ------------ |
+| `react`             | `React`           | renderer     |
+| `react-dom`         | `ReactDom`        | renderer     |
+| `react/jsx-runtime` | `ReactJsxRuntime` | renderer     |
+| `mobx`              | `Mobx`            | both         |
+| `mobx-react`        | `MobxReact`       | renderer     |
+| `monaco-editor`     | `MonacoEditor`    | renderer     |
+
+`build/vite-plugin-host-modules.mjs` replaces a bare import of one of these
+with a module that reads the global, in the extension's code and in every
+library it bundles (`react-markdown` included). Its named exports are the
+members of the copy installed as a devDependency, which is pinned to the
+host's version, so an import of a name the host's version lacks fails the
+build. The plugin also fails the build on an import of a host module that the
+process does not publish (`react` in main), and on a subpath of a host package
+that the host does not publish (`react-dom/client`). Both would otherwise
+either read `undefined` at runtime or bundle a second copy. A second React
+throws `invalid hook call`; a second mobx throws nothing, and the host simply
+never reacts to its observables.
+
+Everything else is bundled. That includes `@freelensapp/extensions`, a shim of
+three lines that reads `Common`, `Main` and `Renderer` off the same global; it
+must not be mapped. The host installs no dependencies of an extension, so
+whatever the code needs at runtime and the host does not provide has to be in
+the bundle.
+
+### Process-specific settings
+
+- **Renderer**: nothing is external. Renderer code gets no Node or Electron, and
+  an import of a Node builtin or of `electron` fails the build (Vite would
+  otherwise replace it with an empty module and only warn).
+  `process.env.NODE_ENV` is replaced at build time, because library mode
+  leaves it for a consumer's bundler and the page has no `process`.
+- **Main**: Node builtins (`node:*` and bare) and `electron` stay external.
+  Bundled packages resolve with Vite's server conditions, so main gets their
+  Node builds rather than their browser builds. Rolldown builds main for the
+  `node` platform: the bundled CommonJS packages (undici and ws through
+  `@kubernetes/client-node`, among others) `require()` the builtins, and in an
+  ES module there is no `require`. For the browser platform Rolldown turns
+  such a call into a shim that throws when the module is evaluated, so the
+  extension would fail to load; for the `node` platform it creates `require`
+  with `createRequire(import.meta.url)`.
+- The optional peers that ws loads with a guarded `require()` (`bufferutil`,
+  `utf-8-validate`) are not installed. Vite replaces each with a module that
+  throws when it is first required, which ws's `try`/`catch` handles, so they
+  need no setting.
+
+### Decorators
+
+MobX 7 supports standard decorators only, and Oxc, which transpiles TypeScript
+for Vite, passes them through unlowered, while neither Node nor Chromium runs
+them yet. `build/vite-plugin-standard-decorators.mjs`, copied from Freelens,
+hands every module with a decorator to esbuild first, which lowers the
+decorators and their `accessor` fields. The stores in `src/common/` use no
+decorators: their fields stay plain and are annotated in the constructor with
+`makeObservable(this, { field: observable })`, so the plugin has nothing to
+lower today.
+
+### CSS
+
+The host links the stylesheet named after the renderer entry, `renderer.css`
+next to `renderer.js`. Library mode extracts the CSS of the whole bundle into
+that one file (`build.lib.cssFileName`). A build that emits more than one CSS
+asset, or a differently named one, leaves the extension unstyled. CSS modules
+use `camelCaseOnly` class names.
+
+### CSS module declarations
+
+`build/vite-plugin-css-module-declarations.mjs`, copied unchanged from the
+template, writes `x.module.d.scss.ts` next to every `x.module.scss` the
+renderer build imports, in `vite build` and in watch mode. It takes the class
+names from Vite's own `preprocessCSS`, with the build's resolved config, so
+they are the names the bundle exports, after `localsConvention` (keyframe
+names included). It awaits its work, writes a declaration only when its
+content changed, and writes through a temporary file and a rename, so a failed
+or interrupted build cannot leave a committed declaration empty.
+
+### Bundled package list
+
+`build/vite-plugin-prod-packages.mjs` writes `prod-packages.json`, the npm
+packages inlined into `dist/` with their pnpm store paths. The security scans
+(`main-scan.yaml`, `release-scan.yaml`) and the release assets use it as the
+runtime closure of the extension. The two runs are separate processes, so the
+list is their union, kept in the file: the run that empties `dist/` (the
+renderer run) starts it, and the main run adds to it.
 
 ## Code Style
 
@@ -252,7 +350,7 @@ Code in `src/common/` is shared between both processes.
 
 ### Changes Not Appearing
 
-1. Check that files are not in ignored output directories (`out/`, `dist/`, `node_modules/`)
+1. Check that files are not in ignored output directories (`dist/`, `node_modules/`)
 2. Full clean and rebuild: `pnpm clean:all && pnpm build`
 3. Reinstall the extension in Freelens (or restart the app in dev mode)
 
@@ -269,7 +367,7 @@ Code in `src/common/` is shared between both processes.
 2. Check the terminal where Freelens was launched for main process errors
 3. Look for stack traces with file:line numbers
 4. Verify all CRD objects have proper `static readonly` properties (kind, apiBase, crd)
-5. Validate both with `pnpm type:check` **and** `pnpm build` — runtime failures can appear only in bundled `out/` code
+5. Validate both with `pnpm type:check` **and** `pnpm build` — runtime failures can appear only in bundled `dist/` code
 
 ## Best Practices
 
