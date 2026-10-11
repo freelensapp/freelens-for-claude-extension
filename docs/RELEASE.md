@@ -28,32 +28,42 @@ The release chain is three workflows that hand off to one another.
 3. **Publish on tag push.** The `vX.Y.Z` tag push triggers the **release**
    workflow (`release.yaml`), which:
    - guards that the tag matches the `package.json` version;
-   - builds and packs the extension;
+   - builds the extension with `pnpm build` (`dist/main.js`,
+     `dist/renderer.js`, `dist/renderer.css`) and packs it;
    - publishes to npm (with provenance or `NPM_TOKEN`) — dist-tag `next` for
      hyphenated prerelease versions, `latest` otherwise;
-   - generates an SPDX SBOM and sha256 checksums;
-   - creates the GitHub release with the `.tgz` and checksum assets.
+   - generates an SPDX SBOM, keeps the `prod-packages.json` the build wrote
+     (the npm packages bundled into `dist/`, which `release-scan.yaml` scans),
+     and writes a sha256 checksum for each;
+   - attests the build provenance of every asset;
+   - creates the GitHub release with the `.tgz`, the SBOM, the package list
+     and their checksums.
 
 4. **Dev cycle reopens.** After the GitHub release is published, the
    version workflow auto-runs once more with `prerelease` to bump into the
    next development version.
 
-The integration-tests workflow (`integration-tests.yaml`) builds Freelens
-from `freelensapp/freelens` and installs the packed `.tgz` at runtime,
-failing on any renderer or main-process error output — the automated install
-smoke test that runs per pull request and on `main`.
+The integration-tests workflow (`integration-tests.yaml`) builds and packs
+the extension, builds Freelens from `freelensapp/freelens` at the ref in its
+matrix, installs the packed `.tgz` from the Extensions page and fails on any
+renderer or main-process error output — the automated install smoke test
+that runs per pull request and on `main`.
 
 Note: the workflow files under `.github/workflows/` cannot be edited through
-the Claude GitHub App. Any change there must be applied by a maintainer;
-none is required to cut a release.
+the Claude GitHub App. A change there is proposed under
+`github-workflow-fix/` and moved by a maintainer, as "Modifying GitHub
+Actions Workflows" in `AGENTS.md` describes; none is required to cut a
+release.
 
 ## Pre-release checklist
 
 Before cutting a stable `X.Y.Z` release:
 
-- [ ] `pnpm lint:check && pnpm type:check && pnpm test:unit && pnpm build`
-      pass on `main`; integration tests are green.
-- [ ] Manual smoke test in a real Freelens:
+- [ ] `pnpm type:check && pnpm lint:check && pnpm test:unit && pnpm build &&
+      pnpm knip:check` pass on `main`; the type check and integration tests
+      workflows are green.
+- [ ] Manual smoke test in a real Freelens (>= 2.0.0, the floor in
+      `engines.freelens`), with the packed `.tgz` installed:
   - onboarding panel appears when Claude Code is absent;
   - a read-only question is answered from tool calls;
   - one approved mutation succeeds;

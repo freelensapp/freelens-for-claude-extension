@@ -15,6 +15,7 @@ declare const classNames: {
   readonly retryButton: "retryButton";
   readonly errorHint: "errorHint";
   readonly thinking: "thinking";
+  readonly thinkingBounce: "thinkingBounce";
   readonly modeSelect: "modeSelect";
   readonly modeWarning: "modeWarning";
   readonly shortcuts: "shortcuts";

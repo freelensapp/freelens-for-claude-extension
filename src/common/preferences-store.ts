@@ -81,7 +81,9 @@ export class PreferencesStore extends Common.Store.ExtensionStore<PreferencesSto
   constructor() {
     super({
       configName: "preferences-store",
-      defaults,
+      // A copy: an object type, unlike the interface, fits the index
+      // signature that the store options require of `defaults`.
+      defaults: { ...defaults },
     });
     makeObservable(this, {
       podLogsRequireApproval: observable,

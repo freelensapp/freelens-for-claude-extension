@@ -51,7 +51,7 @@ jobs:
 
     env:
       # Renovate keeps this in sync via the inline datasource hint (see
-      # .renovaterc.json5 customManagers). Stored without the leading "v"
+      # .renovaterc.json customManagers). Stored without the leading "v"
       # because that manager's extractVersionTemplate strips it on every bump;
       # grype's installer needs the exact tag, so the "v" is re-added where
       # this is consumed rather than kept here (it would not survive).
@@ -66,9 +66,9 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Set up mise
-        uses: jdx/mise-action@v4
+        uses: jdx/mise-action@v5
         with:
-          version: 2026.8.0 # datasource=github-releases depName=jdx/mise
+          version: 2026.10.4 # datasource=github-releases depName=jdx/mise
           install_args: yq
 
       - name: Install Grype

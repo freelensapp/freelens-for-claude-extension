@@ -7,14 +7,11 @@ import { Renderer } from "@freelensapp/extensions";
 import { pendingPrompt } from "../api/pending-prompt";
 import { ClaudeIcon } from "../icons/claude-icon";
 
+import type { Common } from "@freelensapp/extensions";
+
 const { MenuItem } = Renderer.Component;
 
 type KubeObject = Renderer.K8sApi.KubeObject;
-
-interface MenuItemProps {
-  object: KubeObject;
-  toolbar?: boolean;
-}
 
 /**
  * Build an "Ask Claude" kube object menu item for one kind. `buildPrompt`
@@ -22,8 +19,11 @@ interface MenuItemProps {
  * entry should not appear (e.g. an event with no message). `navigate` opens the
  * chat page after the prompt has been handed off.
  */
-export function createAskClaudeMenuItem(buildPrompt: (object: KubeObject) => string | undefined, navigate: () => void) {
-  return function AskClaudeMenuItem({ object, toolbar }: MenuItemProps) {
+export function createAskClaudeMenuItem<K extends KubeObject>(
+  buildPrompt: (object: K) => string | undefined,
+  navigate: () => void,
+) {
+  return function AskClaudeMenuItem({ object, toolbar }: Common.Types.KubeObjectMenuItemProps<K>) {
     const prompt = buildPrompt(object);
     if (!prompt) return null;
     const onClick = () => {

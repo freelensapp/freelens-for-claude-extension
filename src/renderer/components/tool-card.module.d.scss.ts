@@ -11,6 +11,7 @@ declare const classNames: {
   readonly rawName: "rawName";
   readonly children: "children";
   readonly runningDot: "runningDot";
+  readonly pulse: "pulse";
   readonly body: "body";
   readonly sectionLabel: "sectionLabel";
 };

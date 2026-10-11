@@ -1,8 +1,8 @@
 name: Main Scan
 
 # Scans what the main branch currently builds: the SBOM of the workspace,
-# reduced to the npm packages actually bundled into out/ (prod-packages.json,
-# written by the production build). Its counterpart is release-scan.yaml, which
+# reduced to the npm packages actually bundled into dist/ (prod-packages.json,
+# written by the build). Its counterpart is release-scan.yaml, which
 # runs the same filter and table over what the last release shipped - same
 # report, different subject. The result is posted to discussion #40.
 
@@ -39,14 +39,13 @@ jobs:
 
     env:
       # Renovate keeps this in sync via the inline datasource hint (see
-      # .renovaterc.json5 customManagers). Stored without the leading "v"
+      # .renovaterc.json customManagers). Stored without the leading "v"
       # because that manager's extractVersionTemplate strips it on every bump;
       # grype's installer needs the exact tag, so the "v" is re-added where
       # this is consumed rather than kept here (it would not survive).
       GRYPE_VERSION: 0.116.1 # datasource=github-releases depName=anchore/grype
       DISCUSSION_NUMBER: 40
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      VITE_PRESERVE_MODULES: "false"
 
     steps:
       - name: Checkout
@@ -75,7 +74,7 @@ jobs:
       - name: Install pnpm dependencies
         run: pnpm install --color=always --prefer-offline --frozen-lockfile
 
-      # Produces out/ and prod-packages.json (the bundled npm closure). The
+      # Produces dist/ and prod-packages.json (the bundled npm closure). The
       # SBOM below covers the whole workspace; prod-packages.json is what
       # narrows it to what actually ships.
       - name: Build
@@ -84,9 +83,9 @@ jobs:
       # yq comes from mise so its version has a single source (mise.toml) and
       # the download is verified against mise.lock.
       - name: Set up mise
-        uses: jdx/mise-action@v4
+        uses: jdx/mise-action@v5
         with:
-          version: 2026.8.0 # datasource=github-releases depName=jdx/mise
+          version: 2026.10.4 # datasource=github-releases depName=jdx/mise
           install_args: yq
 
       - name: Install Grype
@@ -121,7 +120,7 @@ jobs:
           # Reduce the SBOM to runtime packages before scanning: keep only npm
           # packages present in the bundled set. This extension ships no non-npm
           # binaries, so npm is the whole runtime surface; build-time dev tools
-          # (typescript, vitest, electron-vite, ...) drop out.
+          # (typescript, vitest, vite, ...) drop out.
           yq -pj -oj '
             (load("prod-packages.json")) as $set |
             .packages |= map(
@@ -207,7 +206,7 @@ jobs:
           ' grype.json > rows.json
           count=$(yq -pj -oj 'length' rows.json)
           {
-            echo "Grype runtime vulnerability scan of the \`main\` branch: the packages bundled into \`out/\`, reduced from the workspace SBOM. Updated $(date -u +'%Y-%m-%d %H:%M UTC') by [this run]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)."
+            echo "Grype runtime vulnerability scan of the \`main\` branch: the packages bundled into \`dist/\`, reduced from the workspace SBOM. Updated $(date -u +'%Y-%m-%d %H:%M UTC') by [this run]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)."
             echo
             if [[ "$count" -eq 0 ]]; then
               echo "No runtime vulnerabilities found."

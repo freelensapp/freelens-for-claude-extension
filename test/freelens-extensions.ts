@@ -1,27 +1,16 @@
-// Minimal stub of the host-provided `@freelensapp/extensions` module.
+// Minimal stub of `@freelensapp/extensions` for unit tests.
 //
-// At runtime Freelens injects this module as the `global.LensExtensions`
-// global, so it is never bundled (see `globalExternals` in
-// `electron.vite.config.js`) and cannot be imported in a plain Node/vitest
-// process - the real package pulls in Electron. Unit tests alias the import to
-// this file instead (see the `alias` option in `vitest.config.ts`).
+// The published package is a shim that reads `Common`, `Main` and `Renderer`
+// off `globalThis.FreelensExtensionApi`, which the Freelens host sets before it
+// loads an extension. A Vitest process has no host, so importing the real
+// package throws. `vitest.config.ts` aliases the import to this file instead.
+// The package ships no mocks of its own to use in its place.
 //
-// Only the surface actually exercised by the tests is stubbed here. Extend it
+// Only the surface the tests exercise is stubbed here, and only at runtime: the
+// tests are type-checked against the real declaration of the package. Extend it
 // as your tests need more of the host API.
 import React from "react";
 import { vi } from "vitest";
-
-class LensExtensionKubeObject {
-  apiVersion?: string;
-  kind?: string;
-  metadata?: unknown;
-  spec?: unknown;
-  status?: unknown;
-
-  constructor(data: Record<string, unknown> = {}) {
-    Object.assign(this, data);
-  }
-}
 
 // Minimal stand-in for the host Monaco editor. The real component pulls in the
 // full Monaco runtime; the stub renders the value as a plain <textarea> so that
@@ -30,31 +19,47 @@ function MonacoEditor({ value }: { value?: string }) {
   return React.createElement("textarea", { readOnly: true, value: value ?? "" });
 }
 
+// Minimal stand-in for the host icon: the material name as text, or nothing
+// for an SVG icon.
+function Icon({ material }: { material?: string }) {
+  return React.createElement("i", null, material);
+}
+
 export const Renderer = {
-  K8sApi: {
-    LensExtensionKubeObject,
-    KubeApi: class KubeApi {},
-    KubeObjectStore: class KubeObjectStore {},
+  Catalog: {
+    getActiveCluster: vi.fn<() => { id: string } | undefined>(() => undefined),
   },
   Component: {
+    Icon,
     MonacoEditor,
   },
 };
 
 // Minimal stand-in for the host `ExtensionStore` base class. The real one
-// persists to disk and is a host singleton; the stub keeps subclass state in
-// memory so store logic (e.g. `ChatSessionStore`) can be unit-tested.
+// persists to disk: it loads the saved model with `fromStore()` and saves it
+// whenever `toJSON()` changes. The stub keeps subclass state in memory so store
+// logic (e.g. `ChatSessionStore`) can be unit-tested. As in the host, a store is
+// a singleton per class; `resetInstance()` drops it between tests.
+const instances = new Map<unknown, unknown>();
+
 class ExtensionStore<_T> {
   constructor(_params: unknown) {}
   loadExtension(_extension: unknown): void {}
   static createInstance<T>(this: new () => T): T {
-    return new this();
+    const instance = new this();
+    instances.set(this, instance);
+    return instance;
   }
   static getInstance<T>(this: new () => T): T {
-    return new this();
+    return instances.get(this) as T;
   }
   static getInstanceOrCreate<T>(this: new () => T): T {
-    return new this();
+    return (
+      (instances.get(this) as T | undefined) ?? (ExtensionStore.createInstance as (this: new () => T) => T).call(this)
+    );
+  }
+  static resetInstance(this: unknown): void {
+    instances.delete(this);
   }
 }
 

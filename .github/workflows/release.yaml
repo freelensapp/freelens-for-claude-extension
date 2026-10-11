@@ -17,9 +17,6 @@ jobs:
     runs-on: ubuntu-24.04-arm
     environment: publishing
 
-    env:
-      VITE_PRESERVE_MODULES: "false"
-
     steps:
       - name: Checkout plugin
         uses: actions/checkout@v7
@@ -154,8 +151,8 @@ jobs:
             mv sbom.spdx.json "${f%.tgz}-spdx.json"
           done
 
-      # The production build (build/prod-packages.js) writes prod-packages.json:
-      # the npm packages actually bundled into out/, mapped to their pnpm-store
+      # The build (build/vite-plugin-prod-packages.mjs) writes prod-packages.json:
+      # the npm packages actually bundled into dist/, mapped to their pnpm-store
       # path. release-scan.yaml downloads it to reduce the SBOM to what ships
       # before scanning. Renamed to travel next to the SBOM as a release asset.
       - name: Normalize runtime package list filename

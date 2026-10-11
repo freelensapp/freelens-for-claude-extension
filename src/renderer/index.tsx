@@ -11,6 +11,10 @@ import { createAskClaudeMenuItem } from "./components/menu-entry";
 import { PreferencesHint, PreferencesInput } from "./components/preferences";
 import { ClaudeIcon } from "./icons/claude-icon";
 
+const {
+  K8sApi: { menuItemFor, DaemonSet, Deployment, KubeEvent, Node, Pod, Service, StatefulSet },
+} = Renderer;
+
 type KubeObject = Renderer.K8sApi.KubeObject;
 
 const PAGE_ID = "chat";
@@ -32,8 +36,8 @@ function analyzePrompt(object: KubeObject): string {
 }
 
 /** Prompt for an Event: parity with the original's "Explain", shown only when a message exists. */
-function explainEventPrompt(object: KubeObject): string | undefined {
-  const message = (object as unknown as { message?: string }).message;
+function explainEventPrompt(object: Renderer.K8sApi.KubeEvent): string | undefined {
+  const message = object.message;
   if (!message) return undefined;
   return `Could you explain this message?\n\n${message}`;
 }
@@ -80,40 +84,12 @@ export default class ForClaudeRenderer extends Renderer.LensExtension {
   ];
 
   kubeObjectMenuItems = [
-    {
-      kind: "Event",
-      apiVersions: ["v1"],
-      components: { MenuItem: createAskClaudeMenuItem(explainEventPrompt, this.navigateToChat) },
-    },
-    {
-      kind: "Pod",
-      apiVersions: ["v1"],
-      components: { MenuItem: createAskClaudeMenuItem(analyzePrompt, this.navigateToChat) },
-    },
-    {
-      kind: "Deployment",
-      apiVersions: ["apps/v1"],
-      components: { MenuItem: createAskClaudeMenuItem(analyzePrompt, this.navigateToChat) },
-    },
-    {
-      kind: "DaemonSet",
-      apiVersions: ["apps/v1"],
-      components: { MenuItem: createAskClaudeMenuItem(analyzePrompt, this.navigateToChat) },
-    },
-    {
-      kind: "StatefulSet",
-      apiVersions: ["apps/v1"],
-      components: { MenuItem: createAskClaudeMenuItem(analyzePrompt, this.navigateToChat) },
-    },
-    {
-      kind: "Service",
-      apiVersions: ["v1"],
-      components: { MenuItem: createAskClaudeMenuItem(analyzePrompt, this.navigateToChat) },
-    },
-    {
-      kind: "Node",
-      apiVersions: ["v1"],
-      components: { MenuItem: createAskClaudeMenuItem(analyzePrompt, this.navigateToChat) },
-    },
+    menuItemFor(KubeEvent, { MenuItem: createAskClaudeMenuItem(explainEventPrompt, this.navigateToChat) }),
+    menuItemFor(Pod, { MenuItem: createAskClaudeMenuItem(analyzePrompt, this.navigateToChat) }),
+    menuItemFor(Deployment, { MenuItem: createAskClaudeMenuItem(analyzePrompt, this.navigateToChat) }),
+    menuItemFor(DaemonSet, { MenuItem: createAskClaudeMenuItem(analyzePrompt, this.navigateToChat) }),
+    menuItemFor(StatefulSet, { MenuItem: createAskClaudeMenuItem(analyzePrompt, this.navigateToChat) }),
+    menuItemFor(Service, { MenuItem: createAskClaudeMenuItem(analyzePrompt, this.navigateToChat) }),
+    menuItemFor(Node, { MenuItem: createAskClaudeMenuItem(analyzePrompt, this.navigateToChat) }),
   ];
 }
