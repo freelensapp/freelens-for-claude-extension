@@ -191,7 +191,7 @@ importers:
         specifier: 6.1.2
         version: 6.1.2(vite@8.3.4(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.4.2)(less@4.4.0)(sass-embedded@1.105.1)(sass@1.105.1)(stylus@0.62.0(supports-color@8.1.1))(terser@5.39.0)(yaml@2.9.0))
       diff:
-        specifier: ^8.0.3
+        specifier: ^8.0.4
         version: 8.0.4
       electron:
         specifier: 43.7.9
