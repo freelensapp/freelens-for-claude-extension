@@ -131,6 +131,14 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
+describe("query options", () => {
+  it("asks for the default permission mode so every gated call reaches canUseTool", async () => {
+    const manager = makeManager();
+    await manager.sendMessage("c0", "hello");
+    expect(sdk.queries.at(-1)?.options.permissionMode).toBe("default");
+  });
+});
+
 describe("subagent wiring", () => {
   it("passes the cluster-analyzer agent and lets Agent/Task through when enabled", async () => {
     const manager = makeManager({ subagentsEnabled: true });

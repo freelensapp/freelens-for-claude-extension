@@ -509,6 +509,9 @@ class ClusterSession {
         // preference can be enforced live.
         allowedTools,
         disallowedTools,
+        // Without it Claude Code picks the starting mode itself and can start in
+        // auto mode, whose classifier approves calls that never reach `canUseTool`.
+        permissionMode: "default",
         ...(subagentsEnabled ? { agents: buildAgents() } : {}),
         settingSources: [],
         includePartialMessages: true,

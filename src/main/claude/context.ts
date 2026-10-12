@@ -11,18 +11,23 @@ import type { ClusterContextResponse, ContextCategory } from "../../common/proto
 type SdkCategory = SDKControlGetContextUsageResponse["categories"][number];
 
 /**
- * A category is "free space" when its name reads as such (the SDK includes a
- * Free-space entry so the segments plus the remainder cover the whole window).
- * Matched loosely so a small wording change does not resurrect a double count.
+ * Whether a category lies outside the used window: the free space (the SDK
+ * includes it so the segments plus the remainder cover the whole window) or a
+ * deferred tool schema, which is listed but not loaded into the window. The
+ * SDK classifies each row in `kind`; older Claude Code builds send no `kind`,
+ * so their rows fall back to `isDeferred` and to the name, matched loosely.
  */
-function isFreeSpace(name: string): boolean {
-  return /free\s*space/i.test(name);
+function isOutsideWindow(category: SdkCategory): boolean {
+  const kind: SdkCategory["kind"] | undefined = category.kind;
+  if (kind) return kind === "free" || kind === "deferred";
+  return category.isDeferred === true || /free\s*space/i.test(category.name ?? "");
 }
 
 /**
  * Shape the raw SDK `getContextUsage()` response into the renderer protocol.
- * Free-space entries are dropped: the renderer derives the remainder from
- * `maxTokens - totalTokens`, so keeping the SDK's own row would double count it.
+ * Free-space and deferred entries are dropped: the renderer derives the
+ * remainder from `maxTokens - totalTokens`, so keeping the SDK's free row would
+ * double count it, and deferred rows take no room in the window.
  * Tolerant of a missing response (older Claude Code builds) and missing fields.
  */
 export function buildContextResponse(usage: SDKControlGetContextUsageResponse | undefined): ClusterContextResponse {
@@ -30,7 +35,7 @@ export function buildContextResponse(usage: SDKControlGetContextUsageResponse | 
     return { model: "", categories: [], totalTokens: 0, maxTokens: 0, percentage: 0 };
   }
   const categories: ContextCategory[] = (Array.isArray(usage.categories) ? usage.categories : [])
-    .filter((category: SdkCategory) => !isFreeSpace(category.name ?? ""))
+    .filter((category: SdkCategory) => !isOutsideWindow(category))
     .map((category: SdkCategory) => ({
       name: String(category.name ?? ""),
       tokens: category.tokens ?? 0,

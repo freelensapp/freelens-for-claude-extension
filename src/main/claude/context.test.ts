@@ -46,8 +46,8 @@ describe("buildContextResponse", () => {
         maxTokens: 1_000_000,
         percentage: 50,
         categories: [
-          { name: "System prompt", tokens: 3900, color: "#c8963e" },
-          { name: "Messages", tokens: 453_200, color: "#9c1f1f" },
+          { name: "System prompt", tokens: 3900, color: "#c8963e", kind: "used" },
+          { name: "Messages", tokens: 453_200, color: "#9c1f1f", kind: "used" },
         ],
       }),
     );
@@ -63,14 +63,33 @@ describe("buildContextResponse", () => {
     });
   });
 
-  it("drops the SDK free-space category so the renderer derives the remainder", () => {
+  it("drops the free and deferred categories by kind so the renderer derives the remainder", () => {
     const result = buildContextResponse(
       sdkResponse({
         maxTokens: 1_000_000,
         totalTokens: 500_000,
         categories: [
-          { name: "Messages", tokens: 500_000, color: "#9c1f1f" },
-          { name: "Free space", tokens: 500_000, color: "#333333" },
+          { name: "Messages", tokens: 450_000, color: "#9c1f1f", kind: "used" },
+          { name: "Autocompact buffer", tokens: 50_000, color: "#666666", kind: "buffer" },
+          { name: "MCP tools (deferred)", tokens: 20_000, color: "#444444", isDeferred: true, kind: "deferred" },
+          { name: "Remaining", tokens: 500_000, color: "#333333", kind: "free" },
+        ],
+      }),
+    );
+    expect(result.categories).toEqual([
+      { name: "Messages", tokens: 450_000, color: "#9c1f1f" },
+      { name: "Autocompact buffer", tokens: 50_000, color: "#666666" },
+    ]);
+  });
+
+  it("falls back to the name and isDeferred when an older Claude Code sends no kind", () => {
+    type Category = SDKControlGetContextUsageResponse["categories"][number];
+    const result = buildContextResponse(
+      sdkResponse({
+        categories: [
+          { name: "Messages", tokens: 500_000, color: "#9c1f1f" } as Category,
+          { name: "MCP tools", tokens: 20_000, color: "#444444", isDeferred: true } as Category,
+          { name: "Free space", tokens: 500_000, color: "#333333" } as Category,
         ],
       }),
     );
