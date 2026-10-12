@@ -35,6 +35,7 @@ import {
 import { buildContextResponse } from "./context";
 import { parseUserMcpConfig } from "./mcp-config";
 import { PermissionBroker, type ResolveResult } from "./permission-broker";
+import { isPersistedToolProgress, PreparationProgress } from "./preparation-progress";
 import { buildAgents } from "./subagents";
 import { buildUsageResponse } from "./usage";
 
@@ -181,6 +182,8 @@ class ClusterSession {
   private readonly toolNames = new Map<string, string>();
   /** In-flight kubectl/helm children, killed on interrupt, new chat, and dispose. */
   private readonly cliRegistry = new ProcessRegistry();
+  /** The preparations of the kubectl those children run with, shown in their tool cards. */
+  private readonly preparations = new PreparationProgress((event) => this.emit(event));
   private readonly broker: PermissionBroker;
   private readonly dir: string;
   private readonly transcriptFile: string;
@@ -274,6 +277,8 @@ class ClusterSession {
     // or set in-memory since) so a reconnecting page shows it immediately,
     // without waiting for a turn.
     if (this.lastContextEvent) listener(this.lastContextEvent);
+    // The calls whose kubectl is still being prepared show how far it got.
+    for (const event of this.preparations.current()) listener(event);
     return () => {
       this.subscribers.delete(listener);
     };
@@ -355,7 +360,7 @@ class ClusterSession {
   }
 
   private emit(event: SessionEvent): void {
-    if (PERSISTED_EVENTS.has(event.type)) {
+    if (PERSISTED_EVENTS.has(event.type) || (event.type === "tool_progress" && isPersistedToolProgress(event.data))) {
       this.transcript.push(event);
       this.scheduleTranscriptWrite();
     } else if (event.type === "context") {
@@ -518,7 +523,12 @@ class ClusterSession {
    */
   private buildMcpServers(client: KubeClient): Record<string, McpServerConfig> {
     const servers: Record<string, McpServerConfig> = {
-      [MCP_SERVER_NAME]: createKubeMcpServer(client, () => this.preferences.podLogsTailLines, this.cliRegistry),
+      [MCP_SERVER_NAME]: createKubeMcpServer(
+        client,
+        () => this.preferences.podLogsTailLines,
+        this.cliRegistry,
+        this.preparations,
+      ),
     };
     if (!this.preferences.mcpEnabled) return servers;
 
@@ -823,6 +833,7 @@ class ClusterSession {
   async interrupt(): Promise<void> {
     this.broker.denyAllPending("the turn was interrupted");
     this.cliRegistry.killAll();
+    this.preparations.stopAll();
     try {
       await this.queryHandle?.interrupt();
     } catch {
@@ -954,6 +965,8 @@ class ClusterSession {
     }
     this.broker.denyAllPending("the session was disposed");
     this.cliRegistry.killAll();
+    // Without an event: the transcript is already written, or removed for a new chat.
+    this.preparations.clear();
     this.input.close();
     this.abort.abort();
     try {

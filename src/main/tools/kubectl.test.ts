@@ -7,7 +7,7 @@ import { Common, Main } from "@freelensapp/extensions";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PermissionBroker } from "../claude/permission-broker";
 import { describeApproval } from "./approval";
-import { type ExecFileFn, type HostShell, ProcessRegistry } from "./cli-exec";
+import { type ExecFileFn, type HostShell, type PreparationReports, ProcessRegistry } from "./cli-exec";
 import { LOG_BYTE_CAP } from "./kube-format";
 import { type KubectlToolConfig, runKubectl } from "./kubectl";
 import type { ExecFileException } from "node:child_process";
@@ -48,6 +48,25 @@ function fakeShell(overrides: Partial<HostShell> = {}): HostShell {
     getEnvironment: async () => ENV,
     ...overrides,
   };
+}
+
+/** Preparation reports that record the calls they begin and what they get. */
+function recordingReports() {
+  const callIds: string[] = [];
+  const log: unknown[][] = [];
+  const preparations: PreparationReports = {
+    begin: (callId) => {
+      callIds.push(callId);
+      return {
+        phase: (message) => log.push(["phase", message]),
+        progress: (progress) => log.push(["progress", progress]),
+        problem: (message) => log.push(["problem", message]),
+        done: () => log.push(["done"]),
+        failed: (message) => log.push(["failed", message]),
+      };
+    },
+  };
+  return { callIds, log, preparations };
 }
 
 function makeConfig(execFile: ExecFileFn, shell: HostShell = fakeShell()): KubectlToolConfig {
@@ -171,6 +190,58 @@ describe("runKubectl execution", () => {
     expect(out).toBe("ok\n\n[exit code 0]");
     expect(Common.logger.info).toHaveBeenCalledWith("[for-claude] kubectl: downloading kubectl, 1024 of 4096 bytes");
     expect(Common.logger.info).toHaveBeenCalledWith("[for-claude] kubectl: Verifying kubectl v1.37.0 ...");
+  });
+
+  it("reports the preparation for the call: phases, progress and each problem once, then done", async () => {
+    const problem = "Failed to download kubectl v1.37.0 (timeout) - using the bundled v1.35.3";
+    const reports = recordingReports();
+    const cfg = makeConfig(
+      fakeExec({ file: "", args: [] }, { stdout: "ok" }),
+      fakeShell({
+        getKubectlPath: async (_clusterId, options) => {
+          options?.onPhase?.("Waiting for another Freelens process to prepare kubectl v1.37.0 ...");
+          options?.onDownloadProgress?.({ transferred: 1024, total: 4096 });
+          options?.onProblem?.(problem);
+          return KUBECTL;
+        },
+        getEnvironment: async (_clusterId, options) => {
+          options?.onProblem?.(problem);
+          return ENV;
+        },
+      }),
+    );
+    cfg.preparations = reports.preparations;
+    expect(await runKubectl(cfg, { args: ["version"] }, "toolu_1")).toContain("[exit code 0]");
+    expect(reports.callIds).toEqual(["toolu_1"]);
+    expect(reports.log).toEqual([
+      ["phase", "Waiting for another Freelens process to prepare kubectl v1.37.0 ..."],
+      ["progress", { transferred: 1024, total: 4096 }],
+      ["problem", problem],
+      ["done"],
+    ]);
+  });
+
+  it("reports a rejection of the host as a failed preparation", async () => {
+    const reports = recordingReports();
+    const cfg = makeConfig(
+      vi.fn<ExecFileFn>(),
+      fakeShell({
+        getEnvironment: async () => {
+          throw new Error("The cluster is not connected");
+        },
+      }),
+    );
+    cfg.preparations = reports.preparations;
+    await expect(runKubectl(cfg, { args: ["version"] }, "toolu_2")).rejects.toThrow("The cluster is not connected");
+    expect(reports.log).toEqual([["failed", "The cluster is not connected"]]);
+  });
+
+  it("reports nothing for a call without a tool_use id", async () => {
+    const reports = recordingReports();
+    const cfg = makeConfig(fakeExec({ file: "", args: [] }));
+    cfg.preparations = reports.preparations;
+    await runKubectl(cfg, { args: ["version"] });
+    expect(reports.callIds).toEqual([]);
   });
 
   it("gives the child the requested timeout, starting once kubectl is ready", async () => {

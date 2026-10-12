@@ -176,7 +176,10 @@ turned off, else the kubectl matched to the cluster's Kubernetes version,
 downloaded into the download directory when it is missing, else the kubectl
 Freelens ships. `freelens_helm` runs the "Path to helm binary" preference,
 else the helm Freelens ships. The first call on a cluster may wait for
-kubectl to be downloaded; the call's timeout starts once it is ready.
+kubectl to be downloaded; the call's timeout starts once it is ready. The
+call's card shows the preparation as the cluster's terminal does: the
+download and its progress, the verification, and a wait for another Freelens
+process; a problem Freelens went on from stays in the card as a warning.
 
 ### Permissions and safety
 

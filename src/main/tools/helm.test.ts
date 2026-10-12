@@ -127,6 +127,41 @@ describe("runHelm execution", () => {
     expect(Common.logger.warn).toHaveBeenCalledWith(`[for-claude] helm: ${problem}`);
   });
 
+  it("reports the kubectl problem of the environment for the call, still not in the result", async () => {
+    const problem = "Failed to download kubectl v1.37.0 (timeout) - using the bundled v1.35.3";
+    const log: unknown[][] = [];
+    const cfg = makeConfig(
+      fakeExec({ file: "", args: [] }, { stdout: "NAME" }),
+      fakeShell({
+        getEnvironment: async (_clusterId, options) => {
+          options?.onPhase?.("Verifying kubectl v1.37.0 ...");
+          options?.onProblem?.(problem);
+          return ENV;
+        },
+      }),
+    );
+    cfg.preparations = {
+      begin: (callId) => {
+        log.push(["begin", callId]);
+        return {
+          phase: (message) => log.push(["phase", message]),
+          progress: (progress) => log.push(["progress", progress]),
+          problem: (message) => log.push(["problem", message]),
+          done: () => log.push(["done"]),
+          failed: (message) => log.push(["failed", message]),
+        };
+      },
+    };
+    const out = await runHelm(cfg, { args: ["list"] }, "toolu_1");
+    expect(out).toBe("NAME\n\n[exit code 0]");
+    expect(log).toEqual([
+      ["begin", "toolu_1"],
+      ["phase", "Verifying kubectl v1.37.0 ..."],
+      ["problem", problem],
+      ["done"],
+    ]);
+  });
+
   it("asks Main.Shell of the host by default", async () => {
     vi.mocked(Main.Shell.getHelmPath).mockRejectedValueOnce(new Error('The cluster "kind-kind" (c1) is not connected'));
     const config: HelmToolConfig = { clusterId: "c1", ensureConnected: () => {}, registry: new ProcessRegistry() };

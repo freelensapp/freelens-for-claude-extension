@@ -233,6 +233,29 @@ export interface SessionEventMap {
    * `parentCallId` is set when the result belongs to a subagent tool call.
    */
   tool_result: { toolName: string; summary: string; callId?: string; parentCallId?: string };
+  /**
+   * The preparation of the kubectl a `freelens_kubectl` or `freelens_helm`
+   * call runs with (download, verification, waiting for another preparation),
+   * as the host reports it. `callId` is the call's `tool_use` id. Each event is
+   * a full snapshot, not a delta. `preparing` events are live-only, and a new
+   * subscriber gets the latest one of a call still preparing; the event that
+   * ends a preparation with something to show (`failed`, `stopped`, or
+   * `problems`) is persisted.
+   */
+  tool_progress: {
+    callId: string;
+    state: "preparing" | "done" | "failed" | "stopped";
+    /** The host's last phase message, verbatim; absent while downloading. */
+    phase?: string;
+    /** Bytes received so far while kubectl downloads. */
+    transferred?: number;
+    /** The size of the download, when the server sent one. */
+    total?: number;
+    /** The problems the preparation went on from, in the order reported. */
+    problems?: string[];
+    /** Why the preparation failed (`failed` only). */
+    error?: string;
+  };
   turn_complete: Record<string, never>;
   /** Per-turn token usage from the SDK `result` message. */
   usage: { inputTokens: number; cachedInputTokens: number; outputTokens: number };

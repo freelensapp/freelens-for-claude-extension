@@ -93,6 +93,64 @@
   }
 }
 
+.warningIcon {
+  color: var(--colorWarning, #e5c07b);
+}
+
+// The preparation of a kubectl or helm call's kubectl, under the header and
+// aligned with its title (the header's padding, a small icon and the gap).
+.preparation {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25em;
+  padding: 0 0.7em 0.4em calc(0.7em + 16px + 0.5em);
+}
+
+.preparationRow {
+  display: flex;
+  align-items: center;
+  gap: 0.4em;
+  min-width: 0;
+}
+
+.preparationText {
+  opacity: 0.7;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.preparationCounter {
+  margin-left: auto;
+  flex: none;
+  opacity: 0.7;
+  font-family: var(--font-monospace, monospace);
+  font-variant-numeric: tabular-nums;
+}
+
+// The host's LineProgress draws its line in the current color.
+.preparationBar {
+  color: var(--primary, #3d90ce);
+}
+
+.preparationDetails {
+  margin: 0;
+  padding-left: 1.2em;
+  font-family: var(--font-monospace, monospace);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+// Read by a screen reader, not shown.
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 .body {
   padding: 0.3em 0.7em 0.5em;
 }

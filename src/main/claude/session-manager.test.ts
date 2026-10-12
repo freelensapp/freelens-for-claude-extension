@@ -6,6 +6,7 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Main } from "@freelensapp/extensions";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { PreferencesState } from "../../common/preferences-store";
@@ -71,12 +72,22 @@ vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
     sdk.queries.push(q);
     return q;
   },
-  createSdkMcpServer: (config: { name: string }) => ({ type: "sdk", name: config.name, instance: {} }),
-  tool: (name: string) => ({ name }),
+  createSdkMcpServer: (config: { name: string; tools?: unknown[] }) => ({
+    type: "sdk",
+    name: config.name,
+    instance: {},
+    tools: config.tools,
+  }),
+  tool: (name: string, _description: string, _schema: unknown, handler: unknown) => ({ name, handler }),
 }));
 
 vi.mock("../tools/kube-client", () => ({
-  getKubeClient: () => ({ clusterName: "test-cluster", read: async () => ({}) }),
+  getKubeClient: (clusterId: string) => ({
+    clusterId,
+    clusterName: "test-cluster",
+    ensureConnected: () => {},
+    read: async () => ({}),
+  }),
   disposeKubeClient: () => {},
 }));
 
@@ -229,6 +240,49 @@ describe("slash commands", () => {
     await flush();
     const output = events.find((event) => event.type === "local_command_output");
     expect(output?.type === "local_command_output" && output.data.content).toBe("Conversation cleared by /clear");
+  });
+});
+
+describe("kubectl preparation", () => {
+  /** The handler the session's built-in MCP server registered for a tool. */
+  function toolHandler(name: string): (args: unknown, extra: unknown) => Promise<unknown> {
+    const server = sdk.queries.at(-1)?.options.mcpServers["freelens-kube"];
+    return server.tools.find((entry: { name: string }) => entry.name === name).handler;
+  }
+
+  it("sends it as tool_progress for the call, replays it to a late subscriber, and stops it on interrupt", async () => {
+    // The host never finishes preparing kubectl.
+    vi.mocked(Main.Shell.getKubectlPath).mockImplementationOnce((_clusterId, options) => {
+      (options as Main.Shell.KubectlDownloadOptions).onPhase?.("Verifying kubectl v1.37.0 ...");
+      return new Promise<string>(() => {});
+    });
+    vi.mocked(Main.Shell.getEnvironment).mockImplementationOnce(() => new Promise(() => {}));
+    const manager = makeManager();
+    const events: SessionEvent[] = [];
+    manager.subscribe("p1", (event) => events.push(event));
+    await manager.sendMessage("p1", "which kubectl?");
+    void toolHandler("freelens_kubectl")({ args: ["version"] }, { _meta: { "claudecode/toolUseId": "toolu_9" } });
+    await flush();
+
+    const preparing = { callId: "toolu_9", state: "preparing", phase: "Verifying kubectl v1.37.0 ..." };
+    expect(events.filter((event) => event.type === "tool_progress").map((event) => event.data)).toEqual([preparing]);
+
+    const reopened: SessionEvent[] = [];
+    manager.subscribe("p1", (event) => reopened.push(event));
+    expect(reopened.filter((event) => event.type === "tool_progress").map((event) => event.data)).toEqual([preparing]);
+
+    await manager.interrupt("p1");
+    expect(events.filter((event) => event.type === "tool_progress").at(-1)?.data).toEqual({
+      callId: "toolu_9",
+      state: "stopped",
+    });
+
+    // The stop is in the transcript; the preparation is not running any more.
+    const replay: SessionEvent[] = [];
+    manager.subscribe("p1", (event) => replay.push(event));
+    expect(replay.filter((event) => event.type === "tool_progress").map((event) => event.data)).toEqual([
+      { callId: "toolu_9", state: "stopped" },
+    ]);
   });
 });
 
