@@ -205,7 +205,12 @@ class ClusterSession {
   private sessionId?: string;
   private queryHandle?: Query;
   private working = false;
-  private started = false;
+  /**
+   * The session start in progress or done, shared by every caller so that a
+   * concurrent one waits for the same start and then finds `queryHandle`.
+   * Cleared when the start fails, so the session can be started again.
+   */
+  private starting?: Promise<void>;
   private writeTimer?: ReturnType<typeof setTimeout>;
   /** The selected model alias; `undefined` means the settings file's model, else the Claude Code default. */
   private selectedModel?: string;
@@ -436,9 +441,7 @@ class ClusterSession {
   /** Ensure a live query exists and enqueue one user turn; emits no user_message. */
   private async pushUserTurn(text: string): Promise<void> {
     this.setWorking(true);
-    if (!this.started) {
-      await this.start();
-    }
+    await this.ensureStarted();
     if (!this.queryHandle) {
       // start() failed (e.g. Claude Code missing); the error was already emitted.
       return;
@@ -451,9 +454,26 @@ class ClusterSession {
     } as SDKUserMessage);
   }
 
-  private async start(): Promise<void> {
-    this.started = true;
+  /**
+   * Start the session once. Every caller awaits the same start, so one that
+   * arrives while it runs does not skip it and find no `queryHandle`. A start
+   * that fails, or throws, leaves the session startable again.
+   */
+  private ensureStarted(): Promise<void> {
+    this.starting ??= this.start().then(
+      (started) => {
+        if (!started) this.starting = undefined;
+      },
+      (error: unknown) => {
+        this.starting = undefined;
+        throw error;
+      },
+    );
+    return this.starting;
+  }
 
+  /** Create the query; `false` when Claude Code is not found (the error is emitted). */
+  private async start(): Promise<boolean> {
     const claudeCodePath = this.resolveClaudeCodePath();
     if (!claudeCodePath) {
       this.emit(
@@ -463,8 +483,7 @@ class ClusterSession {
         }),
       );
       this.setWorking(false);
-      this.started = false;
-      return;
+      return false;
     }
 
     try {
@@ -485,6 +504,7 @@ class ClusterSession {
     }
 
     void this.consume();
+    return true;
   }
 
   /** Build (or rebuild) the SDK query; `resume` continues a stored session. */
@@ -926,7 +946,7 @@ class ClusterSession {
    */
   async getContext(): Promise<ClusterContextResponse> {
     const empty: ClusterContextResponse = { model: "", categories: [], totalTokens: 0, maxTokens: 0, percentage: 0 };
-    if (!this.started) await this.start();
+    await this.ensureStarted();
     const handle = this.queryHandle;
     if (!handle || typeof handle.getContextUsage !== "function") {
       return { ...empty, error: "Context usage is not available for this Claude Code session." };
@@ -947,7 +967,7 @@ class ClusterSession {
    * the renderer can fall back to the static alias list.
    */
   async getModels(): Promise<ClusterModelsResponse> {
-    if (!this.started) await this.start();
+    await this.ensureStarted();
     const handle = this.queryHandle;
     if (!handle || typeof handle.supportedModels !== "function") {
       return { models: [], error: "Model list is not available for this Claude Code session." };
@@ -1005,7 +1025,7 @@ class ClusterSession {
    */
   async getUsage(): Promise<ClusterUsageResponse> {
     const empty: ClusterUsageResponse = { account: {}, rateLimitsAvailable: false, windows: [] };
-    if (!this.started) await this.start();
+    await this.ensureStarted();
     const handle = this.queryHandle;
     if (!handle) return { ...empty, error: "Claude Code is not available." };
     try {

@@ -117,7 +117,7 @@ src/
     index.ts               # onActivate: start bridge + stores (incl. preferences); onDeactivate: stop it
     claude/
       detect.ts            # locate Claude Code binary (or validate an explicit path override), read version
-      session-manager.ts   # session lifecycle, resume, transcript, usage/context/compaction, model, retry, pod-logs gating, user MCP + subagent wiring, thinking + local-command + nested tool events, tool result outcome (denied by toolUseID, interrupted by open calls at Stop), turn_stopped for a turn the user stopped
+      session-manager.ts   # session lifecycle (one shared start for concurrent callers), resume, transcript, usage/context/compaction, model, retry, pod-logs gating, user MCP + subagent wiring, thinking + local-command + nested tool events, tool result outcome (denied by toolUseID, interrupted by open calls at Stop), turn_stopped for a turn the user stopped
       context.ts           # buildContextResponse: shape SDK getContextUsage() into ClusterContextResponse (drops free-space category)
       permission-broker.ts # permission modes + approval request/resolve (mutating + consent-required reads + external MCP tools); pending approvals resolved as stopped on Stop
       preparation-progress.ts # kubectl preparation of a kubectl/helm call -> tool_progress events (250 ms throttle, stop on interrupt, replay)
@@ -152,7 +152,7 @@ src/
       pending-prompt.ts    # module-scoped handoff between "Ask Claude" menu entries and the chat page
     components/
       chat-page.tsx        # page (observer of BridgeStore): onboarding gate or chat view
-      chat-view.tsx        # observer of PreferencesStore: transcript + input + status strip (context donut / token counter, model + mode selectors, retry, Stopped line, slash popup, shortcut chips, reasoning fold, nested tool cards, command menu)
+      chat-view.tsx        # observer of PreferencesStore: transcript + input + status strip (context donut / token counter, model + mode selectors, model catalog fetched again while missing, retry, Stopped line, slash popup, shortcut chips, reasoning fold, nested tool cards, command menu)
       context-donut.tsx    # composer status-strip ring showing context-window usage %; tooltip = token counts, click opens the details modal
       context-dialog.tsx   # Context usage modal (/context): model, occupancy bar, per-category token breakdown
       context-colors.ts    # categoryColor: color of a context category (SDK color, name palette, per-index fallback)
@@ -243,6 +243,9 @@ for every request, so the next request goes to the new bridge.
   observer keeps what it read first until something else renders it again.
 - The one cluster page is registered as `Page: () => <ChatPage />`; the host renders a cluster page with `params`
   only, and `ChatPage` takes the cluster from `Renderer.Catalog.getActiveCluster()`.
+- The host renders under `React.StrictMode`, so in Freelens dev every effect runs, is cleaned up and runs again on
+  mount. An effect that starts a request or a stream cleans it up, or drops its answer, so that the second run is the
+  one that counts; do not try to skip the second run.
 - The "Ask Claude" items in `kubeObjectMenuItems` are made by `Renderer.K8sApi.menuItemFor(Pod, { MenuItem })` with the
   host's model classes (`KubeEvent`, `Pod`, `Deployment`, `DaemonSet`, `StatefulSet`, `Service`, `Node`), not written
   out with `kind` and `apiVersions`. The helper takes both from the class and types the item's props from it, so
@@ -701,6 +704,12 @@ git-ignored.
 - The chat page connects once `BridgeStore` has synced into the frame, and an
   answer streams in over seconds. Wait for the expected content, not a fixed
   time.
+- Freelens renders under `React.StrictMode`, which in its development build
+  runs every effect twice on mount, with the cleanup in between. So the
+  network log of Freelens dev shows two `/status`, two `/events` (the first
+  aborted) and two `/models` when the chat page opens; that is not a remount,
+  and a production build sends one of each. The bridge answers concurrent
+  requests for one cluster from one session start.
 - In the default "Approve" mode, a mutating tool (`freelens_kubectl` and
   `freelens_helm` included), a pod log read (unless its preference is off)
   and every external MCP tool stop at an approval card; approve or deny it to
