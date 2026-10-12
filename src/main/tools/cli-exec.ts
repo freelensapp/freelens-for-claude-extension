@@ -112,6 +112,29 @@ export function defaultCliDeps(): CliDeps {
   };
 }
 
+/**
+ * Where the preparation of a tool call's kubectl goes besides the log: the
+ * host's download callbacks, after the deduplication of problems.
+ */
+export interface PrepareReporter {
+  phase(message: string): void;
+  progress(progress: Main.Shell.KubectlDownloadProgress): void;
+  problem(message: string): void;
+}
+
+/** The preparation of one tool call, reported until it ends. */
+export interface PreparationReport extends PrepareReporter {
+  /** The binary and its environment are ready. */
+  done(): void;
+  /** The host rejected the preparation with this message. */
+  failed(message: string): void;
+}
+
+/** Starts the report of a tool call's preparation, by the call's `tool_use` id. */
+export interface PreparationReports {
+  begin(callId: string): PreparationReport;
+}
+
 /** What a CLI tool needs to target its cluster and track its child. */
 export interface CliToolConfig {
   clusterId: string;
@@ -121,6 +144,8 @@ export interface CliToolConfig {
    */
   ensureConnected: () => void;
   registry: ProcessRegistry;
+  /** Where the preparation of a call with a known `tool_use` id is reported; nowhere when absent. */
+  preparations?: PreparationReports;
   /** Injectable execution/resolution seams; defaults to the real host process. */
   deps?: CliDeps;
 }
@@ -134,25 +159,35 @@ export interface PreparedCli {
 }
 
 /**
- * Download callbacks that log the phases and the progress, and collect the
- * problems. The kubectl and the environment are asked for together and both
- * report the same problem of their one preparation, so it is collected once.
+ * Download callbacks that log the phases and the progress, collect the
+ * problems, and pass all three on to `report`. The kubectl and the environment
+ * are asked for together and both report the same problem of their one
+ * preparation, so it is collected and passed on once.
  */
-function downloadOptions(label: string, problems: Set<string>): Main.Shell.KubectlDownloadOptions {
+function downloadOptions(
+  label: string,
+  problems: Set<string>,
+  report?: PrepareReporter,
+): Main.Shell.KubectlDownloadOptions {
   let lastProgressLog = 0;
   return {
-    onPhase: (message) => Common.logger.info(`[for-claude] ${label}: ${message}`),
-    onDownloadProgress: ({ transferred, total }) => {
+    onPhase: (message) => {
+      Common.logger.info(`[for-claude] ${label}: ${message}`);
+      report?.phase(message);
+    },
+    onDownloadProgress: (progress) => {
+      report?.progress(progress);
       const now = Date.now();
       if (now - lastProgressLog < DOWNLOAD_LOG_INTERVAL_MS) return;
       lastProgressLog = now;
-      const size = total ? ` of ${total}` : "";
-      Common.logger.info(`[for-claude] ${label}: downloading kubectl, ${transferred}${size} bytes`);
+      const size = progress.total ? ` of ${progress.total}` : "";
+      Common.logger.info(`[for-claude] ${label}: downloading kubectl, ${progress.transferred}${size} bytes`);
     },
     onProblem: (message) => {
       if (problems.has(message)) return;
       problems.add(message);
       Common.logger.warn(`[for-claude] ${label}: ${message}`);
+      report?.problem(message);
     },
   };
 }
@@ -164,9 +199,9 @@ function downloadOptions(label: string, problems: Set<string>): Main.Shell.Kubec
  * for an unknown or a disconnected cluster, and when Freelens has no kubectl of
  * its own to run.
  */
-export async function prepareKubectl(deps: CliDeps, clusterId: string): Promise<PreparedCli> {
+export async function prepareKubectl(deps: CliDeps, clusterId: string, report?: PrepareReporter): Promise<PreparedCli> {
   const problems = new Set<string>();
-  const options = downloadOptions("kubectl", problems);
+  const options = downloadOptions("kubectl", problems, report);
   const [binary, env] = await Promise.all([
     deps.shell.getKubectlPath(clusterId, options),
     deps.shell.getEnvironment(clusterId, options),
@@ -177,14 +212,35 @@ export async function prepareKubectl(deps: CliDeps, clusterId: string): Promise<
 /**
  * The helm the cluster terminal runs and its environment, from the host. The
  * environment prepares the cluster's kubectl too; its problems concern kubectl,
- * not helm, so they go to the log only.
+ * not helm, so they go to the log and the report only, not to the result.
  */
-export async function prepareHelm(deps: CliDeps, clusterId: string): Promise<PreparedCli> {
+export async function prepareHelm(deps: CliDeps, clusterId: string, report?: PrepareReporter): Promise<PreparedCli> {
   const [binary, env] = await Promise.all([
     deps.shell.getHelmPath(clusterId),
-    deps.shell.getEnvironment(clusterId, downloadOptions("helm", new Set())),
+    deps.shell.getEnvironment(clusterId, downloadOptions("helm", new Set(), report)),
   ]);
   return { binary, env, problems: [] };
+}
+
+/**
+ * Run a preparation and report it for the call with `callId`, when the config
+ * has somewhere to report it: its callbacks while it runs, then whether it was
+ * done or failed. Passes on the preparation's result and its rejection.
+ */
+export async function reportPreparation(
+  config: CliToolConfig,
+  callId: string | undefined,
+  prepare: (report?: PrepareReporter) => Promise<PreparedCli>,
+): Promise<PreparedCli> {
+  const report = callId ? config.preparations?.begin(callId) : undefined;
+  try {
+    const prepared = await prepare(report);
+    report?.done();
+    return prepared;
+  } catch (error) {
+    report?.failed(error instanceof Error ? error.message : String(error));
+    throw error;
+  }
 }
 
 /**

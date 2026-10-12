@@ -22,6 +22,7 @@ import { runWarningEvents, type WarningEventsInput, warningEventsSchema } from "
 
 import type { McpSdkServerConfigWithInstance } from "@anthropic-ai/claude-agent-sdk";
 
+import type { PreparationReports } from "./cli-exec";
 import type { KubeClient } from "./kube-client";
 
 /** MCP server name; combined with tool names to form `mcp__<server>__<tool>`. */
@@ -122,17 +123,35 @@ async function guard(run: () => Promise<string>) {
   }
 }
 
+/** The `_meta` key under which Claude Code sends the `tool_use` id of an MCP tool call. */
+const TOOL_USE_ID_META_KEY = "claudecode/toolUseId";
+
+/**
+ * The `tool_use` id of the call a tool handler runs for, from the `_meta` of
+ * the MCP request, which the SDK passes to the handler in `extra`. Undefined
+ * when Claude Code does not send it.
+ */
+export function toolUseIdOf(extra: unknown): string | undefined {
+  if (!extra || typeof extra !== "object") return undefined;
+  const meta = (extra as { _meta?: unknown })._meta;
+  if (!meta || typeof meta !== "object") return undefined;
+  const id = (meta as Record<string, unknown>)[TOOL_USE_ID_META_KEY];
+  return typeof id === "string" && id.length > 0 ? id : undefined;
+}
+
 /**
  * Build an in-process MCP server exposing the Kubernetes tools, bound to a
  * single cluster's kube client. `podLogsTailLines` is read lazily on each call
- * so a preference change applies without rebuilding the server.
+ * so a preference change applies without rebuilding the server. The kubectl
+ * and helm tools report the preparation of their kubectl to `preparations`.
  */
 export function createKubeMcpServer(
   client: KubeClient,
   podLogsTailLines: () => number = () => DEFAULT_POD_LOGS_TAIL_LINES,
   registry: ProcessRegistry = new ProcessRegistry(),
+  preparations?: PreparationReports,
 ): McpSdkServerConfigWithInstance {
-  const cli = { clusterId: client.clusterId, ensureConnected: client.ensureConnected, registry };
+  const cli = { clusterId: client.clusterId, ensureConnected: client.ensureConnected, registry, preparations };
   return createSdkMcpServer({
     name: MCP_SERVER_NAME,
     version: "0.1.0",
@@ -185,11 +204,11 @@ export function createKubeMcpServer(
         rolloutRestartSchema,
         (args: RolloutRestartInput) => guard(() => runRolloutRestart(client, args)),
       ),
-      tool("freelens_kubectl", TOOL_DESCRIPTIONS.freelens_kubectl, kubectlSchema, (args: KubectlInput) =>
-        guard(() => runKubectl(cli, args)),
+      tool("freelens_kubectl", TOOL_DESCRIPTIONS.freelens_kubectl, kubectlSchema, (args: KubectlInput, extra) =>
+        guard(() => runKubectl(cli, args, toolUseIdOf(extra))),
       ),
-      tool("freelens_helm", TOOL_DESCRIPTIONS.freelens_helm, helmSchema, (args: HelmInput) =>
-        guard(() => runHelm(cli, args)),
+      tool("freelens_helm", TOOL_DESCRIPTIONS.freelens_helm, helmSchema, (args: HelmInput, extra) =>
+        guard(() => runHelm(cli, args, toolUseIdOf(extra))),
       ),
     ],
   });

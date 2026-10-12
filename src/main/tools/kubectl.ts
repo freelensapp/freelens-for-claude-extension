@@ -10,6 +10,7 @@ import {
   defaultCliDeps,
   MAX_TIMEOUT_SECONDS,
   prepareKubectl,
+  reportPreparation,
   runCli,
   validateCliArgs,
 } from "./cli-exec";
@@ -46,15 +47,16 @@ export type KubectlToolConfig = CliToolConfig;
 /**
  * Validate the argv, refuse a disconnected cluster, get the cluster's kubectl
  * and environment from the host, and run it. The timeout starts once kubectl
- * is ready, after a download if there is one. Returns the captured output plus
- * exit code (or an error line) — never throws past the tool's `guard` wrapper.
+ * is ready, after a download if there is one, whose progress is reported for
+ * the call with `callId`. Returns the captured output plus exit code (or an
+ * error line) — never throws past the tool's `guard` wrapper.
  */
-export async function runKubectl(config: KubectlToolConfig, input: KubectlInput): Promise<string> {
+export async function runKubectl(config: KubectlToolConfig, input: KubectlInput, callId?: string): Promise<string> {
   validateCliArgs("kubectl", input.args);
   config.ensureConnected();
   const deps = config.deps ?? defaultCliDeps();
   const generation = config.registry.generation;
-  const prepared = await prepareKubectl(deps, config.clusterId);
+  const prepared = await reportPreparation(config, callId, (report) => prepareKubectl(deps, config.clusterId, report));
   const timeoutSeconds = clampTimeoutSeconds(input.timeoutSeconds);
   return runCli({
     prepared,
