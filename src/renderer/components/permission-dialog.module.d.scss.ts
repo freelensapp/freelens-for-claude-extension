@@ -21,5 +21,6 @@ declare const classNames: {
   readonly resolvedTitle: "resolvedTitle";
   readonly approvedTag: "approvedTag";
   readonly deniedTag: "deniedTag";
+  readonly stoppedTag: "stoppedTag";
 };
 export = classNames;

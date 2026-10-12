@@ -20,6 +20,7 @@ import {
   type SessionErrorKind,
   type SessionEvent,
   sessionEvent,
+  type ToolOutcome,
 } from "../../common/protocol";
 import { ProcessRegistry } from "../tools/cli-exec";
 import { disposeKubeClient, getKubeClient, type KubeClient } from "../tools/kube-client";
@@ -83,6 +84,7 @@ const PERSISTED_EVENTS = new Set<SessionEvent["type"]>([
   "usage",
   "compaction",
   "error",
+  "turn_stopped",
   "permission_request",
   "permission_resolved",
   "local_command_output",
@@ -180,6 +182,14 @@ class ClusterSession {
   private readonly input = new MessageQueue();
   private readonly abort = new AbortController();
   private readonly toolNames = new Map<string, string>();
+  /** The `tool_use` ids of the calls that have no result yet. */
+  private readonly openCalls = new Set<string>();
+  /** The calls that were refused permission and have no result yet. */
+  private readonly deniedCalls = new Set<string>();
+  /** The calls that were open when the user stopped the turn and have no result yet. */
+  private readonly interruptedCalls = new Set<string>();
+  /** Whether the user stopped the turn in flight, until that turn's `result` arrives. */
+  private turnStopped = false;
   /** In-flight kubectl/helm children, killed on interrupt, new chat, and dispose. */
   private readonly cliRegistry = new ProcessRegistry();
   /** The preparations of the kubectl those children run with, shown in their tool cards. */
@@ -562,8 +572,25 @@ class ClusterSession {
     return rules ? `${base}\n\nAdditional user rules:\n${rules}` : base;
   }
 
-  /** SDK approval callback. Read-only tools are pre-allowed; only mutating tools reach the broker. */
+  /**
+   * SDK approval callback. Records a denial against the call's `tool_use` id,
+   * so that its result shows as denied; a denial that the abort signal caused
+   * is a stopped call, not a decision.
+   */
   private async canUseTool(
+    toolName: string,
+    input: Record<string, unknown>,
+    extra: { signal?: AbortSignal; toolUseID?: string },
+  ): Promise<{ behavior: "allow"; updatedInput: Record<string, unknown> } | { behavior: "deny"; message: string }> {
+    const result = await this.decideToolUse(toolName, input, extra);
+    if (result.behavior === "deny" && extra.toolUseID && !extra.signal?.aborted) {
+      this.deniedCalls.add(extra.toolUseID);
+    }
+    return result;
+  }
+
+  /** Whether a tool call may run. Read-only tools are pre-allowed; only mutating tools reach the broker. */
+  private async decideToolUse(
     toolName: string,
     input: Record<string, unknown>,
     extra: { signal?: AbortSignal },
@@ -648,6 +675,7 @@ class ClusterSession {
         );
       }
     } finally {
+      this.turnStopped = false;
       this.broker.denyAllPending("the session ended");
       this.setWorking(false);
     }
@@ -683,6 +711,7 @@ class ClusterSession {
           slash_commands?: string[];
           content?: string;
           compact_metadata?: { trigger?: "manual" | "auto"; pre_tokens?: number };
+          tool_use_id?: string;
         };
         if (system.subtype === "init") {
           if (system.session_id) this.captureSessionId(system.session_id);
@@ -724,6 +753,9 @@ class ClusterSession {
               preTokens: system.compact_metadata?.pre_tokens ?? 0,
             }),
           );
+        } else if (system.subtype === "permission_denied") {
+          // A call Claude Code denied without asking `canUseTool` (a rule or a mode).
+          if (system.tool_use_id) this.deniedCalls.add(system.tool_use_id);
         }
         break;
       }
@@ -776,6 +808,7 @@ class ClusterSession {
             this.emit(sessionEvent("assistant_message", { text: block.text, ...(reasoning ? { reasoning } : {}) }));
           } else if (block.type === "tool_use") {
             if (block.id && block.name) this.toolNames.set(block.id, block.name);
+            if (block.id) this.openCalls.add(block.id);
             this.emit(
               sessionEvent("tool_call", {
                 toolName: unqualifyToolName(block.name ?? "tool"),
@@ -801,6 +834,7 @@ class ClusterSession {
                 summary: summarizeToolResult(block.content).slice(0, 2000),
                 callId: block.tool_use_id,
                 ...(parentCallId ? { parentCallId } : {}),
+                outcome: this.outcomeOf(block.tool_use_id, block.is_error === true),
               }),
             );
           }
@@ -808,13 +842,19 @@ class ClusterSession {
         break;
       }
       case "result": {
+        const stopped = this.turnStopped;
+        this.turnStopped = false;
         if (message.subtype !== "success") {
+          // A stopped turn ends as error_during_execution; the stop was the
+          // user's decision, so it is not reported as a failure to retry.
           this.emit(
-            sessionEvent("error", {
-              message: `The turn ended without completing (${message.subtype}).`,
-              kind: "other",
-              canRetry: this.lastUserText != null,
-            }),
+            stopped
+              ? sessionEvent("turn_stopped", {})
+              : sessionEvent("error", {
+                  message: `The turn ended without completing (${message.subtype}).`,
+                  kind: "other",
+                  canRetry: this.lastUserText != null,
+                }),
           );
         }
         this.emitUsage((message as { usage?: UsageTotals }).usage);
@@ -830,8 +870,28 @@ class ClusterSession {
     }
   }
 
+  /**
+   * How the call with this `tool_use` id ended, and forget the call. A stop
+   * comes before a denial: an approval the stop denied is a stopped call. A
+   * stopped call is one whatever its flag says, as a killed kubectl returns
+   * its text without it.
+   */
+  private outcomeOf(callId: string | undefined, isError: boolean): ToolOutcome {
+    if (callId) {
+      this.openCalls.delete(callId);
+      const interrupted = this.interruptedCalls.delete(callId);
+      const denied = this.deniedCalls.delete(callId);
+      if (interrupted) return "interrupted";
+      if (denied) return "denied";
+    }
+    return isError ? "error" : "success";
+  }
+
   async interrupt(): Promise<void> {
-    this.broker.denyAllPending("the turn was interrupted");
+    // Before anything settles: the turn and the calls open now end because of the stop.
+    if (this.working) this.turnStopped = true;
+    for (const callId of this.openCalls) this.interruptedCalls.add(callId);
+    this.broker.stopAllPending();
     this.cliRegistry.killAll();
     this.preparations.stopAll();
     try {

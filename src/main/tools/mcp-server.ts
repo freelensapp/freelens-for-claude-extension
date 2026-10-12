@@ -113,13 +113,17 @@ function textResult(text: string) {
   return { content: [{ type: "text" as const, text }] };
 }
 
-/** Run a tool body, converting any thrown error into an explanatory result. */
+/**
+ * Run a tool body, converting any thrown error into an explanatory result
+ * flagged `isError`, which Claude Code passes on as the `is_error` of the
+ * call's `tool_result`.
+ */
 async function guard(run: () => Promise<string>) {
   try {
     return textResult(await run());
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    return textResult(`Tool error: ${message}`);
+    return { ...textResult(`Tool error: ${message}`), isError: true };
   }
 }
 
