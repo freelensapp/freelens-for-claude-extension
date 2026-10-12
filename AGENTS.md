@@ -112,7 +112,7 @@ src/
     session-store.ts       # ChatSessionStore: per-cluster sessionId + permission mode + model
     preferences-store.ts   # PreferencesStore: pod logs, agent rules, path override, default model, MCP config, subagents, prompt shortcuts
     prompt-shortcuts.ts    # built-in quick-prompt chips + parser for the promptShortcuts preference (renderer-free)
-    protocol.ts            # shared request/response and SSE event types (usage, context, compaction, model, retry, thinking, local command output, parentCallId, mcp/slash meta); ClusterUsageResponse (/usage dialog data), ClusterContextResponse (/context donut data)
+    protocol.ts            # shared request/response and SSE event types (usage, context, compaction, model, retry, thinking, local command output, tool_progress, parentCallId, mcp/slash meta); ClusterUsageResponse (/usage dialog data), ClusterContextResponse (/context donut data)
   main/
     index.ts               # onActivate: start bridge + stores (incl. preferences); onDeactivate: stop it
     claude/
@@ -120,6 +120,7 @@ src/
       session-manager.ts   # session lifecycle, resume, transcript, usage/context/compaction, model, retry, pod-logs gating, user MCP + subagent wiring, thinking + local-command + nested tool events
       context.ts           # buildContextResponse: shape SDK getContextUsage() into ClusterContextResponse (drops free-space category)
       permission-broker.ts # permission modes + approval request/resolve (mutating + consent-required reads + external MCP tools)
+      preparation-progress.ts # kubectl preparation of a kubectl/helm call -> tool_progress events (250 ms throttle, stop on interrupt, replay)
       mcp-config.ts        # parse/validate Claude-Desktop-style user MCP JSON into SDK server configs (never throws)
       subagents.ts         # cluster-analyzer definition: read-only investigator subagent
       usage.ts             # buildUsageResponse: shape SDK accountInfo + /usage data into ClusterUsageResponse
@@ -128,9 +129,9 @@ src/
     tools/
       kube-client.ts       # requests through Main.K8sApi.KubeJsonApi.forCluster (Freelens proxy): discovery, timeout, Error conversion, connected check
       kube-format.ts       # YAML, managedFields stripping, truncation, selectFields, toDiff
-      mcp-server.ts        # createSdkMcpServer; read-only vs mutating tool name sets (freelens_ prefix, incl. kubectl/helm); pod-logs tail-lines getter
+      mcp-server.ts        # createSdkMcpServer; read-only vs mutating tool name sets (freelens_ prefix, incl. kubectl/helm); pod-logs tail-lines getter; tool_use id from the request's _meta
       approval.ts          # describeApproval: action title + backup target (incl. READ POD LOGS, RUN KUBECTL, RUN HELM, USE MCP TOOL)
-      cli-exec.ts          # shared spawn helper: kubectl/helm and their environment from Main.Shell for the cluster (download progress to the log, problems to the result), timeout after preparation, non-tty capture, process registry
+      cli-exec.ts          # shared spawn helper: kubectl/helm and their environment from Main.Shell for the cluster (download progress to the log and the call's preparation report, problems to the result), timeout after preparation, non-tty capture, process registry
       resources.ts         # freelens_resources tool (field selection, managedFields opt-in)
       pod-logs.ts          # freelens_pod_logs tool (previous, timestamps, configurable tail-lines default)
       warning-events.ts    # freelens_warning_events tool
@@ -156,7 +157,7 @@ src/
       context-colors.ts    # categoryColor: color of a context category (SDK color, name palette, per-index fallback)
       model-dialog.tsx     # "Switch model" modal: Default row, live model catalog, custom model id
       effort-dialog.tsx    # "Effort" modal: Default row and the reasoning-effort levels
-      tool-card.tsx        # collapsible tool call/result card
+      tool-card.tsx        # collapsible tool call/result card; kubectl preparation line of kubectl/helm calls (LineProgress, bytesToUnits)
       permission-dialog.tsx # inline approval card (proposed YAML, backup, diff)
       code-viewer.tsx      # read-only code block in the host's MonacoEditor, with language label and copy button
       menu-entry.tsx       # "Ask Claude" kube object menu item, generic over the host's model class
@@ -514,10 +515,10 @@ test: it is a shim that reads `Common`, `Main` and `Renderer` off
 mocks. The `alias` in `vitest.config.ts` points the import at
 `test/freelens-extensions.ts`, for the tests and for the extension code they
 import. The stub covers only what the tests use (the `ExtensionStore` base
-class, `Common.logger`, `Common.Clusters`,
+class, `Common.logger`, `Common.Clusters`, `Common.Util.bytesToUnits`,
 `Main.Catalog.getClusterById`, `Main.K8sApi.KubeJsonApi.forCluster`,
-`Main.Shell`, `Renderer.Catalog`, and stand-ins for `Icon` and for `MonacoEditor`, which
-renders a `<textarea>`), at
+`Main.Shell`, `Renderer.Catalog`, and stand-ins for `Icon`, for `LineProgress`
+and for `MonacoEditor`, which renders a `<textarea>`), at
 runtime only; the type check still uses the real declaration. As in the host, a
 store is a singleton per class, so a test that renders a component reading a
 store sets the same instance the component reads, and drops it afterwards with
@@ -687,9 +688,14 @@ git-ignored.
   cluster terminal, under Freelens dev too: `freelens_kubectl` with
   `["version"]` reports the client that `kubectl version` reports in the
   cluster's terminal. The first call on a cluster whose Kubernetes version has
-  no kubectl downloaded yet waits for the download, before its timeout starts;
-  the progress is in the main log (`[for-claude] kubectl: ...`), and a problem
-  with it, such as a fallback to the bundled kubectl, heads the tool result.
+  no kubectl downloaded yet waits for the download, before its timeout starts.
+  The card shows it in a line under its header, from `tool_progress` events
+  tied to the call by the `claudecode/toolUseId` of the MCP request's `_meta`;
+  the progress is in the main log too (`[for-claude] kubectl: ...`). A problem
+  with it, such as a fallback to the bundled kubectl, stays in the card as a
+  warning and heads the result of `freelens_kubectl`. To see a download, take a
+  cluster whose Kubernetes version is not the bundled kubectl's and remove
+  that version from the download directory.
 
 ### Reading the console
 
