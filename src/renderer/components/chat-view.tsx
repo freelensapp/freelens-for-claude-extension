@@ -442,8 +442,8 @@ export const ChatView = observer(function ChatView({ clusterId, client }: ChatVi
   }, [clusterId, client, epoch]);
 
   // Live model picker catalog, sourced from the installed Claude Code build so
-  // labels show the resolved wire model (e.g. "Opus (claude-opus-5)") and any
-  // pinned versions the SDK exposes. Falls back to the static alias list
+  // labels show the wire model each alias resolves to and any pinned versions
+  // the SDK exposes. Falls back to the static alias list
   // (rendered without a resolved suffix) while loading or on failure.
   useEffect(() => {
     let cancelled = false;

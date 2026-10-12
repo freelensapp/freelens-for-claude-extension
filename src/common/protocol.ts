@@ -144,14 +144,15 @@ export interface SetEffortRequest {
 }
 
 /**
- * Static fallback model aliases, used before the live catalog (see
- * {@link ClusterModelsResponse}) has loaded and on the Preferences page,
- * which has no cluster session to query. A `null`/absent selection means
- * "Claude Code default".
+ * Static model aliases: the fallback of the model picker when the live
+ * catalog (see {@link ClusterModelsResponse}) cannot be fetched, and the
+ * choices of the Default model preference, which has no cluster session to
+ * query. A `null`/absent selection means "Claude Code default".
  *
- * These are Claude Code family aliases (not pinned IDs), so each resolves to
- * the newest model of its family: `fable` -> Fable 5, `opus` -> Opus 5,
- * `sonnet` -> Sonnet 5, `haiku` -> Haiku 4.5. Ordered most-capable first.
+ * These are Claude Code family aliases, not pinned ids. The extension passes
+ * them to Claude Code as they are, and Claude Code resolves each to the newest
+ * model of its family for the installation, account and provider. Ordered
+ * most-capable first.
  */
 export const MODEL_CHOICES = ["fable", "opus", "sonnet", "haiku"] as const;
 
@@ -166,7 +167,7 @@ export interface ModelChoice {
   value: string;
   /** Human-readable name, e.g. "Claude Opus 5". */
   displayName: string;
-  /** The wire model id this choice resolves to, e.g. "claude-opus-5". */
+  /** The wire model id this choice resolves to, as the installed Claude Code reports it. */
   resolvedModel?: string;
 }
 
@@ -182,10 +183,10 @@ export interface ModelChoice {
 export interface ClusterModelsResponse {
   models: ModelChoice[];
   /**
-   * The wire model id the "Default" choice currently resolves to (e.g.
-   * "claude-sonnet-5"), taken from the SDK catalog's own "use the default"
-   * entry. Lets the picker show what "Default" means before any turn has run
-   * and set {@link SessionEventMap.session_meta}'s `resolvedModel`.
+   * The wire model id the "Default" choice currently resolves to, taken
+   * from the SDK catalog's own "use the default" entry. Lets the picker show
+   * what "Default" means before any turn has run and set
+   * {@link SessionEventMap.session_meta}'s `resolvedModel`.
    */
   defaultResolvedModel?: string;
   error?: string;

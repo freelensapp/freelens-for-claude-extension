@@ -125,9 +125,10 @@ installation exposes, and inserts the chosen one into the composer.
 
 The model list is read from the Claude Code build you actually have
 installed, so it offers exactly what that build supports and labels each
-entry with the wire model it resolves to (for example
-`Opus - claude-opus-5`). The **Default** row names what the default
-currently resolves to, so it is clear what you get by not choosing.
+entry with the wire model it resolves to: an alias such as **Opus** shows
+the id of the newest Opus model for your installation, account and
+provider. The **Default** row names what the default currently resolves
+to, so it is clear what you get by not choosing.
 
 If you need a model the installed build does not list - a pinned or
 freshly released id - type it into **Custom model id**. It is accepted as
