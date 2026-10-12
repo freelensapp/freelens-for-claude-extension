@@ -3,7 +3,7 @@
  * Licensed under MIT License. See LICENSE in root directory for more information.
  */
 
-import { Renderer } from "@freelensapp/extensions";
+import { Common, Renderer } from "@freelensapp/extensions";
 import { observer } from "mobx-react";
 import { useEffect, useReducer, useRef, useState } from "react";
 import { PreferencesStore } from "../../common/preferences-store";
@@ -427,11 +427,63 @@ export const ChatView = observer(function ChatView({ clusterId, client }: ChatVi
     }
   };
 
+  // Live model picker catalog, sourced from the installed Claude Code build so
+  // labels show the wire model each alias resolves to and any pinned versions
+  // the SDK exposes. Falls back to the static alias list
+  // (rendered without a resolved suffix) while loading or on failure. A
+  // missing catalog is fetched again when the Switch model dialog opens and
+  // when the event stream connects again (to a new bridge after a reload).
+  // `generation` drops the answer of a fetch made for a previous cluster.
+  const catalog = useRef<{ state: "missing" | "loading" | "loaded"; generation: number }>({
+    state: "missing",
+    generation: 0,
+  });
+  const lastCatalogWarning = useRef<string | undefined>(undefined);
+
+  const catalogMissing = (generation: number, reason: string) => {
+    if (catalog.current.generation !== generation) return;
+    catalog.current.state = "missing";
+    // Once per reason: the dialog can be reopened many times on the same failure.
+    if (lastCatalogWarning.current === reason) return;
+    lastCatalogWarning.current = reason;
+    Common.logger.warn(`[for-claude] model list not available, showing the aliases: ${reason}`);
+  };
+
+  const loadModels = () => {
+    if (catalog.current.state !== "missing") return;
+    catalog.current.state = "loading";
+    const generation = catalog.current.generation;
+    client.getModels(clusterId).then(
+      (response) => {
+        if (catalog.current.generation !== generation) return;
+        if (response.defaultResolvedModel) setDefaultResolvedModel(response.defaultResolvedModel);
+        if (response.error || response.models.length === 0) {
+          catalogMissing(generation, response.error ?? "the list is empty");
+          return;
+        }
+        catalog.current.state = "loaded";
+        lastCatalogWarning.current = undefined;
+        setModels(response.models);
+      },
+      (error: unknown) => catalogMissing(generation, error instanceof Error ? error.message : String(error)),
+    );
+  };
+
+  useEffect(() => {
+    setModels(null);
+    setDefaultResolvedModel(undefined);
+    loadModels();
+    return () => {
+      catalog.current = { state: "missing", generation: catalog.current.generation + 1 };
+    };
+  }, [clusterId, client]);
+
   useEffect(() => {
     dispatch({ type: "reset" });
     const close = client.streamEvents(clusterId, {
       onOpen: () => {
         dispatch({ type: "reset" });
+        loadModels();
         // Pick up an "Ask Claude" prompt handed off by a kube object menu entry.
         const prompt = pendingPrompt.consume();
         if (prompt) void sendText(prompt);
@@ -440,29 +492,6 @@ export const ChatView = observer(function ChatView({ clusterId, client }: ChatVi
     });
     return close;
   }, [clusterId, client, epoch]);
-
-  // Live model picker catalog, sourced from the installed Claude Code build so
-  // labels show the wire model each alias resolves to and any pinned versions
-  // the SDK exposes. Falls back to the static alias list
-  // (rendered without a resolved suffix) while loading or on failure.
-  useEffect(() => {
-    let cancelled = false;
-    setModels(null);
-    setDefaultResolvedModel(undefined);
-    client
-      .getModels(clusterId)
-      .then((response) => {
-        if (cancelled) return;
-        if (!response.error && response.models.length > 0) setModels(response.models);
-        if (response.defaultResolvedModel) setDefaultResolvedModel(response.defaultResolvedModel);
-      })
-      .catch(() => {
-        // Best-effort: keep the static fallback list.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [clusterId, client]);
 
   // Stick-to-bottom: only follow new content when the user is already parked
   // near the bottom; otherwise leave their scroll position alone.
@@ -770,7 +799,10 @@ export const ChatView = observer(function ChatView({ clusterId, client }: ChatVi
                 textareaRef.current?.focus();
               }}
               onUsage={() => setUsageOpen(true)}
-              onSwitchModel={() => setModelSwitchOpen(true)}
+              onSwitchModel={() => {
+                loadModels();
+                setModelSwitchOpen(true);
+              }}
               switchModelLabel={switchModelLabel}
               onEffort={() => setEffortSwitchOpen(true)}
               effortLabel={effortLabel}

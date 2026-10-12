@@ -4,6 +4,7 @@
  * Licensed under MIT License. See LICENSE in root directory for more information.
  */
 
+import { Common } from "@freelensapp/extensions";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PreferencesStore } from "../../common/preferences-store";
@@ -127,6 +128,83 @@ describe("ChatView", () => {
     fireEvent.click(screen.getByText("Subagent"));
     expect(screen.getAllByLabelText("denied")).toHaveLength(2);
     expect(screen.getAllByLabelText("done")).toHaveLength(1);
+  });
+
+  it("fetches a missing model catalog again when the Switch model dialog opens, and warns once", async () => {
+    const getModels = vi
+      .fn()
+      .mockResolvedValueOnce({ models: [], error: "Model list is not available for this Claude Code session." })
+      .mockResolvedValueOnce({ models: [], error: "Model list is not available for this Claude Code session." })
+      .mockResolvedValueOnce({
+        models: [{ value: "opus", displayName: "Opus 5.5", resolvedModel: "claude-opus-5-5" }],
+      });
+    const client = { ...fakeClient(), getModels } as unknown as BridgeClient;
+    vi.mocked(Common.logger.warn).mockClear();
+    render(<ChatView clusterId="cluster-a" client={client} />);
+    const openSwitchModel = async () => {
+      fireEvent.click(screen.getByLabelText("Commands"));
+      await act(async () => {
+        fireEvent.mouseDown(screen.getByText(/^Switch model/));
+      });
+    };
+    const closeSwitchModel = () => fireEvent.keyDown(document, { key: "Escape" });
+
+    await act(async () => {});
+    expect(getModels).toHaveBeenCalledTimes(1);
+    expect(Common.logger.warn).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(Common.logger.warn).mock.calls[0][0]).toMatch(/^\[for-claude\] .*not available/);
+
+    // The second fetch fails the same way: still the aliases, and no second warning.
+    await openSwitchModel();
+    expect(getModels).toHaveBeenCalledTimes(2);
+    expect(screen.getByText("opus")).toBeTruthy();
+    expect(screen.queryByText("Opus 5.5")).toBeNull();
+    expect(Common.logger.warn).toHaveBeenCalledTimes(1);
+    closeSwitchModel();
+
+    await openSwitchModel();
+    expect(getModels).toHaveBeenCalledTimes(3);
+    expect(screen.getByText("Opus 5.5")).toBeTruthy();
+    expect(screen.getByText("claude-opus-5-5")).toBeTruthy();
+    expect(screen.queryByText("haiku")).toBeNull();
+
+    // A loaded catalog is not fetched again.
+    closeSwitchModel();
+    await openSwitchModel();
+    expect(getModels).toHaveBeenCalledTimes(3);
+  });
+
+  it("fetches a missing model catalog again when the event stream connects again", async () => {
+    let onOpen: (() => void) | undefined;
+    const getModels = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("models request failed: 401"))
+      .mockResolvedValueOnce({ models: [{ value: "opus", displayName: "Opus 5.5" }] });
+    const client = {
+      ...fakeClient(),
+      getModels,
+      streamEvents: vi.fn((_clusterId: string, handlers: { onOpen: () => void }) => {
+        onOpen = handlers.onOpen;
+        return () => {};
+      }),
+    } as unknown as BridgeClient;
+    vi.mocked(Common.logger.warn).mockClear();
+    render(<ChatView clusterId="cluster-a" client={client} />);
+    await act(async () => {});
+    expect(Common.logger.warn).toHaveBeenCalledWith(expect.stringContaining("models request failed: 401"));
+
+    // The stream reaches the bridge again (a new one after a reload of the extension).
+    await act(async () => onOpen?.());
+    expect(getModels).toHaveBeenCalledTimes(2);
+    await act(async () => onOpen?.());
+    expect(getModels).toHaveBeenCalledTimes(2);
+
+    fireEvent.click(screen.getByLabelText("Commands"));
+    await act(async () => {
+      fireEvent.mouseDown(screen.getByText(/^Switch model/));
+    });
+    expect(screen.getByText("Opus 5.5")).toBeTruthy();
+    expect(getModels).toHaveBeenCalledTimes(2);
   });
 
   it("ends a stopped turn with a muted Stopped line, and a failed one with an error and Retry", async () => {
