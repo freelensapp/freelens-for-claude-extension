@@ -3,7 +3,7 @@
  * Licensed under MIT License. See LICENSE in root directory for more information.
  */
 
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Main } from "@freelensapp/extensions";
@@ -95,6 +95,8 @@ vi.mock("../tools/kube-client", () => ({
 const { SessionManager } = await import("./session-manager");
 
 let baseDir: string;
+/** The Claude Code configuration directory the sessions read, empty unless a test writes to it. */
+let configDir: string;
 
 function makeManager(prefs: Partial<PreferencesState> = {}) {
   const preferences: PreferencesState = {
@@ -124,11 +126,14 @@ const flush = () => new Promise((resolve) => setTimeout(resolve, 10));
 
 beforeEach(() => {
   baseDir = mkdtempSync(join(tmpdir(), "for-claude-test-"));
+  configDir = mkdtempSync(join(tmpdir(), "for-claude-config-"));
+  vi.stubEnv("CLAUDE_CONFIG_DIR", configDir);
   sdk.queries.length = 0;
 });
 
 afterEach(() => {
   vi.clearAllMocks();
+  vi.unstubAllEnvs();
 });
 
 describe("query options", () => {
@@ -136,6 +141,102 @@ describe("query options", () => {
     const manager = makeManager();
     await manager.sendMessage("c0", "hello");
     expect(sdk.queries.at(-1)?.options.permissionMode).toBe("default");
+  });
+});
+
+describe("user settings of Claude Code", () => {
+  it("loads no settings file and passes no settings without one", async () => {
+    const manager = makeManager();
+    await manager.sendMessage("u0", "hello");
+    const options = sdk.queries.at(-1)?.options;
+    expect(options.settingSources).toEqual([]);
+    expect(options.settings).toBeUndefined();
+  });
+
+  it("passes only the provider and authentication keys, still loading no settings file", async () => {
+    writeFileSync(
+      join(configDir, "settings.json"),
+      JSON.stringify({
+        env: { CLAUDE_CODE_USE_BEDROCK: "1", AWS_REGION: "eu-central-1" },
+        awsAuthRefresh: "aws sso login",
+        permissions: { allow: ["mcp__freelens-kube__*"] },
+        hooks: { PreToolUse: [] },
+        mcpServers: { other: { command: "other" } },
+      }),
+    );
+    const manager = makeManager();
+    await manager.sendMessage("u1", "hello");
+    const options = sdk.queries.at(-1)?.options;
+    expect(options.settingSources).toEqual([]);
+    expect(options.settings).toEqual({
+      env: { CLAUDE_CODE_USE_BEDROCK: "1", AWS_REGION: "eu-central-1" },
+      awsAuthRefresh: "aws sso login",
+    });
+    expect(Object.keys(options.mcpServers)).toEqual(["freelens-kube"]);
+  });
+
+  it("starts the session without the file when it is not valid JSON", async () => {
+    writeFileSync(join(configDir, "settings.json"), "{ not json");
+    const manager = makeManager();
+    await manager.sendMessage("u2", "hello");
+    const options = sdk.queries.at(-1)?.options;
+    expect(options.settingSources).toEqual([]);
+    expect(options.settings).toBeUndefined();
+  });
+
+  it("reads the file again at the next session start", async () => {
+    const manager = makeManager();
+    await manager.sendMessage("u3", "hello");
+    expect(sdk.queries.at(-1)?.options.settings).toBeUndefined();
+
+    writeFileSync(join(configDir, "settings.json"), JSON.stringify({ env: { CLAUDE_CODE_USE_VERTEX: "1" } }));
+    await manager.sendMessage("u4", "hello");
+    expect(sdk.queries.at(-1)?.options.settings).toEqual({ env: { CLAUDE_CODE_USE_VERTEX: "1" } });
+  });
+});
+
+describe("model of the user settings of Claude Code", () => {
+  const providerModel = "arn:aws:bedrock:eu-central-1:1:inference-profile/sonnet";
+
+  beforeEach(() => {
+    writeFileSync(join(configDir, "settings.json"), JSON.stringify({ model: providerModel }));
+  });
+
+  it("is the model when the chat has none selected", async () => {
+    const manager = makeManager();
+    await manager.sendMessage("m0", "hello");
+    const options = sdk.queries.at(-1)?.options;
+    expect(options.model).toBe(providerModel);
+    // The model is passed as the model option, not as a setting.
+    expect(options.settings).toBeUndefined();
+  });
+
+  it("gives way to the default model preference", async () => {
+    const manager = makeManager({ defaultModel: "opus" });
+    await manager.sendMessage("m1", "hello");
+    expect(sdk.queries.at(-1)?.options.model).toBe("opus");
+  });
+
+  it("gives way to the model selected in the chat", async () => {
+    const manager = makeManager({ defaultModel: "opus" });
+    manager.setModel("m2", "haiku");
+    await manager.sendMessage("m2", "hello");
+    expect(sdk.queries.at(-1)?.options.model).toBe("haiku");
+  });
+
+  it("is what the live session goes back to when the chat selects Default", async () => {
+    const manager = makeManager({ defaultModel: "opus" });
+    await manager.sendMessage("m3", "hello");
+    const setModel = vi.spyOn(sdk.queries.at(-1) as InstanceType<typeof sdk.FakeQuery>, "setModel");
+    manager.setModel("m3", undefined);
+    expect(setModel).toHaveBeenCalledWith(providerModel);
+  });
+
+  it("is ignored with the wrong type", async () => {
+    writeFileSync(join(configDir, "settings.json"), JSON.stringify({ model: { id: "sonnet" } }));
+    const manager = makeManager();
+    await manager.sendMessage("m4", "hello");
+    expect(sdk.queries.at(-1)?.options.model).toBeUndefined();
   });
 });
 

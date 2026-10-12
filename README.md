@@ -42,8 +42,12 @@ affiliation with Anthropic.
   Code binary found on your `PATH` (or at a path you set in preferences).
   Install it and run `claude` once in a terminal to authenticate.
 - Every Claude Code authentication method is inherited unchanged —
-  subscription login, `ANTHROPIC_API_KEY`, Amazon Bedrock, or Google
-  Vertex. The extension never handles or stores credentials.
+  subscription login, `ANTHROPIC_API_KEY`, Amazon Bedrock, Google Vertex,
+  Claude Platform on AWS, Microsoft Foundry, or an LLM gateway. The
+  extension never handles or stores credentials. A third-party provider is
+  used when it is configured in your shell environment or in the `env`
+  block of `~/.claude/settings.json` (`$CLAUDE_CONFIG_DIR/settings.json`
+  when that is set); see [Security model](#security-model) for the details.
 - **Node.js** is required only when building the extension from source (see
   [Build from the source](#build-from-the-source)); it is not needed to run
   the extension.
@@ -228,7 +232,7 @@ where noted, changes apply to the next new chat.
 | Preference | Default | Meaning |
 | --- | --- | --- |
 | Claude Code executable path | empty (auto-detect) | Absolute path to the `claude` binary |
-| Default model | empty (Claude Code default) | Used for clusters that have not picked a model in the chat |
+| Default model | empty (`model` of `~/.claude/settings.json`, else the Claude Code default) | Used for clusters that have not picked a model in the chat |
 | Custom agent rules | empty | Extra rules appended to the system prompt of every new session |
 | Require approval before reading pod logs | on | Prompt before `freelens_pod_logs` runs |
 | Default tail lines | 1000 | Lines read from the end of a log when Claude does not request an amount |
@@ -247,8 +251,13 @@ where noted, changes apply to the next new chat.
 - The extension stores no credentials and never talks to Anthropic itself —
   all model traffic goes through your own Claude Code session.
 - `settingSources: []` and `strictMcpConfig` keep your global Claude Code
-  configuration (global `CLAUDE.md`, hooks, MCP config) out of cluster
-  chats.
+  configuration (global `CLAUDE.md`, permissions, hooks, plugins, MCP
+  config) out of cluster chats. Of your user settings file only the keys
+  that select the API provider and authenticate to it are passed on (`env`,
+  `modelOverrides`, `apiKeyHelper`, `awsAuthRefresh`,
+  `awsCredentialExport`, `gcpAuthRefresh`, `proxyAuthHelper`), plus `model`
+  as the default of a chat that has no model selected. The file is read
+  when a session starts, so a change applies to the next new chat.
 - The permission broker is the single gate for every mutating,
   consent-gated, and external tool call.
 - `kubectl`/`helm` argv is validated: `--kubeconfig`, `--context`, and
@@ -270,7 +279,14 @@ otherwise send.
   Freelens sees, or set an absolute path in the **Claude Code executable
   path** preference, then reopen the chat page.
 - **Not logged in.** Run `claude` in a terminal and complete
-  authentication; the extension inherits that session.
+  authentication; the extension inherits that session. With a third-party
+  provider (Bedrock, Vertex, Claude Platform on AWS, Foundry, a gateway)
+  there is nothing to log in to: Claude Code falls back to a claude.ai
+  login when it does not see the provider's variables. Set them in the
+  `env` block of `~/.claude/settings.json`, which the extension always
+  reads, rather than only in your shell profile: Freelens takes the
+  environment of your login shell when it starts, but a sandboxed Freelens,
+  such as the Flatpak, may not get it.
 - **Where transcripts live.** Each cluster gets its own scratch directory
   under the extension's data path; Claude Code session transcripts are kept
   there, namespaced per cluster.
