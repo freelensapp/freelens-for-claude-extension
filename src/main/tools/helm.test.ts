@@ -3,21 +3,25 @@
  * Licensed under MIT License. See LICENSE in root directory for more information.
  */
 
-import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { Common, Main } from "@freelensapp/extensions";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { PermissionBroker } from "../claude/permission-broker";
 import { describeApproval } from "./approval";
-import { type CliDeps, type ExecFileFn, ProcessRegistry } from "./cli-exec";
+import { type ExecFileFn, type HostShell, ProcessRegistry } from "./cli-exec";
 import { type HelmToolConfig, runHelm } from "./helm";
 import { LOG_BYTE_CAP } from "./kube-format";
 import type { ExecFileException } from "node:child_process";
 
 import type { SessionEvent } from "../../common/protocol";
 
+const HELM = "/opt/helm/bin/helm";
+const ENV = { PATH: "/usr/bin:/resources/x64", KUBECONFIG: "/tmp/kubeconfig-c1" };
+
 /** A captured child invocation, filled in by the fake execFile. */
 interface Capture {
   file: string;
   args: readonly string[];
+  env?: NodeJS.ProcessEnv;
 }
 
 /** Build a fake execFile that records the call and completes with the given result. */
@@ -25,31 +29,31 @@ function fakeExec(
   capture: Capture,
   result: { error?: ExecFileException | null; stdout?: string; stderr?: string } = {},
 ): ExecFileFn {
-  return (file, args, _options, callback) => {
+  return (file, args, options, callback) => {
     capture.file = file;
     capture.args = args;
+    capture.env = options.env;
     queueMicrotask(() => callback(result.error ?? null, result.stdout ?? "", result.stderr ?? ""));
     return { kill: () => true };
   };
 }
 
-function makeConfig(execFile: ExecFileFn, deps: Partial<CliDeps> = {}): HelmToolConfig {
+/** A stand-in for `Main.Shell` that answers for any cluster. */
+function fakeShell(overrides: Partial<HostShell> = {}): HostShell {
   return {
-    kubeConfigPath: "/home/user/.kube/config",
-    contextName: "prod",
+    getKubectlPath: async () => "/resources/x64/kubectl",
+    getHelmPath: async () => HELM,
+    getEnvironment: async () => ENV,
+    ...overrides,
+  };
+}
+
+function makeConfig(execFile: ExecFileFn, shell: HostShell = fakeShell()): HelmToolConfig {
+  return {
+    clusterId: "c1",
+    ensureConnected: () => {},
     registry: new ProcessRegistry(),
-    deps: {
-      env: { PATH: "/usr/bin" },
-      resourcesPath: "/resources",
-      arch: "x64",
-      platform: "linux",
-      fileExists: () => false,
-      listDir: () => [],
-      getKubectlPath: () => undefined,
-      getUserDataPath: () => undefined,
-      execFile,
-      ...deps,
-    },
+    deps: { shell, execFile },
   };
 }
 
@@ -74,34 +78,95 @@ describe("runHelm argv validation", () => {
 });
 
 describe("runHelm execution", () => {
-  it("appends the cluster-targeting flags and resolves the bare binary", async () => {
+  afterEach(() => {
+    vi.mocked(Common.logger.warn).mockClear();
+  });
+
+  it("runs the cluster's helm in the cluster's environment with the model's argv only", async () => {
     const capture: Capture = { file: "", args: [] };
-    const cfg = makeConfig(fakeExec(capture, { stdout: "NAME" }));
+    const getHelmPath = vi.fn<HostShell["getHelmPath"]>(async () => HELM);
+    const getEnvironment = vi.fn<HostShell["getEnvironment"]>(async () => ENV);
+    const getKubectlPath = vi.fn<HostShell["getKubectlPath"]>(async () => "/resources/x64/kubectl");
+    const cfg = makeConfig(
+      fakeExec(capture, { stdout: "NAME" }),
+      fakeShell({ getHelmPath, getEnvironment, getKubectlPath }),
+    );
     const out = await runHelm(cfg, { args: ["list", "-A"] });
-    expect(capture.file).toBe("helm");
-    expect(capture.args).toEqual(["list", "-A", "--kubeconfig", "/home/user/.kube/config", "--kube-context", "prod"]);
-    expect(out).toContain("[exit code 0]");
+    expect(getHelmPath).toHaveBeenCalledWith("c1");
+    expect(getEnvironment).toHaveBeenCalledWith("c1", expect.any(Object));
+    expect(getKubectlPath).not.toHaveBeenCalled();
+    expect(capture.file).toBe(HELM);
+    expect(capture.args).toEqual(["list", "-A"]);
+    expect(capture.env).toEqual(ENV);
+    expect(out).toBe("NAME\n\n[exit code 0]");
   });
 
-  it("omits --kube-context when the cluster has no context name", async () => {
-    const capture: Capture = { file: "", args: [] };
-    const cfg = makeConfig(fakeExec(capture));
-    cfg.contextName = undefined;
-    await runHelm(cfg, { args: ["list"] });
-    expect(capture.args).not.toContain("--kube-context");
+  it("refuses a disconnected cluster before asking the host", async () => {
+    const getHelmPath = vi.fn<HostShell["getHelmPath"]>(async () => HELM);
+    const cfg = makeConfig(fakeExec({ file: "", args: [] }), fakeShell({ getHelmPath }));
+    cfg.ensureConnected = () => {
+      throw new Error('Cluster "kind-kind" is not connected in Freelens. Connect to it in Freelens and try again.');
+    };
+    await expect(runHelm(cfg, { args: ["list"] })).rejects.toThrow('Cluster "kind-kind" is not connected in Freelens.');
+    expect(getHelmPath).not.toHaveBeenCalled();
   });
 
-  it("resolves the bundled helm binary when present, ignoring the kubectl preference", async () => {
-    // Production joins the path with `node:path` `join`; mirror the host
-    // separator so the assertion holds on Windows as well as POSIX.
-    const bundledBin = join("/resources", "x64", "helm");
-    const capture: Capture = { file: "", args: [] };
-    const cfg = makeConfig(fakeExec(capture), {
-      getKubectlPath: () => "/opt/kubectl",
-      fileExists: (path) => path === bundledBin,
-    });
-    await runHelm(cfg, { args: ["version"] });
-    expect(capture.file).toBe(bundledBin);
+  it("logs a kubectl problem of the environment without putting it in the helm result", async () => {
+    const problem = "Failed to download kubectl v1.37.0 (timeout) - using the bundled v1.35.3";
+    const cfg = makeConfig(
+      fakeExec({ file: "", args: [] }, { stdout: "NAME" }),
+      fakeShell({
+        getEnvironment: async (_clusterId, options) => {
+          options?.onProblem?.(problem);
+          return ENV;
+        },
+      }),
+    );
+    const out = await runHelm(cfg, { args: ["list"] });
+    expect(out).toBe("NAME\n\n[exit code 0]");
+    expect(Common.logger.warn).toHaveBeenCalledWith(`[for-claude] helm: ${problem}`);
+  });
+
+  it("reports the kubectl problem of the environment for the call, still not in the result", async () => {
+    const problem = "Failed to download kubectl v1.37.0 (timeout) - using the bundled v1.35.3";
+    const log: unknown[][] = [];
+    const cfg = makeConfig(
+      fakeExec({ file: "", args: [] }, { stdout: "NAME" }),
+      fakeShell({
+        getEnvironment: async (_clusterId, options) => {
+          options?.onPhase?.("Verifying kubectl v1.37.0 ...");
+          options?.onProblem?.(problem);
+          return ENV;
+        },
+      }),
+    );
+    cfg.preparations = {
+      begin: (callId) => {
+        log.push(["begin", callId]);
+        return {
+          phase: (message) => log.push(["phase", message]),
+          progress: (progress) => log.push(["progress", progress]),
+          problem: (message) => log.push(["problem", message]),
+          done: () => log.push(["done"]),
+          failed: (message) => log.push(["failed", message]),
+        };
+      },
+    };
+    const out = await runHelm(cfg, { args: ["list"] }, "toolu_1");
+    expect(out).toBe("NAME\n\n[exit code 0]");
+    expect(log).toEqual([
+      ["begin", "toolu_1"],
+      ["phase", "Verifying kubectl v1.37.0 ..."],
+      ["problem", problem],
+      ["done"],
+    ]);
+  });
+
+  it("asks Main.Shell of the host by default", async () => {
+    vi.mocked(Main.Shell.getHelmPath).mockRejectedValueOnce(new Error('The cluster "kind-kind" (c1) is not connected'));
+    const config: HelmToolConfig = { clusterId: "c1", ensureConnected: () => {}, registry: new ProcessRegistry() };
+    await expect(runHelm(config, { args: ["list"] })).rejects.toThrow('The cluster "kind-kind" (c1) is not connected');
+    expect(Main.Shell.getHelmPath).toHaveBeenCalledWith("c1");
   });
 
   it("reports the exit code and truncates oversized output", async () => {
@@ -126,11 +191,11 @@ describe("runHelm execution", () => {
     const capture: Capture = { file: "", args: [] };
     const cfg = makeConfig(
       fakeExec(capture, {
-        error: { code: "ENOENT", message: "spawn helm ENOENT" } as unknown as ExecFileException,
+        error: { code: "ENOENT", message: `spawn ${HELM} ENOENT` } as unknown as ExecFileException,
       }),
     );
     const out = await runHelm(cfg, { args: ["list"] });
-    expect(out).toBe("Failed to run helm: spawn helm ENOENT");
+    expect(out).toBe(`Failed to run helm: spawn ${HELM} ENOENT`);
   });
 });
 

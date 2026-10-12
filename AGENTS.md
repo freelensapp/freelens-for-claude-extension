@@ -112,14 +112,15 @@ src/
     session-store.ts       # ChatSessionStore: per-cluster sessionId + permission mode + model
     preferences-store.ts   # PreferencesStore: pod logs, agent rules, path override, default model, MCP config, subagents, prompt shortcuts
     prompt-shortcuts.ts    # built-in quick-prompt chips + parser for the promptShortcuts preference (renderer-free)
-    protocol.ts            # shared request/response and SSE event types (usage, context, compaction, model, retry, thinking, local command output, parentCallId, mcp/slash meta); ClusterUsageResponse (/usage dialog data), ClusterContextResponse (/context donut data)
+    protocol.ts            # shared request/response and SSE event types (usage, context, compaction, model, retry, thinking, local command output, tool_progress, tool result outcome, turn_stopped, parentCallId, mcp/slash meta); ClusterUsageResponse (/usage dialog data), ClusterContextResponse (/context donut data)
   main/
     index.ts               # onActivate: start bridge + stores (incl. preferences); onDeactivate: stop it
     claude/
       detect.ts            # locate Claude Code binary (or validate an explicit path override), read version
-      session-manager.ts   # session lifecycle, resume, transcript, usage/context/compaction, model, retry, pod-logs gating, user MCP + subagent wiring, thinking + local-command + nested tool events
+      session-manager.ts   # session lifecycle, resume, transcript, usage/context/compaction, model, retry, pod-logs gating, user MCP + subagent wiring, thinking + local-command + nested tool events, tool result outcome (denied by toolUseID, interrupted by open calls at Stop), turn_stopped for a turn the user stopped
       context.ts           # buildContextResponse: shape SDK getContextUsage() into ClusterContextResponse (drops free-space category)
-      permission-broker.ts # permission modes + approval request/resolve (mutating + consent-required reads + external MCP tools)
+      permission-broker.ts # permission modes + approval request/resolve (mutating + consent-required reads + external MCP tools); pending approvals resolved as stopped on Stop
+      preparation-progress.ts # kubectl preparation of a kubectl/helm call -> tool_progress events (250 ms throttle, stop on interrupt, replay)
       mcp-config.ts        # parse/validate Claude-Desktop-style user MCP JSON into SDK server configs (never throws)
       subagents.ts         # cluster-analyzer definition: read-only investigator subagent
       usage.ts             # buildUsageResponse: shape SDK accountInfo + /usage data into ClusterUsageResponse
@@ -128,9 +129,9 @@ src/
     tools/
       kube-client.ts       # requests through Main.K8sApi.KubeJsonApi.forCluster (Freelens proxy): discovery, timeout, Error conversion, connected check
       kube-format.ts       # YAML, managedFields stripping, truncation, selectFields, toDiff
-      mcp-server.ts        # createSdkMcpServer; read-only vs mutating tool name sets (freelens_ prefix, incl. kubectl/helm); pod-logs tail-lines getter
+      mcp-server.ts        # createSdkMcpServer; read-only vs mutating tool name sets (freelens_ prefix, incl. kubectl/helm); pod-logs tail-lines getter; tool_use id from the request's _meta; guard flags a thrown error isError
       approval.ts          # describeApproval: action title + backup target (incl. READ POD LOGS, RUN KUBECTL, RUN HELM, USE MCP TOOL)
-      cli-exec.ts          # shared spawn helper: binary resolution (prefers Freelens' downloaded version-matched kubectl, userData read from electron on activation), env hygiene, timeout, non-tty capture, process registry
+      cli-exec.ts          # shared spawn helper: kubectl/helm and their environment from Main.Shell for the cluster (download progress to the log and the call's preparation report, problems to the result), timeout after preparation, non-tty capture, process registry
       resources.ts         # freelens_resources tool (field selection, managedFields opt-in)
       pod-logs.ts          # freelens_pod_logs tool (previous, timestamps, configurable tail-lines default)
       warning-events.ts    # freelens_warning_events tool
@@ -141,8 +142,8 @@ src/
       delete-resource.ts   # freelens_delete_resource tool (delete / force / finalize)
       delete-pod.ts        # freelens_delete_pod tool (evict / force / finalizers)
       rollout-restart.ts   # freelens_rollout_restart tool (Deployment/DaemonSet/StatefulSet)
-      kubectl.ts           # freelens_kubectl tool (argv contract, direct spawn via cli-exec)
-      helm.ts              # freelens_helm tool (argv contract, direct spawn via cli-exec)
+      kubectl.ts           # freelens_kubectl tool (argv contract, the cluster terminal's kubectl, spawned via cli-exec)
+      helm.ts              # freelens_helm tool (argv contract, the cluster terminal's helm, spawned via cli-exec)
   renderer/
     index.tsx              # clusterPages, clusterPageMenus, appPreferences, kubeObjectMenuItems (menuItemFor)
     api/
@@ -150,14 +151,14 @@ src/
       pending-prompt.ts    # module-scoped handoff between "Ask Claude" menu entries and the chat page
     components/
       chat-page.tsx        # page (observer of BridgeStore): onboarding gate or chat view
-      chat-view.tsx        # observer of PreferencesStore: transcript + input + status strip (context donut / token counter, model + mode selectors, retry, slash popup, shortcut chips, reasoning fold, nested tool cards, command menu)
+      chat-view.tsx        # observer of PreferencesStore: transcript + input + status strip (context donut / token counter, model + mode selectors, retry, Stopped line, slash popup, shortcut chips, reasoning fold, nested tool cards, command menu)
       context-donut.tsx    # composer status-strip ring showing context-window usage %; tooltip = token counts, click opens the details modal
       context-dialog.tsx   # Context usage modal (/context): model, occupancy bar, per-category token breakdown
       context-colors.ts    # categoryColor: color of a context category (SDK color, name palette, per-index fallback)
       model-dialog.tsx     # "Switch model" modal: Default row, live model catalog, custom model id
       effort-dialog.tsx    # "Effort" modal: Default row and the reasoning-effort levels
-      tool-card.tsx        # collapsible tool call/result card
-      permission-dialog.tsx # inline approval card (proposed YAML, backup, diff)
+      tool-card.tsx        # collapsible tool call/result card; outcome icon (red card for an error, neutral denied/stopped, text fallback for old transcripts); kubectl preparation line of kubectl/helm calls (LineProgress, bytesToUnits)
+      permission-dialog.tsx # inline approval card (proposed YAML, backup, diff; Approved / Denied / neutral Stopped)
       code-viewer.tsx      # read-only code block in the host's MonacoEditor, with language label and copy button
       menu-entry.tsx       # "Ask Claude" kube object menu item, generic over the host's model class
       preferences.tsx      # preferences page body + hint (incl. MCP switch/textarea, subagent toggle, shortcuts textarea)
@@ -191,8 +192,12 @@ The Kubernetes tools send their requests through
 through the Freelens proxy and the cluster's `freelens-k8s-proxy`, with the
 kubeconfig's authentication and the cluster's proxy setting, as the rest of
 Freelens does; a cluster that is not connected in Freelens is refused.
-`freelens_kubectl` and `freelens_helm` are the exception: they spawn the
-binaries with the cluster's kubeconfig file and context.
+`freelens_kubectl` and `freelens_helm` spawn the kubectl and helm the cluster
+terminal runs, from `Main.Shell.getKubectlPath` and `getHelmPath`, in the
+environment of `Main.Shell.getEnvironment`, whose `KUBECONFIG` reaches the
+cluster through the Freelens proxy too, so they pass no `--kubeconfig` or
+`--context`. They refuse a disconnected cluster with the message of the other
+tools (`KubeClient.ensureConnected`) before they ask the host.
 
 The extension presents no custom resource, so `customResources` of the
 renderer extension stays empty, and it defines no KubeObject model of its own:
@@ -354,8 +359,9 @@ the bundle.
   import(...)` in a function that catches the failure, not at the top of a
   module. `electron` is one: under Vitest it resolves to the npm package,
   whose entry throws (or starts downloading the binary) outside Electron.
-  `loadHostUserDataPath()` in `cli-exec.ts` imports it once, on activation, to
-  read `app.getPath("userData")`, and the tests never call it.
+  Main code does not import it: what the extension needs of the host, its
+  kubectl, helm and their environment included, comes from the extension API
+  (`Main.Shell`), not from Electron or the host's file layout.
 - The Agent SDK is bundled and always gets `pathToClaudeCodeExecutable`, the
   user's Claude Code. Without it the SDK looks for its own native binary next
   to `import.meta.url`, which in the bundle is `dist/main.js`.
@@ -509,10 +515,10 @@ test: it is a shim that reads `Common`, `Main` and `Renderer` off
 mocks. The `alias` in `vitest.config.ts` points the import at
 `test/freelens-extensions.ts`, for the tests and for the extension code they
 import. The stub covers only what the tests use (the `ExtensionStore` base
-class, `Common.logger`, `Common.App.Preferences`, `Common.Clusters`,
+class, `Common.logger`, `Common.Clusters`, `Common.Util.bytesToUnits`,
 `Main.Catalog.getClusterById`, `Main.K8sApi.KubeJsonApi.forCluster`,
-`Renderer.Catalog`, and stand-ins for `Icon` and for `MonacoEditor`, which
-renders a `<textarea>`), at
+`Main.Shell`, `Renderer.Catalog`, and stand-ins for `Icon`, for `LineProgress`
+and for `MonacoEditor`, which renders a `<textarea>`), at
 runtime only; the type check still uses the real declaration. As in the host, a
 store is a singleton per class, so a test that renders a component reading a
 store sets the same instance the component reads, and drops it afterwards with
@@ -678,11 +684,18 @@ git-ignored.
   `freelens_helm` included), a pod log read (unless its preference is off)
   and every external MCP tool stop at an approval card; approve or deny it to
   let the turn go on.
-- `freelens_kubectl` and `freelens_helm` look for the host's binaries in a
-  packaged Freelens's layout. Under Freelens dev, `process.resourcesPath` is
-  Electron's own resources directory, so they fall back to a version-matched
-  download, else to `PATH`. Check which binary ran before reading a version
-  mismatch as a bug.
+- `freelens_kubectl` and `freelens_helm` run the kubectl and helm of the
+  cluster terminal, under Freelens dev too: `freelens_kubectl` with
+  `["version"]` reports the client that `kubectl version` reports in the
+  cluster's terminal. The first call on a cluster whose Kubernetes version has
+  no kubectl downloaded yet waits for the download, before its timeout starts.
+  The card shows it in a line under its header, from `tool_progress` events
+  tied to the call by the `claudecode/toolUseId` of the MCP request's `_meta`;
+  the progress is in the main log too (`[for-claude] kubectl: ...`). A problem
+  with it, such as a fallback to the bundled kubectl, stays in the card as a
+  warning and heads the result of `freelens_kubectl`. To see a download, take a
+  cluster whose Kubernetes version is not the bundled kubectl's and remove
+  that version from the download directory.
 
 ### Reading the console
 

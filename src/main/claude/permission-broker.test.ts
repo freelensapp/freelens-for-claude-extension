@@ -95,7 +95,7 @@ describe("PermissionBroker", () => {
     expect(request.data.diff).toContain("proposed");
   });
 
-  it("denies all pending requests when the turn is interrupted", async () => {
+  it("denies all pending requests when the session ends", async () => {
     const { broker, events } = makeBroker();
     const decision = broker.decideMutating("freelens_delete_resource", {
       apiVersion: "v1",
@@ -104,13 +104,31 @@ describe("PermissionBroker", () => {
       name: "cfg",
     });
     await Promise.resolve();
-    broker.denyAllPending("the turn was interrupted");
+    broker.denyAllPending("the session ended");
     expect(await decision).toEqual({ behavior: "deny", message: "The user denied the action." });
     const resolved = events.find((e) => e.type === "permission_resolved") as Extract<
       SessionEvent,
       { type: "permission_resolved" }
     >;
-    expect(resolved.data.reason).toBe("the turn was interrupted");
+    expect(resolved.data).toEqual({
+      requestId: resolved.data.requestId,
+      behavior: "deny",
+      reason: "the session ended",
+    });
+  });
+
+  it("denies all pending requests as stopped when the turn is interrupted", async () => {
+    const { broker, events } = makeBroker();
+    const decision = broker.decideMutating("freelens_kubectl", { args: ["delete", "pod", "web"] });
+    await Promise.resolve();
+    broker.stopAllPending();
+    expect(await decision).toEqual({ behavior: "deny", message: "The user denied the action." });
+    const resolved = events.find((e) => e.type === "permission_resolved") as Extract<
+      SessionEvent,
+      { type: "permission_resolved" }
+    >;
+    expect(resolved.data).toMatchObject({ behavior: "deny", stopped: true });
+    expect(resolved.data.reason).toBeUndefined();
   });
 
   it("rejects double resolution of the same request", async () => {

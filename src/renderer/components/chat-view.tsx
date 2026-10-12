@@ -32,9 +32,10 @@ import type {
   SessionErrorKind,
   SessionEvent,
   SessionEventMap,
+  ToolOutcome,
 } from "../../common/protocol";
 import type { BridgeClient } from "../api/bridge-client";
-import type { ToolChild } from "./tool-card";
+import type { ToolChild, ToolPreparation } from "./tool-card";
 
 const { Icon } = Renderer.Component;
 
@@ -51,7 +52,16 @@ type PermissionRequest = SessionEventMap["permission_request"];
 type ChatItem =
   | { kind: "user"; text: string; timestamp?: string }
   | { kind: "assistant"; text: string; reasoning?: string }
-  | { kind: "tool"; callId: string; toolName: string; input: unknown; result?: string; children?: ToolChild[] }
+  | {
+      kind: "tool";
+      callId: string;
+      toolName: string;
+      input: unknown;
+      result?: string;
+      outcome?: ToolOutcome;
+      children?: ToolChild[];
+      preparation?: ToolPreparation;
+    }
   | { kind: "tool_call"; toolName: string }
   | { kind: "tool_result"; toolName: string; summary: string }
   | { kind: "notice"; text: string }
@@ -61,7 +71,7 @@ type ChatItem =
       kind: "permission";
       requestId: string;
       request: PermissionRequest;
-      resolution?: { behavior: PermissionBehavior; reason?: string };
+      resolution?: { behavior: PermissionBehavior; reason?: string; stopped?: boolean };
     };
 
 interface UsageTotals {
@@ -155,6 +165,7 @@ function reducer(state: ChatState, action: ChatAction): ChatState {
       if (action.data.callId) {
         const callId = action.data.callId;
         const summary = action.data.summary;
+        const outcome = action.data.outcome;
         const parentId = action.data.parentCallId;
         if (
           parentId &&
@@ -171,16 +182,26 @@ function reducer(state: ChatState, action: ChatAction): ChatState {
               item.kind === "tool" && item.callId === parentId
                 ? {
                     ...item,
-                    children: (item.children ?? []).map((c) => (c.callId === callId ? { ...c, result: summary } : c)),
+                    children: (item.children ?? []).map((c) =>
+                      c.callId === callId ? { ...c, result: summary, outcome } : c,
+                    ),
                   }
                 : item,
             ),
           };
         }
+        // A preparation still shown as running ended with the call.
         return {
           ...state,
           items: state.items.map((item) =>
-            item.kind === "tool" && item.callId === callId ? { ...item, result: summary } : item,
+            item.kind === "tool" && item.callId === callId
+              ? {
+                  ...item,
+                  result: summary,
+                  outcome,
+                  preparation: item.preparation?.state === "preparing" ? undefined : item.preparation,
+                }
+              : item,
           ),
         };
       }
@@ -189,6 +210,14 @@ function reducer(state: ChatState, action: ChatAction): ChatState {
         items: [...state.items, { kind: "tool_result", toolName: action.data.toolName, summary: action.data.summary }],
       };
     }
+    case "tool_progress":
+      // Each event is a full snapshot of the call's preparation.
+      return {
+        ...state,
+        items: state.items.map((item) =>
+          item.kind === "tool" && item.callId === action.data.callId ? { ...item, preparation: action.data } : item,
+        ),
+      };
     case "usage": {
       const usage: UsageTotals = state.usage ?? { input: 0, cached: 0, output: 0 };
       return {
@@ -231,7 +260,14 @@ function reducer(state: ChatState, action: ChatAction): ChatState {
         ...state,
         items: state.items.map((item) =>
           item.kind === "permission" && item.requestId === action.data.requestId
-            ? { ...item, resolution: { behavior: action.data.behavior, reason: action.data.reason } }
+            ? {
+                ...item,
+                resolution: {
+                  behavior: action.data.behavior,
+                  reason: action.data.reason,
+                  stopped: action.data.stopped,
+                },
+              }
             : item,
         ),
       };
@@ -262,6 +298,9 @@ function reducer(state: ChatState, action: ChatAction): ChatState {
         : state.items;
       return { ...state, items, draft: "", draftReasoning: "", working: false };
     }
+    case "turn_stopped":
+      // The user stopped the turn: a muted line, not an error to retry.
+      return { ...state, items: [...state.items, { kind: "notice", text: "Stopped" }], working: false };
     case "error":
       // Retryable errors become transcript items; others stay in the banner.
       if (action.data.canRetry) {
@@ -609,7 +648,9 @@ export const ChatView = observer(function ChatView({ clusterId, client }: ChatVi
                   toolName={item.toolName}
                   input={item.input}
                   result={item.result}
+                  outcome={item.outcome}
                   childCalls={item.children}
+                  preparation={item.preparation}
                 />
               );
             }

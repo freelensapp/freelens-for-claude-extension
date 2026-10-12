@@ -38,6 +38,16 @@ function CopyableCode({ text, children }: { text: string; children: ReactNode })
 interface PermissionResolution {
   behavior: PermissionBehavior;
   reason?: string;
+  /** Nobody decided: the user stopped the turn while the request was pending. */
+  stopped?: boolean;
+}
+
+/** The tag and its class of a resolved request; a stopped one is neutral, as its stopped tool card is. */
+function resolutionTag(resolution: PermissionResolution): { label: string; className: string } {
+  if (resolution.stopped) return { label: "Stopped", className: styles.stoppedTag };
+  return resolution.behavior === "allow"
+    ? { label: "Approved", className: styles.approvedTag }
+    : { label: "Denied", className: styles.deniedTag };
 }
 
 interface PermissionDialogProps {
@@ -101,7 +111,7 @@ export function PermissionDialog({ request, resolution, onResolve }: PermissionD
   const [expanded, setExpanded] = useState(false);
 
   if (resolution) {
-    const label = resolution.behavior === "allow" ? "Approved" : "Denied";
+    const tag = resolutionTag(resolution);
     const suffix = resolution.reason ? ` (${resolution.reason})` : "";
     return (
       <div className={`${styles.card} ${styles.resolved}`}>
@@ -111,7 +121,7 @@ export function PermissionDialog({ request, resolution, onResolve }: PermissionD
           onClick={() => setExpanded((value) => !value)}
           aria-expanded={expanded}
         >
-          <span className={resolution.behavior === "allow" ? styles.approvedTag : styles.deniedTag}>{label}</span>
+          <span className={tag.className}>{tag.label}</span>
           <span className={styles.resolvedTitle}>
             {request.actionTitle}
             {suffix}

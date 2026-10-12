@@ -3,13 +3,18 @@
  * Licensed under MIT License. See LICENSE in root directory for more information.
  */
 
-import { Renderer } from "@freelensapp/extensions";
+import { Common, Renderer } from "@freelensapp/extensions";
 import { useState } from "react";
 import { stringify } from "yaml";
 import { CodeViewer } from "./code-viewer";
 import styles from "./tool-card.module.scss";
 
-const { Icon } = Renderer.Component;
+import type { SessionEventMap, ToolOutcome } from "../../common/protocol";
+
+const { Icon, LineProgress } = Renderer.Component;
+
+/** The preparation of the kubectl a kubectl or helm call runs with, as main last reported it. */
+export type ToolPreparation = SessionEventMap["tool_progress"];
 
 /** A subagent tool call rendered indented under the delegation card. */
 export interface ToolChild {
@@ -17,6 +22,7 @@ export interface ToolChild {
   toolName: string;
   input: unknown;
   result?: string;
+  outcome?: ToolOutcome;
 }
 
 /** Friendly title and Material icon for each known tool name. */
@@ -50,8 +56,122 @@ interface ToolCardProps {
   input: unknown;
   /** The tool result summary; absent while the call is still running. */
   result?: string;
+  /** How the call ended, as main reported it with the result; absent on transcripts saved before it. */
+  outcome?: ToolOutcome;
   /** Nested subagent tool calls, rendered indented inside this card. */
   childCalls?: ToolChild[];
+  /** The preparation of the call's kubectl, for `freelens_kubectl` and `freelens_helm`. */
+  preparation?: ToolPreparation;
+}
+
+/** A byte count as the cluster terminal shows it; `bytesToUnits` gives "N/A" for 0. */
+function formatBytes(bytes: number): string {
+  return bytes > 0 ? Common.Util.bytesToUnits(bytes) : "0.0B";
+}
+
+/** "41% 23.4MiB / 57.0MiB" with a known size, else the bytes received so far. */
+function formatDownload(transferred: number, total: number | undefined): string {
+  if (!total) return formatBytes(transferred);
+  const percentage = Math.min(100, Math.floor((transferred / total) * 100));
+  return `${percentage}% ${formatBytes(transferred)} / ${formatBytes(total)}`;
+}
+
+/** The tools whose call prepares a kubectl, and the binary each one runs. */
+const PREPARING_TOOLS: Record<string, string> = { freelens_kubectl: "kubectl", freelens_helm: "helm" };
+
+/** What the preparation line says, apart from the byte counter. */
+function describePreparation(preparation: ToolPreparation | undefined, binary: string) {
+  const problems = preparation?.problems ?? [];
+  let text: string | undefined;
+  if (preparation?.state === "preparing") {
+    const downloading = preparation.transferred !== undefined;
+    text = preparation.phase ?? (downloading ? "Downloading kubectl" : "Preparing kubectl");
+  } else if (preparation?.state === "failed") {
+    text = `Preparing ${binary} failed${preparation.error ? `: ${preparation.error}` : ""}`;
+  } else if (preparation?.state === "stopped") {
+    text = `Stopped while preparing ${binary}`;
+  }
+  const warning =
+    problems.length === 0
+      ? undefined
+      : `${problems.length === 1 ? "Problem" : `${problems.length} problems`} preparing kubectl`;
+  // A screen reader gets the problems in full, as it cannot see the details' tooltip.
+  const announcement = [text, warning && `${warning}: ${problems.join(" ")}`].filter(Boolean).join(". ");
+  return { text, warning, announcement };
+}
+
+/**
+ * The line under the header of a kubectl or helm call while the host prepares
+ * its kubectl: the host's phase, or the download, with the host's bar when the
+ * size is known. It stays when the preparation failed or was stopped, and a
+ * problem the preparation went on from stays as a warning; the details are in
+ * the body. For a screen reader, the status region is there from the start, so
+ * that each change is announced, and the byte counter is a progressbar, read
+ * on demand rather than announced at every tick.
+ */
+function PreparationLine({ preparation, binary }: { preparation?: ToolPreparation; binary: string }) {
+  const { text, warning, announcement } = describePreparation(preparation, binary);
+  const transferred = preparation?.state === "preparing" ? preparation.transferred : undefined;
+  const total = preparation?.total;
+  return (
+    <>
+      <span role="status" className={styles.visuallyHidden}>
+        {announcement}
+      </span>
+      {text || warning ? (
+        <div className={styles.preparation}>
+          {text ? (
+            <div className={styles.preparationRow} title={preparation?.error}>
+              {preparation?.state === "failed" ? (
+                <Icon material="error_outline" small className={styles.errorIcon} aria-hidden />
+              ) : null}
+              <span className={styles.preparationText} aria-hidden>
+                {text}
+              </span>
+              {transferred !== undefined ? (
+                <span
+                  role="progressbar"
+                  aria-label="kubectl download"
+                  aria-valuemin={total ? 0 : undefined}
+                  aria-valuemax={total || undefined}
+                  aria-valuenow={total ? transferred : undefined}
+                  aria-valuetext={formatDownload(transferred, total)}
+                  className={styles.preparationCounter}
+                >
+                  {formatDownload(transferred, total)}
+                </span>
+              ) : null}
+            </div>
+          ) : null}
+          {transferred !== undefined && total ? (
+            <LineProgress className={styles.preparationBar} value={transferred} max={total} aria-hidden />
+          ) : null}
+          {warning ? (
+            <div className={styles.preparationRow} aria-hidden title={preparation?.problems?.join("\n")}>
+              <Icon material="warning" small className={styles.warningIcon} />
+              <span className={styles.preparationText}>{warning}</span>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+/** The problems and the failure of a preparation, in the body of the card. */
+function PreparationDetails({ preparation }: { preparation?: ToolPreparation }) {
+  const details = [...(preparation?.problems ?? []), ...(preparation?.error ? [preparation.error] : [])];
+  if (details.length === 0) return null;
+  return (
+    <>
+      <div className={styles.sectionLabel}>Preparation</div>
+      <ul className={styles.preparationDetails}>
+        {details.map((detail, index) => (
+          <li key={`${index}-${detail}`}>{detail}</li>
+        ))}
+      </ul>
+    </>
+  );
 }
 
 /** The `Agent` delegation tool: renders its subagent description rather than a kube summary. */
@@ -105,14 +225,43 @@ function resultToYaml(result: string): string {
 }
 
 /**
+ * How a call with a result ended: the outcome main reported, or, for a
+ * transcript saved before main reported one, an error when the text starts
+ * with `Tool error:`, which is how the extension's own tools fail. Any other
+ * text is a success: a kubectl that exited non-zero starts with kubectl's own
+ * `Error from server`, and a non-zero exit is not an error of the call.
+ */
+function outcomeOf(result: string, outcome: ToolOutcome | undefined): ToolOutcome {
+  if (outcome) return outcome;
+  return result.trimStart().startsWith("Tool error:") ? "error" : "success";
+}
+
+/**
+ * The icon at the end of the header of a call with a result. A denied and a
+ * stopped call were the user's decisions, not failures, so they have neutral
+ * icons of their own.
+ */
+const OUTCOME_ICONS: Record<ToolOutcome, { material: string; label: string; className: string }> = {
+  success: { material: "check", label: "done", className: styles.doneCheck },
+  error: { material: "error_outline", label: "error", className: styles.errorIcon },
+  denied: { material: "block", label: "denied", className: styles.endedIcon },
+  interrupted: { material: "stop_circle", label: "stopped", className: styles.endedIcon },
+};
+
+/**
  * A collapsible card pairing a tool call with its result. Collapsed it shows the
  * short tool name, a compact argument summary, and an animated dot while the
- * call is still running; expanded it shows the input and the result summary.
+ * call is still running, or how it ended; expanded it shows the input and the
+ * result summary. A failed call has a red card. A kubectl or helm call shows
+ * the preparation of its kubectl under the header, collapsed or expanded.
  */
-export function ToolCard({ toolName, input, result, childCalls }: ToolCardProps) {
-  const running = result === undefined;
+export function ToolCard({ toolName, input, result, outcome, childCalls, preparation }: ToolCardProps) {
+  const binary = PREPARING_TOOLS[toolName];
+  // Undefined while the call is still running.
+  const ending = result === undefined ? undefined : outcomeOf(result, outcome);
+  const ended = ending ? OUTCOME_ICONS[ending] : undefined;
   const isSubagent = toolName === SUBAGENT_TOOL_NAME;
-  const isError = !running && result.trimStart().startsWith("Error");
+  const isError = ending === "error";
   const { title, material } = describeTool(toolName);
   const description = isSubagent ? String(asRecord(input).description ?? "") : "";
   const summary = isSubagent ? description : summarizeArgs(input);
@@ -127,18 +276,18 @@ export function ToolCard({ toolName, input, result, childCalls }: ToolCardProps)
         <span className={styles.title}>{title}</span>
         {summary ? <span className={styles.args}>{summary}</span> : null}
         <span className={styles.status}>
-          {running ? (
-            <span className={styles.runningDot} aria-label="running" />
-          ) : isError ? (
-            <Icon material="error_outline" small className={styles.errorIcon} aria-label="error" />
+          {ended ? (
+            <Icon material={ended.material} small className={ended.className} aria-label={ended.label} />
           ) : (
-            <Icon material="check" small className={styles.doneCheck} aria-label="done" />
+            <span className={styles.runningDot} aria-label="running" />
           )}
         </span>
       </button>
+      {binary ? <PreparationLine preparation={preparation} binary={binary} /> : null}
       {open ? (
         <div className={styles.body}>
           <div className={styles.rawName}>{toolName}</div>
+          {binary ? <PreparationDetails preparation={preparation} /> : null}
           <div className={styles.sectionLabel}>Input</div>
           <CodeViewer value={toYaml(input)} language="yaml" />
           {result !== undefined ? (
@@ -150,7 +299,13 @@ export function ToolCard({ toolName, input, result, childCalls }: ToolCardProps)
           {childCalls && childCalls.length > 0 ? (
             <div className={styles.children}>
               {childCalls.map((child) => (
-                <ToolCard key={child.callId} toolName={child.toolName} input={child.input} result={child.result} />
+                <ToolCard
+                  key={child.callId}
+                  toolName={child.toolName}
+                  input={child.input}
+                  result={child.result}
+                  outcome={child.outcome}
+                />
               ))}
             </div>
           ) : null}

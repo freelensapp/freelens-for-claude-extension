@@ -3,170 +3,19 @@
  * Licensed under MIT License. See LICENSE in root directory for more information.
  */
 
-import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   type CliChild,
-  type CliDeps,
-  cleanCliEnv,
   type ExecFileFn,
   formatCliResult,
   KILL_GRACE_MS,
+  type PreparedCli,
   ProcessRegistry,
   quoteCommand,
-  resolveHelmBinary,
-  resolveKubectlBinary,
   runCli,
 } from "./cli-exec";
 import { LOG_BYTE_CAP } from "./kube-format";
 import type { ExecFileException } from "node:child_process";
-
-/** Build injectable deps with sensible defaults for a stubbed environment. */
-function makeDeps(overrides: Partial<CliDeps> = {}): CliDeps {
-  return {
-    env: {},
-    resourcesPath: "/resources",
-    arch: "x64",
-    platform: "linux",
-    fileExists: () => false,
-    listDir: () => [],
-    getKubectlPath: () => undefined,
-    getUserDataPath: () => undefined,
-    execFile: (() => ({ kill: () => true })) as unknown as ExecFileFn,
-    ...overrides,
-  };
-}
-
-// Production resolves every path through `node:path` `join`, which emits native
-// separators (`\` on Windows, `/` elsewhere). Build the fixtures' stub and
-// assertion paths the same way so they track the host separator and the suite
-// passes on a Windows runner as well as POSIX.
-const bundledPath = (name: string, arch = "x64") => join("/resources", arch, name);
-const downloadDir = (userData = "/data") => join(userData, "binaries", "kubectl");
-const downloadedPath = (version: string, name = "kubectl", userData = "/data") =>
-  join(downloadDir(userData), version, name);
-
-describe("binary resolution", () => {
-  it("prefers the configured kubectl path when non-empty", () => {
-    const deps = makeDeps({ getKubectlPath: () => "  /opt/kubectl  ", fileExists: () => true });
-    expect(resolveKubectlBinary(deps)).toBe("/opt/kubectl");
-  });
-
-  it("falls back to the bundled kubectl when the preference is empty and the file exists", () => {
-    const seen: string[] = [];
-    const deps = makeDeps({
-      getKubectlPath: () => "",
-      fileExists: (path) => {
-        seen.push(path);
-        return true;
-      },
-    });
-    expect(resolveKubectlBinary(deps)).toBe(bundledPath("kubectl"));
-    expect(seen).toContain(bundledPath("kubectl"));
-  });
-
-  it("falls back to the bare kubectl name when nothing else resolves", () => {
-    const deps = makeDeps({ getKubectlPath: () => undefined, fileExists: () => false });
-    expect(resolveKubectlBinary(deps)).toBe("kubectl");
-  });
-
-  it("adds the .exe suffix to the bundled binary on Windows", () => {
-    const deps = makeDeps({ platform: "win32", fileExists: (path) => path === bundledPath("kubectl.exe") });
-    expect(resolveKubectlBinary(deps)).toBe(bundledPath("kubectl.exe"));
-  });
-
-  it("prefers a downloaded version-matched kubectl over the bundled binary", () => {
-    const deps = makeDeps({
-      getUserDataPath: () => "/data",
-      listDir: (path) => (path === downloadDir() ? ["1.29.5"] : []),
-      fileExists: (path) => path === downloadedPath("1.29.5") || path === bundledPath("kubectl"),
-    });
-    expect(resolveKubectlBinary(deps, "v1.29.5")).toBe(downloadedPath("1.29.5"));
-  });
-
-  it("matches the downloaded kubectl by major.minor and picks the highest patch", () => {
-    const deps = makeDeps({
-      getUserDataPath: () => "/data",
-      listDir: (path) => (path === downloadDir() ? ["1.29.1", "1.29.11", "1.30.0"] : []),
-      fileExists: (path) => path.startsWith(downloadDir()),
-    });
-    // Cluster reports v1.29.4+patch: the 1.29.x downloads match, 1.29.11 wins on patch, 1.30.0 is ignored.
-    expect(resolveKubectlBinary(deps, "v1.29.4+patch")).toBe(downloadedPath("1.29.11"));
-  });
-
-  it("adds the .exe suffix to the downloaded binary on Windows", () => {
-    const deps = makeDeps({
-      platform: "win32",
-      getUserDataPath: () => "C:/data",
-      listDir: () => ["1.31.0"],
-      fileExists: (path) => path === downloadedPath("1.31.0", "kubectl.exe", "C:/data"),
-    });
-    expect(resolveKubectlBinary(deps, "1.31.2")).toBe(downloadedPath("1.31.0", "kubectl.exe", "C:/data"));
-  });
-
-  it("falls back to the bundled kubectl when no downloaded version matches the cluster", () => {
-    const deps = makeDeps({
-      getUserDataPath: () => "/data",
-      listDir: () => ["1.28.0", "1.30.0"],
-      fileExists: (path) => path === bundledPath("kubectl"),
-    });
-    expect(resolveKubectlBinary(deps, "v1.29.5")).toBe(bundledPath("kubectl"));
-  });
-
-  it("ignores a matched directory whose kubectl file is missing", () => {
-    const deps = makeDeps({
-      getUserDataPath: () => "/data",
-      listDir: () => ["1.29.5"],
-      // The version directory exists but the binary inside it does not; only the bundled file does.
-      fileExists: (path) => path === bundledPath("kubectl"),
-    });
-    expect(resolveKubectlBinary(deps, "v1.29.5")).toBe(bundledPath("kubectl"));
-  });
-
-  it("prefers the explicit kubectl preference over any downloaded version", () => {
-    const deps = makeDeps({
-      getKubectlPath: () => "/opt/kubectl",
-      getUserDataPath: () => "/data",
-      listDir: () => ["1.29.5"],
-      fileExists: () => true,
-    });
-    expect(resolveKubectlBinary(deps, "v1.29.5")).toBe("/opt/kubectl");
-  });
-
-  it("resolves helm to the bundled binary or the bare name, ignoring the kubectl preference", () => {
-    const bundled = makeDeps({
-      getKubectlPath: () => "/opt/kubectl",
-      fileExists: (path) => path === bundledPath("helm"),
-    });
-    expect(resolveHelmBinary(bundled)).toBe(bundledPath("helm"));
-    const bare = makeDeps({ getKubectlPath: () => "/opt/kubectl", fileExists: () => false });
-    expect(resolveHelmBinary(bare)).toBe("helm");
-  });
-});
-
-describe("cleanCliEnv", () => {
-  it("removes every case-variant of KUBECONFIG and DEBUG, preserving everything else", () => {
-    const cleaned = cleanCliEnv({
-      KUBECONFIG: "/a",
-      kubeconfig: "/b",
-      Kubeconfig: "/c",
-      KubeConfig: "/d",
-      DEBUG: "1",
-      debug: "2",
-      Debug: "3",
-      PATH: "/usr/bin",
-      HOME: "/home/x",
-      MY_TOKEN: "secret",
-    });
-    expect(cleaned).toEqual({ PATH: "/usr/bin", HOME: "/home/x", MY_TOKEN: "secret" });
-  });
-
-  it("does not mutate the source environment", () => {
-    const source = { KUBECONFIG: "/a", PATH: "/usr/bin" };
-    cleanCliEnv(source);
-    expect(source.KUBECONFIG).toBe("/a");
-  });
-});
 
 describe("quoteCommand", () => {
   it("leaves safe tokens bare and single-quotes tokens needing it", () => {
@@ -209,7 +58,13 @@ describe("formatCliResult", () => {
 });
 
 describe("runCli", () => {
-  it("passes a cleaned env and captures the result", async () => {
+  const prepared: PreparedCli = {
+    binary: "/opt/kubectl",
+    env: { KUBECONFIG: "/tmp/kubeconfig-c1", PATH: "/usr/bin" },
+    problems: [],
+  };
+
+  it("passes the prepared environment as it is and captures the result", async () => {
     let captured: { file: string; args: readonly string[]; env?: NodeJS.ProcessEnv } | undefined;
     const execFileFn: ExecFileFn = (file, args, options, callback) => {
       captured = { file, args, env: options.env };
@@ -218,18 +73,56 @@ describe("runCli", () => {
     };
     const registry = new ProcessRegistry();
     const result = await runCli({
-      binary: "/opt/kubectl",
+      prepared,
       label: "kubectl",
       args: ["get", "pods"],
       timeoutMs: 1000,
-      deps: makeDeps({ env: { KUBECONFIG: "/a", PATH: "/usr/bin" }, execFile: execFileFn }),
+      generation: registry.generation,
+      execFile: execFileFn,
       registry,
     });
     expect(result).toBe("ok\n\n[exit code 0]");
     expect(captured?.file).toBe("/opt/kubectl");
-    expect(captured?.env).toEqual({ PATH: "/usr/bin" });
+    expect(captured?.args).toEqual(["get", "pods"]);
+    expect(captured?.env).toEqual({ KUBECONFIG: "/tmp/kubeconfig-c1", PATH: "/usr/bin" });
     // The child is untracked again once it completes.
     expect(registry.size).toBe(0);
+  });
+
+  it("puts the problems of the preparation before the output", async () => {
+    const execFileFn: ExecFileFn = (_file, _args, _options, callback) => {
+      queueMicrotask(() => callback(null, "ok", ""));
+      return { kill: () => true };
+    };
+    const registry = new ProcessRegistry();
+    const result = await runCli({
+      prepared: { ...prepared, problems: ["first problem", "second problem"] },
+      label: "kubectl",
+      args: ["version"],
+      timeoutMs: 1000,
+      generation: registry.generation,
+      execFile: execFileFn,
+      registry,
+    });
+    expect(result).toBe("[Freelens: first problem]\n\n[Freelens: second problem]\n\nok\n\n[exit code 0]");
+  });
+
+  it("starts nothing once the registry has killed its children since the generation was read", async () => {
+    const execFileFn = vi.fn<ExecFileFn>();
+    const registry = new ProcessRegistry();
+    const generation = registry.generation;
+    registry.killAll();
+    const result = await runCli({
+      prepared,
+      label: "helm",
+      args: ["uninstall", "web"],
+      timeoutMs: 1000,
+      generation,
+      execFile: execFileFn,
+      registry,
+    });
+    expect(result).toBe("[helm was not started: the turn was interrupted while it was being prepared]");
+    expect(execFileFn).not.toHaveBeenCalled();
   });
 });
 
@@ -261,5 +154,14 @@ describe("ProcessRegistry.killAll", () => {
     const registry = new ProcessRegistry();
     expect(() => registry.killAll()).not.toThrow();
     vi.advanceTimersByTime(KILL_GRACE_MS);
+  });
+
+  it("counts every call in the generation, with or without children", () => {
+    const registry = new ProcessRegistry();
+    expect(registry.generation).toBe(0);
+    registry.killAll();
+    registry.add({ kill: () => true });
+    registry.killAll();
+    expect(registry.generation).toBe(2);
   });
 });

@@ -22,6 +22,7 @@ import { runWarningEvents, type WarningEventsInput, warningEventsSchema } from "
 
 import type { McpSdkServerConfigWithInstance } from "@anthropic-ai/claude-agent-sdk";
 
+import type { PreparationReports } from "./cli-exec";
 import type { KubeClient } from "./kube-client";
 
 /** MCP server name; combined with tool names to form `mcp__<server>__<tool>`. */
@@ -113,43 +114,48 @@ function textResult(text: string) {
 }
 
 /**
- * A best-effort, memoized getter for the cluster's API server version, used by
- * the kubectl tool to prefer a version-matched downloaded binary. The version
- * is fetched at most once per successful call and cached; a failure resolves to
- * undefined (falling back to the bundled kubectl) and is retried on the next
- * call rather than being cached.
+ * Run a tool body, converting any thrown error into an explanatory result
+ * flagged `isError`, which Claude Code passes on as the `is_error` of the
+ * call's `tool_result`.
  */
-function makeClusterVersionGetter(client: KubeClient): () => Promise<string | undefined> {
-  let cached: string | undefined;
-  return async () => {
-    if (cached) return cached;
-    const info = await client.version();
-    cached = info.gitVersion;
-    return cached;
-  };
-}
-
-/** Run a tool body, converting any thrown error into an explanatory result. */
 async function guard(run: () => Promise<string>) {
   try {
     return textResult(await run());
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    return textResult(`Tool error: ${message}`);
+    return { ...textResult(`Tool error: ${message}`), isError: true };
   }
+}
+
+/** The `_meta` key under which Claude Code sends the `tool_use` id of an MCP tool call. */
+const TOOL_USE_ID_META_KEY = "claudecode/toolUseId";
+
+/**
+ * The `tool_use` id of the call a tool handler runs for, from the `_meta` of
+ * the MCP request, which the SDK passes to the handler in `extra`. Undefined
+ * when Claude Code does not send it.
+ */
+export function toolUseIdOf(extra: unknown): string | undefined {
+  if (!extra || typeof extra !== "object") return undefined;
+  const meta = (extra as { _meta?: unknown })._meta;
+  if (!meta || typeof meta !== "object") return undefined;
+  const id = (meta as Record<string, unknown>)[TOOL_USE_ID_META_KEY];
+  return typeof id === "string" && id.length > 0 ? id : undefined;
 }
 
 /**
  * Build an in-process MCP server exposing the Kubernetes tools, bound to a
  * single cluster's kube client. `podLogsTailLines` is read lazily on each call
- * so a preference change applies without rebuilding the server.
+ * so a preference change applies without rebuilding the server. The kubectl
+ * and helm tools report the preparation of their kubectl to `preparations`.
  */
 export function createKubeMcpServer(
   client: KubeClient,
   podLogsTailLines: () => number = () => DEFAULT_POD_LOGS_TAIL_LINES,
   registry: ProcessRegistry = new ProcessRegistry(),
+  preparations?: PreparationReports,
 ): McpSdkServerConfigWithInstance {
-  const getClusterVersion = makeClusterVersionGetter(client);
+  const cli = { clusterId: client.clusterId, ensureConnected: client.ensureConnected, registry, preparations };
   return createSdkMcpServer({
     name: MCP_SERVER_NAME,
     version: "0.1.0",
@@ -202,18 +208,11 @@ export function createKubeMcpServer(
         rolloutRestartSchema,
         (args: RolloutRestartInput) => guard(() => runRolloutRestart(client, args)),
       ),
-      tool("freelens_kubectl", TOOL_DESCRIPTIONS.freelens_kubectl, kubectlSchema, (args: KubectlInput) =>
-        guard(() =>
-          runKubectl(
-            { kubeConfigPath: client.kubeConfigPath, contextName: client.contextName, registry, getClusterVersion },
-            args,
-          ),
-        ),
+      tool("freelens_kubectl", TOOL_DESCRIPTIONS.freelens_kubectl, kubectlSchema, (args: KubectlInput, extra) =>
+        guard(() => runKubectl(cli, args, toolUseIdOf(extra))),
       ),
-      tool("freelens_helm", TOOL_DESCRIPTIONS.freelens_helm, helmSchema, (args: HelmInput) =>
-        guard(() =>
-          runHelm({ kubeConfigPath: client.kubeConfigPath, contextName: client.contextName, registry }, args),
-        ),
+      tool("freelens_helm", TOOL_DESCRIPTIONS.freelens_helm, helmSchema, (args: HelmInput, extra) =>
+        guard(() => runHelm(cli, args, toolUseIdOf(extra))),
       ),
     ],
   });

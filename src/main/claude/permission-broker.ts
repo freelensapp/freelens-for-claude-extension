@@ -152,19 +152,34 @@ export class PermissionBroker {
     return "not_found";
   }
 
-  /** Deny every pending request (turn interrupted, session disposed, etc.). */
+  /** Deny every pending request (session ended, session disposed, etc.). */
   denyAllPending(reason: string): void {
     for (const requestId of [...this.pending.keys()]) {
       this.settle(requestId, "deny", reason);
     }
   }
 
-  private settle(requestId: string, behavior: PermissionBehavior, reason?: string): "settled" | "already" | "unknown" {
+  /**
+   * Deny every pending request because the user stopped the turn. Nobody
+   * decided against them, so they are resolved as stopped, not as denied.
+   */
+  stopAllPending(): void {
+    for (const requestId of [...this.pending.keys()]) {
+      this.settle(requestId, "deny", undefined, true);
+    }
+  }
+
+  private settle(
+    requestId: string,
+    behavior: PermissionBehavior,
+    reason?: string,
+    stopped = false,
+  ): "settled" | "already" | "unknown" {
     const pending = this.pending.get(requestId);
     if (pending) {
       this.pending.delete(requestId);
       this.resolvedIds.add(requestId);
-      this.emit(sessionEvent("permission_resolved", { requestId, behavior, reason }));
+      this.emit(sessionEvent("permission_resolved", { requestId, behavior, reason, ...(stopped ? { stopped } : {}) }));
       pending.resolve(behavior);
       return "settled";
     }

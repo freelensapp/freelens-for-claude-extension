@@ -11,7 +11,6 @@ import { ChatSessionStore } from "../common/session-store";
 import { BridgeServer } from "./bridge/server";
 import { type DetectionResult, detectClaudeCode } from "./claude/detect";
 import { SessionManager } from "./claude/session-manager";
-import { loadHostUserDataPath } from "./tools/cli-exec";
 
 import type { StatusResponse } from "../common/protocol";
 
@@ -24,8 +23,6 @@ export default class ForClaudeMain extends Main.LensExtension {
 
   async onActivate(): Promise<void> {
     try {
-      await loadHostUserDataPath();
-
       const store = BridgeStore.createInstance<BridgeStore>();
       store.loadExtension(this);
 

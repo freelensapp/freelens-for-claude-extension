@@ -6,6 +6,7 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Main } from "@freelensapp/extensions";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { PreferencesState } from "../../common/preferences-store";
@@ -71,12 +72,22 @@ vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
     sdk.queries.push(q);
     return q;
   },
-  createSdkMcpServer: (config: { name: string }) => ({ type: "sdk", name: config.name, instance: {} }),
-  tool: (name: string) => ({ name }),
+  createSdkMcpServer: (config: { name: string; tools?: unknown[] }) => ({
+    type: "sdk",
+    name: config.name,
+    instance: {},
+    tools: config.tools,
+  }),
+  tool: (name: string, _description: string, _schema: unknown, handler: unknown) => ({ name, handler }),
 }));
 
 vi.mock("../tools/kube-client", () => ({
-  getKubeClient: () => ({ clusterName: "test-cluster", read: async () => ({}) }),
+  getKubeClient: (clusterId: string) => ({
+    clusterId,
+    clusterName: "test-cluster",
+    ensureConnected: () => {},
+    read: async () => ({}),
+  }),
   disposeKubeClient: () => {},
 }));
 
@@ -237,6 +248,241 @@ describe("slash commands", () => {
     await flush();
     const output = events.find((event) => event.type === "local_command_output");
     expect(output?.type === "local_command_output" && output.data.content).toBe("Conversation cleared by /clear");
+  });
+});
+
+describe("kubectl preparation", () => {
+  /** The handler the session's built-in MCP server registered for a tool. */
+  function toolHandler(name: string): (args: unknown, extra: unknown) => Promise<unknown> {
+    const server = sdk.queries.at(-1)?.options.mcpServers["freelens-kube"];
+    return server.tools.find((entry: { name: string }) => entry.name === name).handler;
+  }
+
+  it("sends it as tool_progress for the call, replays it to a late subscriber, and stops it on interrupt", async () => {
+    // The host never finishes preparing kubectl.
+    vi.mocked(Main.Shell.getKubectlPath).mockImplementationOnce((_clusterId, options) => {
+      (options as Main.Shell.KubectlDownloadOptions).onPhase?.("Verifying kubectl v1.37.0 ...");
+      return new Promise<string>(() => {});
+    });
+    vi.mocked(Main.Shell.getEnvironment).mockImplementationOnce(() => new Promise(() => {}));
+    const manager = makeManager();
+    const events: SessionEvent[] = [];
+    manager.subscribe("p1", (event) => events.push(event));
+    await manager.sendMessage("p1", "which kubectl?");
+    void toolHandler("freelens_kubectl")({ args: ["version"] }, { _meta: { "claudecode/toolUseId": "toolu_9" } });
+    await flush();
+
+    const preparing = { callId: "toolu_9", state: "preparing", phase: "Verifying kubectl v1.37.0 ..." };
+    expect(events.filter((event) => event.type === "tool_progress").map((event) => event.data)).toEqual([preparing]);
+
+    const reopened: SessionEvent[] = [];
+    manager.subscribe("p1", (event) => reopened.push(event));
+    expect(reopened.filter((event) => event.type === "tool_progress").map((event) => event.data)).toEqual([preparing]);
+
+    await manager.interrupt("p1");
+    expect(events.filter((event) => event.type === "tool_progress").at(-1)?.data).toEqual({
+      callId: "toolu_9",
+      state: "stopped",
+    });
+
+    // The stop is in the transcript; the preparation is not running any more.
+    const replay: SessionEvent[] = [];
+    manager.subscribe("p1", (event) => replay.push(event));
+    expect(replay.filter((event) => event.type === "tool_progress").map((event) => event.data)).toEqual([
+      { callId: "toolu_9", state: "stopped" },
+    ]);
+  });
+});
+
+describe("tool result outcome", () => {
+  const RESOURCES = "mcp__freelens-kube__freelens_resources";
+  const DELETE_POD = "mcp__freelens-kube__freelens_delete_pod";
+
+  /** A started session on `clusterId`, its events, and helpers that feed the fake query. */
+  async function startSession(clusterId: string) {
+    const manager = makeManager();
+    const events: SessionEvent[] = [];
+    manager.subscribe(clusterId, (event) => events.push(event));
+    await manager.sendMessage(clusterId, "go");
+    const q = sdk.queries.at(-1);
+    return {
+      manager,
+      events,
+      call: (id: string, name: string, parentCallId: string | null = null) =>
+        q?.emit({
+          type: "assistant",
+          parent_tool_use_id: parentCallId,
+          message: { content: [{ type: "tool_use", id, name, input: {} }] },
+        }),
+      result: (id: string, isError?: boolean, parentCallId: string | null = null) =>
+        q?.emit({
+          type: "user",
+          parent_tool_use_id: parentCallId,
+          message: {
+            content: [
+              {
+                type: "tool_result",
+                tool_use_id: id,
+                content: "text",
+                ...(isError === undefined ? {} : { is_error: isError }),
+              },
+            ],
+          },
+        }),
+      canUseTool: (name: string, toolUseID: string, signal = new AbortController().signal) =>
+        q?.options.canUseTool(name, {}, { signal, toolUseID }),
+      emit: (message: unknown) => q?.emit(message),
+      outcome: (id: string) => {
+        const event = events.find((entry) => entry.type === "tool_result" && entry.data.callId === id);
+        return event?.type === "tool_result" ? event.data.outcome : undefined;
+      },
+    };
+  }
+
+  it("is success for a result without is_error, and error for one with it", async () => {
+    const session = await startSession("o1");
+    session.call("ok", RESOURCES);
+    session.result("ok");
+    session.call("failed", RESOURCES);
+    session.result("failed", true);
+    await flush();
+    expect(session.outcome("ok")).toBe("success");
+    expect(session.outcome("failed")).toBe("error");
+  });
+
+  it("is denied for a call that canUseTool refused, Read only mode included", async () => {
+    const session = await startSession("o2");
+    session.manager.setPermissionMode("o2", "readOnly");
+    session.call("read-only", DELETE_POD);
+    await expect(session.canUseTool(DELETE_POD, "read-only")).resolves.toMatchObject({ behavior: "deny" });
+    session.call("not-permitted", "Bash");
+    await expect(session.canUseTool("Bash", "not-permitted")).resolves.toMatchObject({ behavior: "deny" });
+    session.result("read-only", true);
+    session.result("not-permitted", true);
+    await flush();
+    expect(session.outcome("read-only")).toBe("denied");
+    expect(session.outcome("not-permitted")).toBe("denied");
+  });
+
+  it("is denied for a call that Deny on its approval card refused, also inside a subagent", async () => {
+    const session = await startSession("o3");
+    session.call("agent-1", "Agent");
+    session.call("nested", DELETE_POD, "agent-1");
+    const decision = session.canUseTool(DELETE_POD, "nested");
+    await flush();
+    const request = session.events.find((event) => event.type === "permission_request");
+    expect(request?.type).toBe("permission_request");
+    session.manager.resolvePermission(request?.type === "permission_request" ? request.data.requestId : "", "deny");
+    await expect(decision).resolves.toMatchObject({ behavior: "deny" });
+    session.result("nested", true, "agent-1");
+    session.result("agent-1");
+    await flush();
+    expect(session.outcome("nested")).toBe("denied");
+    expect(session.outcome("agent-1")).toBe("success");
+  });
+
+  it("is denied for a call that Claude Code denied without asking canUseTool", async () => {
+    const session = await startSession("o4");
+    session.call("ruled-out", RESOURCES);
+    session.emit({
+      type: "system",
+      subtype: "permission_denied",
+      tool_name: RESOURCES,
+      tool_use_id: "ruled-out",
+      message: "denied by rule",
+    });
+    session.result("ruled-out", true);
+    await flush();
+    expect(session.outcome("ruled-out")).toBe("denied");
+  });
+
+  it("is interrupted for a call open when the turn was stopped, with or without is_error", async () => {
+    const session = await startSession("o5");
+    session.call("done", RESOURCES);
+    session.result("done");
+    session.call("running", RESOURCES);
+    session.call("killed", "mcp__freelens-kube__freelens_kubectl");
+    await flush();
+    await session.manager.interrupt("o5");
+    session.result("running", true);
+    session.result("killed");
+    // A call of the next turn is not affected by the earlier stop.
+    session.call("later", RESOURCES);
+    session.result("later", true);
+    await flush();
+    expect(session.outcome("done")).toBe("success");
+    expect(session.outcome("running")).toBe("interrupted");
+    expect(session.outcome("killed")).toBe("interrupted");
+    expect(session.outcome("later")).toBe("error");
+  });
+
+  it("is interrupted, not denied, for a call whose approval the stop denied", async () => {
+    const session = await startSession("o6");
+    session.call("pending", DELETE_POD);
+    const controller = new AbortController();
+    const decision = session.canUseTool(DELETE_POD, "pending", controller.signal);
+    await flush();
+    await session.manager.interrupt("o6");
+    await expect(decision).resolves.toMatchObject({ behavior: "deny" });
+    session.result("pending", true);
+    await flush();
+    expect(session.outcome("pending")).toBe("interrupted");
+    // Its approval card shows it stopped too, not denied.
+    const resolved = session.events.find((event) => event.type === "permission_resolved");
+    expect(resolved?.type === "permission_resolved" && resolved.data.stopped).toBe(true);
+  });
+
+  it("is not denied for a call whose approval the abort signal ended", async () => {
+    const session = await startSession("o7");
+    session.call("aborted", DELETE_POD);
+    const controller = new AbortController();
+    const decision = session.canUseTool(DELETE_POD, "aborted", controller.signal);
+    await flush();
+    controller.abort();
+    await expect(decision).resolves.toMatchObject({ behavior: "deny" });
+    session.result("aborted", true);
+    await flush();
+    // Nobody decided against the call; its result goes by its flag.
+    expect(session.outcome("aborted")).toBe("error");
+  });
+
+  it("ends a stopped turn with turn_stopped, persisted, instead of a retryable error", async () => {
+    const session = await startSession("o9");
+    session.call("watching", "mcp__freelens-kube__freelens_kubectl");
+    await flush();
+    await session.manager.interrupt("o9");
+    session.result("watching", true);
+    session.emit({ type: "result", subtype: "error_during_execution" });
+    await flush();
+    const types = (events: SessionEvent[]) => events.map((event) => event.type);
+    expect(types(session.events)).toContain("turn_stopped");
+    expect(types(session.events)).not.toContain("error");
+    const replay: SessionEvent[] = [];
+    session.manager.subscribe("o9", (event) => replay.push(event));
+    expect(types(replay)).toContain("turn_stopped");
+  });
+
+  it("keeps the retryable error for a turn that fails without a stop, also after a stopped one", async () => {
+    const session = await startSession("o10");
+    await session.manager.interrupt("o10");
+    session.emit({ type: "result", subtype: "error_during_execution" });
+    await session.manager.sendMessage("o10", "again");
+    session.emit({ type: "result", subtype: "error_during_execution" });
+    await flush();
+    const ends = session.events.filter((event) => event.type === "turn_stopped" || event.type === "error");
+    expect(ends.map((event) => event.type)).toEqual(["turn_stopped", "error"]);
+    expect(ends[1]?.type === "error" && ends[1].data.canRetry).toBe(true);
+  });
+
+  it("persists the outcome with the result, so it replays after a remount", async () => {
+    const session = await startSession("o8");
+    session.call("failed", RESOURCES);
+    session.result("failed", true);
+    await flush();
+    const replay: SessionEvent[] = [];
+    session.manager.subscribe("o8", (event) => replay.push(event));
+    const result = replay.find((event) => event.type === "tool_result" && event.data.callId === "failed");
+    expect(result?.type === "tool_result" && result.data.outcome).toBe("error");
   });
 });
 

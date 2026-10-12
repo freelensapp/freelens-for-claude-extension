@@ -209,6 +209,20 @@ export type PermissionMode = "readOnly" | "approve" | "acceptAll";
 export type PermissionBehavior = "allow" | "deny";
 
 /**
+ * How a tool call ended, as main tells it apart. Claude Code marks an error,
+ * a denial and a stopped call alike with `is_error`, so main decides from what
+ * it knows of the call rather than from the text of its result.
+ * - `success`: the tool returned a result; a non-zero exit of kubectl or helm
+ *   is one, as the command ran.
+ * - `error`: the call failed in the tool, or Claude Code marked its result
+ *   `is_error` for a reason of its own.
+ * - `denied`: the call was not permitted: Deny on its approval card, Read only
+ *   mode, or a tool the chat does not allow.
+ * - `interrupted`: the call was still open when the user stopped the turn.
+ */
+export type ToolOutcome = "success" | "error" | "denied" | "interrupted";
+
+/**
  * SSE event payloads, keyed by event type. Each entry is serialized as one
  * `data:` line with a matching `event:` type on the wire.
  */
@@ -231,9 +245,39 @@ export interface SessionEventMap {
   /**
    * `callId` is the block's `tool_use_id`, absent for replayed M1 transcripts.
    * `parentCallId` is set when the result belongs to a subagent tool call.
+   * `outcome` is absent on transcripts saved before it was added.
    */
-  tool_result: { toolName: string; summary: string; callId?: string; parentCallId?: string };
+  tool_result: { toolName: string; summary: string; callId?: string; parentCallId?: string; outcome?: ToolOutcome };
+  /**
+   * The preparation of the kubectl a `freelens_kubectl` or `freelens_helm`
+   * call runs with (download, verification, waiting for another preparation),
+   * as the host reports it. `callId` is the call's `tool_use` id. Each event is
+   * a full snapshot, not a delta. `preparing` events are live-only, and a new
+   * subscriber gets the latest one of a call still preparing; the event that
+   * ends a preparation with something to show (`failed`, `stopped`, or
+   * `problems`) is persisted.
+   */
+  tool_progress: {
+    callId: string;
+    state: "preparing" | "done" | "failed" | "stopped";
+    /** The host's last phase message, verbatim; absent while downloading. */
+    phase?: string;
+    /** Bytes received so far while kubectl downloads. */
+    transferred?: number;
+    /** The size of the download, when the server sent one. */
+    total?: number;
+    /** The problems the preparation went on from, in the order reported. */
+    problems?: string[];
+    /** Why the preparation failed (`failed` only). */
+    error?: string;
+  };
   turn_complete: Record<string, never>;
+  /**
+   * The turn the user stopped ended without completing. Sent instead of the
+   * `error` that such an end gives otherwise, as the stop was the user's
+   * decision, not a failure. Persisted.
+   */
+  turn_stopped: Record<string, never>;
   /** Per-turn token usage from the SDK `result` message. */
   usage: { inputTokens: number; cachedInputTokens: number; outputTokens: number };
   /**
@@ -261,8 +305,12 @@ export interface SessionEventMap {
     /** Unified diff from `currentYaml` to the proposed manifest (updates only). */
     diff?: string;
   };
-  /** A pending permission request was resolved (by the user or automatically). */
-  permission_resolved: { requestId: string; behavior: PermissionBehavior; reason?: string };
+  /**
+   * A pending permission request was resolved (by the user or automatically).
+   * `stopped` marks a request that nobody decided: the user stopped the turn
+   * while it was pending, so it is denied to the model and shown as stopped.
+   */
+  permission_resolved: { requestId: string; behavior: PermissionBehavior; reason?: string; stopped?: boolean };
   /** Session metadata pushed to a new subscriber before the transcript replay. */
   session_meta: {
     permissionMode: PermissionMode;

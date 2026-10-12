@@ -20,9 +20,15 @@ function MonacoEditor({ value }: { value?: string }) {
 }
 
 // Minimal stand-in for the host icon: the material name as text, or nothing
-// for an SVG icon.
-function Icon({ material }: { material?: string }) {
-  return React.createElement("i", null, material);
+// for an SVG icon, with its accessible label.
+function Icon({ material, "aria-label": label }: { material?: string; "aria-label"?: string }) {
+  return React.createElement("i", { "aria-label": label }, material);
+}
+
+// Minimal stand-in for the host progress bar: its value and maximum as data
+// attributes.
+function LineProgress({ value, max }: { value: number; max?: number }) {
+  return React.createElement("div", { "data-line-progress": `${value}/${max ?? 100}` });
 }
 
 export const Renderer = {
@@ -31,6 +37,7 @@ export const Renderer = {
   },
   Component: {
     Icon,
+    LineProgress,
     MonacoEditor,
   },
 };
@@ -70,11 +77,6 @@ export const Common = {
     warn: vi.fn(),
     error: vi.fn(),
   },
-  App: {
-    Preferences: {
-      getKubectlPath: vi.fn<() => string | undefined>(() => undefined),
-    },
-  },
   Clusters: {
     ClusterConnectionStatus: {
       CONNECTING: "connecting",
@@ -86,6 +88,15 @@ export const Common = {
   Store: {
     ExtensionStore,
   },
+  Util: {
+    // The host's formatting: binary units, one decimal, "N/A" for no bytes.
+    bytesToUnits: (bytes: number): string => {
+      if (bytes <= 0 || !Number.isFinite(bytes)) return "N/A";
+      const units = ["B", "KiB", "MiB", "GiB", "TiB", "PiB", "EiB"];
+      const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+      return `${(bytes / 1024 ** index).toFixed(1)}${units[index]}`;
+    },
+  },
 };
 
 export const Main = {
@@ -96,5 +107,10 @@ export const Main = {
     KubeJsonApi: {
       forCluster: vi.fn<(clusterId: string) => unknown>(),
     },
+  },
+  Shell: {
+    getKubectlPath: vi.fn<(clusterId: string, options?: unknown) => Promise<string>>(),
+    getHelmPath: vi.fn<(clusterId: string) => Promise<string>>(),
+    getEnvironment: vi.fn<(clusterId: string, options?: unknown) => Promise<Record<string, string>>>(),
   },
 };

@@ -4,19 +4,18 @@
  */
 
 import { execFile } from "node:child_process";
-import { existsSync, readdirSync } from "node:fs";
-import { join } from "node:path";
-import { Common } from "@freelensapp/extensions";
+import { Common, Main } from "@freelensapp/extensions";
 import { LOG_BYTE_CAP, truncateBytes } from "./kube-format";
 import type { ExecFileException } from "node:child_process";
 
-// Shared spawn helper for the `freelens_kubectl` and `freelens_helm` tools,
-// mirroring how Freelens itself runs the binaries (`resource-applier` and
-// `exec-helm`): an explicit `--kubeconfig` flag rather than the env var, a clean
-// environment, non-tty capture, and a truncated result that is returned to the
-// model rather than thrown. Every side-effecting seam (child process,
-// filesystem, preference lookup, process metadata) is injectable so tests never
-// spawn a real process or touch the real filesystem.
+// Shared spawn helper for the `freelens_kubectl` and `freelens_helm` tools. The
+// binary and the environment come from `Main.Shell` of the host, for the
+// session's cluster: the kubectl and helm the cluster terminal runs, with the
+// user's preferences applied, and the terminal's environment, whose
+// `KUBECONFIG` reaches the cluster through the Freelens proxy. The child runs
+// non-tty, and its truncated result is returned to the model rather than
+// thrown. The host API and the child process are injectable, so tests never
+// spawn a real process.
 
 /** Max bytes buffered from a child before it errors; comfortably above the truncation cap. */
 export const CLI_MAX_BUFFER = 8 * 1024 * 1024;
@@ -30,20 +29,26 @@ export const DEFAULT_TIMEOUT_SECONDS = 120;
 /** Upper bound on a CLI tool's per-call timeout, in seconds. */
 export const MAX_TIMEOUT_SECONDS = 600;
 
+/** Interval between two log lines of a kubectl download's progress. */
+const DOWNLOAD_LOG_INTERVAL_MS = 5000;
+
 /** Clamp a requested timeout to the allowed range, defaulting when absent/invalid. */
 export function clampTimeoutSeconds(seconds: number | undefined): number {
   if (!seconds || !Number.isFinite(seconds) || seconds <= 0) return DEFAULT_TIMEOUT_SECONDS;
   return Math.min(Math.floor(seconds), MAX_TIMEOUT_SECONDS);
 }
 
-/** Cluster-targeting flags the tool injects itself, which the model must not set. */
+/**
+ * Cluster-targeting flags the model must not set: the environment's
+ * `KUBECONFIG` targets the cluster, and these would point the child elsewhere.
+ */
 const REJECTED_FLAGS = new Set(["--kubeconfig", "--context", "--kube-context"]);
 
 /**
  * Validate a CLI tool's argv: non-empty, every element a string free of NUL and
  * newline characters, and none of the cluster-targeting flags (bare or
- * `=`-joined) the tool injects itself. Throws a readable error on any violation
- * (the tool's `guard` wrapper turns it into an explanatory result).
+ * `=`-joined). Throws a readable error on any violation (the tool's `guard`
+ * wrapper turns it into an explanatory result).
  */
 export function validateCliArgs(label: string, args: string[]): void {
   if (!Array.isArray(args) || args.length === 0) {
@@ -84,160 +89,158 @@ export type ExecFileFn = (
   callback: (error: ExecFileException | null, stdout: string, stderr: string) => void,
 ) => CliChild;
 
+/** The functions of `Main.Shell` the tools call, always for a cluster. */
+export interface HostShell {
+  getKubectlPath(clusterId: string, options?: Main.Shell.KubectlDownloadOptions): Promise<string>;
+  getHelmPath(clusterId: string): Promise<string>;
+  getEnvironment(clusterId: string, options?: Main.Shell.KubectlDownloadOptions): Promise<Record<string, string>>;
+}
+
 /** Injectable dependencies for binary resolution and execution. */
 export interface CliDeps {
-  env: NodeJS.ProcessEnv;
-  /** `process.resourcesPath` (the Electron resources dir holding bundled binaries). */
-  resourcesPath: string;
-  /** `process.arch` (the bundled binaries live in a per-arch subdirectory). */
-  arch: string;
-  /** `process.platform` (adds the `.exe` suffix on Windows). */
-  platform: NodeJS.Platform;
-  /** Whether a path exists (stubbed in tests). */
-  fileExists: (path: string) => boolean;
-  /** Directory entry names at `path`, or `[]` when it cannot be read (stubbed in tests). */
-  listDir: (path: string) => string[];
-  /** The user's kubectl-path preference override, possibly empty/undefined. */
-  getKubectlPath: () => string | undefined;
-  /**
-   * Freelens' per-user data directory (`app.getPath("userData")`), the root of
-   * the `binaries/kubectl/<version>` download tree, or undefined when unknown.
-   */
-  getUserDataPath: () => string | undefined;
+  /** The host's binaries and environment (`Main.Shell`). */
+  shell: HostShell;
   /** The child-process seam. */
   execFile: ExecFileFn;
-}
-
-/** Freelens' per-user data directory, once {@link loadHostUserDataPath} has read it. */
-let hostUserDataPath: string | undefined;
-
-/**
- * Read Freelens' per-user data directory from Electron's
- * `app.getPath("userData")`, for {@link defaultCliDeps}. Called once on
- * activation. `electron` is a main-process module of the host, external in the
- * main bundle; it is imported here, on demand, rather than at the top of the
- * module, because under Vitest it resolves to the npm package, whose entry
- * throws without the Electron binary. Never throws: on any failure the path
- * stays unknown and kubectl resolution falls back to the bundled binary.
- */
-export async function loadHostUserDataPath(): Promise<void> {
-  try {
-    const { app } = await import("electron");
-    hostUserDataPath = app.getPath("userData");
-  } catch {
-    hostUserDataPath = undefined;
-  }
-}
-
-/** Directory entry names at `path`, or `[]` when it does not exist / cannot be read. */
-function safeReadDir(path: string): string[] {
-  try {
-    return readdirSync(path);
-  } catch {
-    return [];
-  }
 }
 
 /** Real dependencies wired to the host process; only touched outside tests. */
 export function defaultCliDeps(): CliDeps {
   return {
-    env: process.env,
-    resourcesPath: (process as unknown as { resourcesPath?: string }).resourcesPath ?? "",
-    arch: process.arch,
-    platform: process.platform,
-    fileExists: (path) => existsSync(path),
-    listDir: (path) => safeReadDir(path),
-    getKubectlPath: () => Common.App.Preferences.getKubectlPath(),
-    getUserDataPath: () => hostUserDataPath,
+    shell: Main.Shell,
     execFile: execFile as unknown as ExecFileFn,
   };
 }
 
-/** The bundled `<resources>/<arch>/<name>[.exe]` path for a binary. */
-function bundledBinaryPath(deps: CliDeps, name: string): string {
-  const file = deps.platform === "win32" ? `${name}.exe` : name;
-  return join(deps.resourcesPath, deps.arch, file);
+/**
+ * Where the preparation of a tool call's kubectl goes besides the log: the
+ * host's download callbacks, after the deduplication of problems.
+ */
+export interface PrepareReporter {
+  phase(message: string): void;
+  progress(progress: Main.Shell.KubectlDownloadProgress): void;
+  problem(message: string): void;
 }
 
-/** The numeric `[major, minor, patch]` of a version string like `v1.29.5+build`, or undefined. */
-function parseVersionParts(version: string): [number, number, number] | undefined {
-  const match = /^\D*(\d+)\.(\d+)(?:\.(\d+))?/.exec(version.trim());
-  if (!match) return undefined;
-  return [Number(match[1]), Number(match[2]), Number(match[3] ?? 0)];
+/** The preparation of one tool call, reported until it ends. */
+export interface PreparationReport extends PrepareReporter {
+  /** The binary and its environment are ready. */
+  done(): void;
+  /** The host rejected the preparation with this message. */
+  failed(message: string): void;
+}
+
+/** Starts the report of a tool call's preparation, by the call's `tool_use` id. */
+export interface PreparationReports {
+  begin(callId: string): PreparationReport;
+}
+
+/** What a CLI tool needs to target its cluster and track its child. */
+export interface CliToolConfig {
+  clusterId: string;
+  /**
+   * Throw when the cluster is not connected in Freelens, with the message the
+   * other tools refuse it with (`KubeClient.ensureConnected`).
+   */
+  ensureConnected: () => void;
+  registry: ProcessRegistry;
+  /** Where the preparation of a call with a known `tool_use` id is reported; nowhere when absent. */
+  preparations?: PreparationReports;
+  /** Injectable execution/resolution seams; defaults to the real host process. */
+  deps?: CliDeps;
+}
+
+/** A binary to run, the environment to run it in, and the problems the host reported on the way. */
+export interface PreparedCli {
+  binary: string;
+  env: Record<string, string>;
+  /** Problems preparing the version-matched kubectl that the host went on from; for the tool result. */
+  problems: string[];
 }
 
 /**
- * Locate an already-downloaded, version-matched kubectl under Freelens' binaries
- * tree (`<userData>/binaries/kubectl/<version>/kubectl[.exe]`). Freelens
- * downloads a kubectl whose minor version tracks the cluster's to avoid
- * "version skew" warnings; this reuses that binary when its major.minor matches
- * `clusterVersion`, preferring the highest patch. Returns undefined when the
- * userData path is unknown, no matching version has been downloaded, or the
- * binary file is missing. Never throws or downloads anything itself.
+ * Download callbacks that log the phases and the progress, collect the
+ * problems, and pass all three on to `report`. The kubectl and the environment
+ * are asked for together and both report the same problem of their one
+ * preparation, so it is collected and passed on once.
  */
-export function findDownloadedKubectl(deps: CliDeps, clusterVersion: string): string | undefined {
-  const userData = deps.getUserDataPath()?.trim();
-  if (!userData) return undefined;
-  const target = parseVersionParts(clusterVersion);
-  if (!target) return undefined;
-  const [major, minor] = target;
-  const dir = join(userData, "binaries", "kubectl");
-  const file = deps.platform === "win32" ? "kubectl.exe" : "kubectl";
-  const matches = deps
-    .listDir(dir)
-    .map((name) => ({ name, parts: parseVersionParts(name) }))
-    .filter((entry): entry is { name: string; parts: [number, number, number] } => {
-      return entry.parts != null && entry.parts[0] === major && entry.parts[1] === minor;
-    })
-    .sort((a, b) => b.parts[2] - a.parts[2]);
-  for (const match of matches) {
-    const candidate = join(dir, match.name, file);
-    if (deps.fileExists(candidate)) return candidate;
+function downloadOptions(
+  label: string,
+  problems: Set<string>,
+  report?: PrepareReporter,
+): Main.Shell.KubectlDownloadOptions {
+  let lastProgressLog = 0;
+  return {
+    onPhase: (message) => {
+      Common.logger.info(`[for-claude] ${label}: ${message}`);
+      report?.phase(message);
+    },
+    onDownloadProgress: (progress) => {
+      report?.progress(progress);
+      const now = Date.now();
+      if (now - lastProgressLog < DOWNLOAD_LOG_INTERVAL_MS) return;
+      lastProgressLog = now;
+      const size = progress.total ? ` of ${progress.total}` : "";
+      Common.logger.info(`[for-claude] ${label}: downloading kubectl, ${progress.transferred}${size} bytes`);
+    },
+    onProblem: (message) => {
+      if (problems.has(message)) return;
+      problems.add(message);
+      Common.logger.warn(`[for-claude] ${label}: ${message}`);
+      report?.problem(message);
+    },
+  };
+}
+
+/**
+ * The kubectl the cluster terminal runs and its environment, from the host.
+ * Both are asked for at once, so that they wait for one preparation of the
+ * version-matched kubectl, which may download it. Rejects as `Main.Shell` does:
+ * for an unknown or a disconnected cluster, and when Freelens has no kubectl of
+ * its own to run.
+ */
+export async function prepareKubectl(deps: CliDeps, clusterId: string, report?: PrepareReporter): Promise<PreparedCli> {
+  const problems = new Set<string>();
+  const options = downloadOptions("kubectl", problems, report);
+  const [binary, env] = await Promise.all([
+    deps.shell.getKubectlPath(clusterId, options),
+    deps.shell.getEnvironment(clusterId, options),
+  ]);
+  return { binary, env, problems: [...problems] };
+}
+
+/**
+ * The helm the cluster terminal runs and its environment, from the host. The
+ * environment prepares the cluster's kubectl too; its problems concern kubectl,
+ * not helm, so they go to the log and the report only, not to the result.
+ */
+export async function prepareHelm(deps: CliDeps, clusterId: string, report?: PrepareReporter): Promise<PreparedCli> {
+  const [binary, env] = await Promise.all([
+    deps.shell.getHelmPath(clusterId),
+    deps.shell.getEnvironment(clusterId, downloadOptions("helm", new Set(), report)),
+  ]);
+  return { binary, env, problems: [] };
+}
+
+/**
+ * Run a preparation and report it for the call with `callId`, when the config
+ * has somewhere to report it: its callbacks while it runs, then whether it was
+ * done or failed. Passes on the preparation's result and its rejection.
+ */
+export async function reportPreparation(
+  config: CliToolConfig,
+  callId: string | undefined,
+  prepare: (report?: PrepareReporter) => Promise<PreparedCli>,
+): Promise<PreparedCli> {
+  const report = callId ? config.preparations?.begin(callId) : undefined;
+  try {
+    const prepared = await prepare(report);
+    report?.done();
+    return prepared;
+  } catch (error) {
+    report?.failed(error instanceof Error ? error.message : String(error));
+    throw error;
   }
-  return undefined;
-}
-
-/**
- * Resolve the kubectl binary: the user preference when set, else the version-
- * matched binary Freelens already downloaded for `clusterVersion` when present,
- * else the bundled binary, else the bare `kubectl` name from `PATH`. Preferring
- * the downloaded binary over the (newest) bundled one keeps kubectl's client
- * version aligned with the cluster and avoids version-skew warnings.
- */
-export function resolveKubectlBinary(deps: CliDeps, clusterVersion?: string): string {
-  const preference = deps.getKubectlPath()?.trim();
-  if (preference) return preference;
-  if (clusterVersion) {
-    const downloaded = findDownloadedKubectl(deps, clusterVersion);
-    if (downloaded) return downloaded;
-  }
-  const bundled = bundledBinaryPath(deps, "kubectl");
-  if (deps.fileExists(bundled)) return bundled;
-  return "kubectl";
-}
-
-/**
- * Resolve the helm binary: the bundled binary when present, else the bare `helm`
- * name from `PATH`. No preference is exposed to extensions.
- */
-export function resolveHelmBinary(deps: CliDeps): string {
-  const bundled = bundledBinaryPath(deps, "helm");
-  if (deps.fileExists(bundled)) return bundled;
-  return "helm";
-}
-
-/**
- * A clean copy of the environment for a CLI child: every case-variant of
- * `KUBECONFIG` and `DEBUG` is dropped (mirroring Freelens' `clear-kube-env-vars`)
- * so only the explicit `--kubeconfig` flag targets the cluster.
- */
-export function cleanCliEnv(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...source };
-  for (const key of Object.keys(env)) {
-    const lower = key.toLowerCase();
-    if (lower === "kubeconfig" || lower === "debug") delete env[key];
-  }
-  return env;
 }
 
 /**
@@ -258,6 +261,7 @@ export function quoteCommand(binaryLabel: string, args: readonly string[]): stri
 /** Tracks in-flight children so a session can kill them on interrupt/new-chat/dispose. */
 export class ProcessRegistry {
   private readonly children = new Set<CliChild>();
+  private killed = 0;
 
   add(child: CliChild): void {
     this.children.add(child);
@@ -273,11 +277,22 @@ export class ProcessRegistry {
   }
 
   /**
+   * The number of {@link killAll} calls so far. A tool reads it before it
+   * waits for its binary, and starts no child when it has changed since: the
+   * user interrupted the turn, or started a new chat, while kubectl was
+   * downloading.
+   */
+  get generation(): number {
+    return this.killed;
+  }
+
+  /**
    * Signal every tracked child with SIGTERM, then SIGKILL any survivor after a
    * short grace period. Clears the set immediately so new work is not caught by
    * the pending SIGKILL.
    */
   killAll(graceMs: number = KILL_GRACE_MS): void {
+    this.killed++;
     const snapshot = [...this.children];
     this.children.clear();
     if (snapshot.length === 0) return;
@@ -335,30 +350,36 @@ export function formatCliResult(
 }
 
 /**
- * Spawn a CLI binary non-tty with a clean environment, tracking it in the given
- * registry for the session lifecycle and returning the formatted, truncated
- * result. Never throws: a non-zero exit or spawn failure comes back as text.
+ * Spawn a prepared CLI binary non-tty in its environment, tracking it in the
+ * given registry for the session lifecycle and returning the formatted,
+ * truncated result, after the problems the host reported while preparing it.
+ * Starts nothing when the registry has killed its children since `generation`
+ * was read. Never throws: a non-zero exit or spawn failure comes back as text.
  */
 export function runCli(params: {
-  binary: string;
+  prepared: PreparedCli;
   label: string;
   args: string[];
   timeoutMs: number;
-  deps: CliDeps;
+  generation: number;
+  execFile: ExecFileFn;
   registry: ProcessRegistry;
 }): Promise<string> {
-  const { binary, label, args, timeoutMs, deps, registry } = params;
-  const env = cleanCliEnv(deps.env);
+  const { prepared, label, args, timeoutMs, generation, execFile: execFileFn, registry } = params;
+  const notes = prepared.problems.map((problem) => `[Freelens: ${problem}]\n\n`).join("");
+  if (registry.generation !== generation) {
+    return Promise.resolve(`${notes}[${label} was not started: the turn was interrupted while it was being prepared]`);
+  }
   return new Promise<string>((resolve) => {
     let child: CliChild | undefined;
     const done = (error: ExecFileException | null, stdout: string, stderr: string): void => {
       if (child) registry.remove(child);
-      resolve(formatCliResult(label, error, String(stdout ?? ""), String(stderr ?? "")));
+      resolve(`${notes}${formatCliResult(label, error, String(stdout ?? ""), String(stderr ?? ""))}`);
     };
-    child = deps.execFile(
-      binary,
+    child = execFileFn(
+      prepared.binary,
       args,
-      { env, timeout: timeoutMs, maxBuffer: CLI_MAX_BUFFER, windowsHide: true, killSignal: "SIGTERM" },
+      { env: prepared.env, timeout: timeoutMs, maxBuffer: CLI_MAX_BUFFER, windowsHide: true, killSignal: "SIGTERM" },
       done,
     );
     registry.add(child);
