@@ -54,6 +54,11 @@
   color: var(--colorError, #e06c75);
 }
 
+// A denied or a stopped call: the user's decision, neither done nor failed.
+.endedIcon {
+  opacity: 0.7;
+}
+
 .errorCard {
   border-color: var(--colorError, #e06c75);
 }

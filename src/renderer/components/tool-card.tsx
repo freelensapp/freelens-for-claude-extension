@@ -9,7 +9,7 @@ import { stringify } from "yaml";
 import { CodeViewer } from "./code-viewer";
 import styles from "./tool-card.module.scss";
 
-import type { SessionEventMap } from "../../common/protocol";
+import type { SessionEventMap, ToolOutcome } from "../../common/protocol";
 
 const { Icon, LineProgress } = Renderer.Component;
 
@@ -22,6 +22,7 @@ export interface ToolChild {
   toolName: string;
   input: unknown;
   result?: string;
+  outcome?: ToolOutcome;
 }
 
 /** Friendly title and Material icon for each known tool name. */
@@ -55,6 +56,8 @@ interface ToolCardProps {
   input: unknown;
   /** The tool result summary; absent while the call is still running. */
   result?: string;
+  /** How the call ended, as main reported it with the result; absent on transcripts saved before it. */
+  outcome?: ToolOutcome;
   /** Nested subagent tool calls, rendered indented inside this card. */
   childCalls?: ToolChild[];
   /** The preparation of the call's kubectl, for `freelens_kubectl` and `freelens_helm`. */
@@ -222,17 +225,42 @@ function resultToYaml(result: string): string {
 }
 
 /**
+ * How a call with a result ended: the outcome main reported, or, for a
+ * transcript saved before main reported one, an error when the text starts as
+ * an error does (`Tool error:` is how the extension's own tools fail).
+ */
+function outcomeOf(result: string, outcome: ToolOutcome | undefined): ToolOutcome {
+  if (outcome) return outcome;
+  const text = result.trimStart();
+  return text.startsWith("Error") || text.startsWith("Tool error:") ? "error" : "success";
+}
+
+/**
+ * The icon at the end of the header of a call with a result. A denied and a
+ * stopped call were the user's decisions, not failures, so they have neutral
+ * icons of their own.
+ */
+const OUTCOME_ICONS: Record<ToolOutcome, { material: string; label: string; className: string }> = {
+  success: { material: "check", label: "done", className: styles.doneCheck },
+  error: { material: "error_outline", label: "error", className: styles.errorIcon },
+  denied: { material: "block", label: "denied", className: styles.endedIcon },
+  interrupted: { material: "stop_circle", label: "stopped", className: styles.endedIcon },
+};
+
+/**
  * A collapsible card pairing a tool call with its result. Collapsed it shows the
  * short tool name, a compact argument summary, and an animated dot while the
- * call is still running; expanded it shows the input and the result summary.
- * A kubectl or helm call shows the preparation of its kubectl under the
- * header, collapsed or expanded.
+ * call is still running, or how it ended; expanded it shows the input and the
+ * result summary. A failed call has a red card. A kubectl or helm call shows
+ * the preparation of its kubectl under the header, collapsed or expanded.
  */
-export function ToolCard({ toolName, input, result, childCalls, preparation }: ToolCardProps) {
+export function ToolCard({ toolName, input, result, outcome, childCalls, preparation }: ToolCardProps) {
   const binary = PREPARING_TOOLS[toolName];
-  const running = result === undefined;
+  // Undefined while the call is still running.
+  const ending = result === undefined ? undefined : outcomeOf(result, outcome);
+  const ended = ending ? OUTCOME_ICONS[ending] : undefined;
   const isSubagent = toolName === SUBAGENT_TOOL_NAME;
-  const isError = !running && result.trimStart().startsWith("Error");
+  const isError = ending === "error";
   const { title, material } = describeTool(toolName);
   const description = isSubagent ? String(asRecord(input).description ?? "") : "";
   const summary = isSubagent ? description : summarizeArgs(input);
@@ -247,12 +275,10 @@ export function ToolCard({ toolName, input, result, childCalls, preparation }: T
         <span className={styles.title}>{title}</span>
         {summary ? <span className={styles.args}>{summary}</span> : null}
         <span className={styles.status}>
-          {running ? (
-            <span className={styles.runningDot} aria-label="running" />
-          ) : isError ? (
-            <Icon material="error_outline" small className={styles.errorIcon} aria-label="error" />
+          {ended ? (
+            <Icon material={ended.material} small className={ended.className} aria-label={ended.label} />
           ) : (
-            <Icon material="check" small className={styles.doneCheck} aria-label="done" />
+            <span className={styles.runningDot} aria-label="running" />
           )}
         </span>
       </button>
@@ -272,7 +298,13 @@ export function ToolCard({ toolName, input, result, childCalls, preparation }: T
           {childCalls && childCalls.length > 0 ? (
             <div className={styles.children}>
               {childCalls.map((child) => (
-                <ToolCard key={child.callId} toolName={child.toolName} input={child.input} result={child.result} />
+                <ToolCard
+                  key={child.callId}
+                  toolName={child.toolName}
+                  input={child.input}
+                  result={child.result}
+                  outcome={child.outcome}
+                />
               ))}
             </div>
           ) : null}

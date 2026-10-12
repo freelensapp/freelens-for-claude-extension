@@ -20,9 +20,9 @@ function MonacoEditor({ value }: { value?: string }) {
 }
 
 // Minimal stand-in for the host icon: the material name as text, or nothing
-// for an SVG icon.
-function Icon({ material }: { material?: string }) {
-  return React.createElement("i", null, material);
+// for an SVG icon, with its accessible label.
+function Icon({ material, "aria-label": label }: { material?: string; "aria-label"?: string }) {
+  return React.createElement("i", { "aria-label": label }, material);
 }
 
 // Minimal stand-in for the host progress bar: its value and maximum as data

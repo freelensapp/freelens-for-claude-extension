@@ -4,12 +4,12 @@
  * Licensed under MIT License. See LICENSE in root directory for more information.
  */
 
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PreferencesStore } from "../../common/preferences-store";
 import { ChatView } from "./chat-view";
 
-import type { SessionEvent } from "../../common/protocol";
+import type { SessionEvent, ToolOutcome } from "../../common/protocol";
 import type { BridgeClient } from "../api/bridge-client";
 
 // The quick-prompt chips read the "Prompt shortcuts" preference. The host syncs
@@ -87,5 +87,45 @@ describe("ChatView", () => {
     await send({ type: "tool_progress", data: { callId: "k1", state: "done", problems: ["no checksum"] } });
     await send({ type: "tool_result", data: { toolName: "freelens_kubectl", summary: "ok", callId: "k1" } });
     expect(statuses()).toEqual(["Problem preparing kubectl: no checksum", ""]);
+  });
+
+  it("shows how each call ended from the outcome of its result, nested calls of a subagent included", async () => {
+    let onEvent: ((event: SessionEvent) => void) | undefined;
+    const client = {
+      ...fakeClient(),
+      streamEvents: vi.fn((_clusterId: string, handlers: { onEvent: (event: SessionEvent) => void }) => {
+        onEvent = handlers.onEvent;
+        return () => {};
+      }),
+    } as unknown as BridgeClient;
+    render(<ChatView clusterId="cluster-a" client={client} />);
+    const send = (event: SessionEvent) => act(async () => onEvent?.(event));
+    const call = (callId: string, parentCallId?: string) =>
+      send({ type: "tool_call", data: { toolName: "freelens_resources", input: {}, callId, parentCallId } });
+    const result = (callId: string, summary: string, outcome?: ToolOutcome, parentCallId?: string) =>
+      send({ type: "tool_result", data: { toolName: "freelens_resources", summary, callId, parentCallId, outcome } });
+
+    await call("failed");
+    await result("failed", 'pods "x" not found', "error");
+    await call("denied");
+    await result("denied", "The user denied the action.", "denied");
+    await call("stopped");
+    await result("stopped", "Tool error: interrupted", "interrupted");
+    await call("old");
+    await result("old", "Tool error: from an old transcript");
+    expect(
+      screen.getAllByLabelText(/^(done|error|denied|stopped)$/).map((icon) => icon.getAttribute("aria-label")),
+    ).toEqual(["error", "denied", "stopped", "error"]);
+
+    await send({ type: "tool_call", data: { toolName: "Agent", input: { description: "look" }, callId: "agent" } });
+    await call("nested", "agent");
+    await result("nested", "The user denied the action.", "denied", "agent");
+    await send({
+      type: "tool_result",
+      data: { toolName: "Agent", summary: "done", callId: "agent", outcome: "success" },
+    });
+    fireEvent.click(screen.getByText("Subagent"));
+    expect(screen.getAllByLabelText("denied")).toHaveLength(2);
+    expect(screen.getAllByLabelText("done")).toHaveLength(1);
   });
 });

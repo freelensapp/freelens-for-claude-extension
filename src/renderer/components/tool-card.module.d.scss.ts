@@ -7,6 +7,7 @@ declare const classNames: {
   readonly status: "status";
   readonly doneCheck: "doneCheck";
   readonly errorIcon: "errorIcon";
+  readonly endedIcon: "endedIcon";
   readonly errorCard: "errorCard";
   readonly rawName: "rawName";
   readonly children: "children";

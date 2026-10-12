@@ -157,7 +157,7 @@ src/
       context-colors.ts    # categoryColor: color of a context category (SDK color, name palette, per-index fallback)
       model-dialog.tsx     # "Switch model" modal: Default row, live model catalog, custom model id
       effort-dialog.tsx    # "Effort" modal: Default row and the reasoning-effort levels
-      tool-card.tsx        # collapsible tool call/result card; kubectl preparation line of kubectl/helm calls (LineProgress, bytesToUnits)
+      tool-card.tsx        # collapsible tool call/result card; outcome icon (red card for an error, neutral denied/stopped, text fallback for old transcripts); kubectl preparation line of kubectl/helm calls (LineProgress, bytesToUnits)
       permission-dialog.tsx # inline approval card (proposed YAML, backup, diff)
       code-viewer.tsx      # read-only code block in the host's MonacoEditor, with language label and copy button
       menu-entry.tsx       # "Ask Claude" kube object menu item, generic over the host's model class

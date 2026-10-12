@@ -4,9 +4,11 @@
  * Licensed under MIT License. See LICENSE in root directory for more information.
  */
 
-import { fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { ToolCard, type ToolPreparation } from "./tool-card";
+
+import type { ToolOutcome } from "../../common/protocol";
 
 const INPUT = { args: ["version"] };
 const PROBLEM = "Failed to download kubectl v1.37.0 (timeout) - using the bundled v1.35.3";
@@ -107,5 +109,75 @@ describe("ToolCard preparation line", () => {
   it("has no preparation line for the other tools", () => {
     renderCard(undefined, "freelens_resources");
     expect(screen.queryByRole("status")).toBeNull();
+  });
+});
+
+describe("ToolCard outcome", () => {
+  function renderOutcome(result: string | undefined, outcome?: ToolOutcome) {
+    return render(<ToolCard toolName="freelens_resources" input={{}} result={result} outcome={outcome} />);
+  }
+
+  /** The card's own element, red for an error. */
+  const card = (container: HTMLElement) => container.firstElementChild?.className ?? "";
+
+  it("shows the running dot until the result", () => {
+    renderOutcome(undefined);
+    expect(screen.getByLabelText("running")).toBeTruthy();
+  });
+
+  it("shows the red card and error_outline for an error, whatever the text", () => {
+    const { container } = renderOutcome('pods "x" not found', "error");
+    expect(screen.getByLabelText("error").textContent).toBe("error_outline");
+    expect(card(container)).toContain("errorCard");
+  });
+
+  it("keeps the check for a success, also one whose text starts as an error does", () => {
+    // A kubectl get of a missing object: the command ran and exited 1.
+    const { container } = renderOutcome('Error from server (NotFound): pods "x" not found\n\n[exit code 1]', "success");
+    expect(screen.getByLabelText("done").textContent).toBe("check");
+    expect(card(container)).not.toContain("errorCard");
+  });
+
+  it("shows a denied call neutrally, with block", () => {
+    const { container } = renderOutcome("The user denied the action.", "denied");
+    expect(screen.getByLabelText("denied").textContent).toBe("block");
+    expect(card(container)).not.toContain("errorCard");
+  });
+
+  it("shows a stopped call neutrally, with stop_circle", () => {
+    const { container } = renderOutcome("Tool error: the turn was interrupted", "interrupted");
+    expect(screen.getByLabelText("stopped").textContent).toBe("stop_circle");
+    expect(card(container)).not.toContain("errorCard");
+  });
+
+  it("falls back to the text for a result without an outcome, from a transcript saved before it", () => {
+    const { container } = renderOutcome("Tool error: pods not found");
+    expect(screen.getByLabelText("error")).toBeTruthy();
+    expect(card(container)).toContain("errorCard");
+    cleanup();
+    renderOutcome("  Error: boom");
+    expect(screen.getByLabelText("error")).toBeTruthy();
+    cleanup();
+    renderOutcome("kind: Pod");
+    expect(screen.getByLabelText("done")).toBeTruthy();
+  });
+
+  it("shows the outcome of a subagent's nested call", () => {
+    render(
+      <ToolCard
+        toolName="Agent"
+        input={{ description: "investigate" }}
+        result="found it"
+        outcome="success"
+        childCalls={[
+          { callId: "n1", toolName: "freelens_delete_pod", input: {}, result: "denied", outcome: "denied" },
+          { callId: "n2", toolName: "freelens_resources", input: {}, result: "Tool error: 404", outcome: "error" },
+        ]}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button"));
+    expect(screen.getByLabelText("done")).toBeTruthy();
+    expect(screen.getByLabelText("denied")).toBeTruthy();
+    expect(screen.getByLabelText("error")).toBeTruthy();
   });
 });

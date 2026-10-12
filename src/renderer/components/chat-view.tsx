@@ -32,6 +32,7 @@ import type {
   SessionErrorKind,
   SessionEvent,
   SessionEventMap,
+  ToolOutcome,
 } from "../../common/protocol";
 import type { BridgeClient } from "../api/bridge-client";
 import type { ToolChild, ToolPreparation } from "./tool-card";
@@ -57,6 +58,7 @@ type ChatItem =
       toolName: string;
       input: unknown;
       result?: string;
+      outcome?: ToolOutcome;
       children?: ToolChild[];
       preparation?: ToolPreparation;
     }
@@ -163,6 +165,7 @@ function reducer(state: ChatState, action: ChatAction): ChatState {
       if (action.data.callId) {
         const callId = action.data.callId;
         const summary = action.data.summary;
+        const outcome = action.data.outcome;
         const parentId = action.data.parentCallId;
         if (
           parentId &&
@@ -179,7 +182,9 @@ function reducer(state: ChatState, action: ChatAction): ChatState {
               item.kind === "tool" && item.callId === parentId
                 ? {
                     ...item,
-                    children: (item.children ?? []).map((c) => (c.callId === callId ? { ...c, result: summary } : c)),
+                    children: (item.children ?? []).map((c) =>
+                      c.callId === callId ? { ...c, result: summary, outcome } : c,
+                    ),
                   }
                 : item,
             ),
@@ -193,6 +198,7 @@ function reducer(state: ChatState, action: ChatAction): ChatState {
               ? {
                   ...item,
                   result: summary,
+                  outcome,
                   preparation: item.preparation?.state === "preparing" ? undefined : item.preparation,
                 }
               : item,
@@ -632,6 +638,7 @@ export const ChatView = observer(function ChatView({ clusterId, client }: ChatVi
                   toolName={item.toolName}
                   input={item.input}
                   result={item.result}
+                  outcome={item.outcome}
                   childCalls={item.children}
                   preparation={item.preparation}
                 />
