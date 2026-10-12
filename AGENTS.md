@@ -124,6 +124,7 @@ src/
       mcp-config.ts        # parse/validate Claude-Desktop-style user MCP JSON into SDK server configs (never throws)
       subagents.ts         # cluster-analyzer definition: read-only investigator subagent
       usage.ts             # buildUsageResponse: shape SDK accountInfo + /usage data into ClusterUsageResponse
+      user-settings.ts     # read the user's Claude Code settings.json ($CLAUDE_CONFIG_DIR or ~/.claude) at each session start: provider/auth keys for the SDK settings option, model default (never throws, never logs values)
     bridge/
       server.ts            # node:http server, routing, bearer auth, CORS, SSE, permission/model/retry/usage/context routes
     tools/
@@ -198,6 +199,26 @@ environment of `Main.Shell.getEnvironment`, whose `KUBECONFIG` reaches the
 cluster through the Freelens proxy too, so they pass no `--kubeconfig` or
 `--context`. They refuse a disconnected cluster with the message of the other
 tools (`KubeClient.ensureConnected`) before they ask the host.
+
+Every session starts with `settingSources: []`, the SDK's isolation mode:
+Claude Code loads no settings file, so the user's `permissions` (an allow
+rule for `mcp__freelens-kube__*` would bypass the approval gate), hooks,
+plugins and MCP servers stay out of the chat. That also drops the keys that
+select the API provider and authenticate to it, and a user on Bedrock,
+Vertex, Claude Platform on AWS, Foundry or a gateway, who has no claude.ai
+login, would get "Not logged in". `user-settings.ts` reads the user settings
+file of Claude Code (`settings.json` in `$CLAUDE_CONFIG_DIR`, else
+`~/.claude`) at each session start and passes back only `env`,
+`modelOverrides` and the credential helpers (`apiKeyHelper`,
+`awsAuthRefresh`, `awsCredentialExport`, `gcpAuthRefresh`,
+`proxyAuthHelper`) through the SDK's `settings` option; its `model` is the
+model of a chat with none selected, after the chat's selector and the
+default model preference. Do not switch to `settingSources: ["user"]`, and
+add a key to the allowlist only when it concerns nothing but the provider
+and its authentication. A missing file gives nothing; an unreadable or
+invalid one gives nothing and logs one warning. Never log the file's values:
+`env` carries tokens and keys, and the JSON parser's message quotes the
+text around the error.
 
 The extension presents no custom resource, so `customResources` of the
 renderer extension stays empty, and it defines no KubeObject model of its own:
