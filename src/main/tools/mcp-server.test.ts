@@ -53,7 +53,7 @@ describe("createKubeMcpServer", () => {
     const client = { clusterId: "c1", ensureConnected: () => {} } as unknown as KubeClient;
     const server = createKubeMcpServer(client, undefined, new ProcessRegistry(), preparations);
 
-    const sent: { id?: number; result?: { content?: { text: string }[] } }[] = [];
+    const sent: { id?: number; result?: { content?: { text: string }[]; isError?: boolean } }[] = [];
     let deliver: ((message: unknown) => void) | undefined;
     const transport = {
       start: async () => {},
@@ -87,6 +87,10 @@ describe("createKubeMcpServer", () => {
 
     expect(begun).toEqual(["toolu_1"]);
     expect(failed).toEqual(["not connected"]);
-    expect(sent.find((message) => message.id === 2)?.result?.content?.[0]?.text).toBe("Tool error: not connected");
+    // A failed call is flagged, so Claude Code reports its result with `is_error`.
+    expect(sent.find((message) => message.id === 2)?.result).toEqual({
+      content: [{ type: "text", text: "Tool error: not connected" }],
+      isError: true,
+    });
   });
 });

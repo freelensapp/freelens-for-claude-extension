@@ -209,6 +209,20 @@ export type PermissionMode = "readOnly" | "approve" | "acceptAll";
 export type PermissionBehavior = "allow" | "deny";
 
 /**
+ * How a tool call ended, as main tells it apart. Claude Code marks an error,
+ * a denial and a stopped call alike with `is_error`, so main decides from what
+ * it knows of the call rather than from the text of its result.
+ * - `success`: the tool returned a result; a non-zero exit of kubectl or helm
+ *   is one, as the command ran.
+ * - `error`: the call failed in the tool, or Claude Code marked its result
+ *   `is_error` for a reason of its own.
+ * - `denied`: the call was not permitted: Deny on its approval card, Read only
+ *   mode, or a tool the chat does not allow.
+ * - `interrupted`: the call was still open when the user stopped the turn.
+ */
+export type ToolOutcome = "success" | "error" | "denied" | "interrupted";
+
+/**
  * SSE event payloads, keyed by event type. Each entry is serialized as one
  * `data:` line with a matching `event:` type on the wire.
  */
@@ -231,8 +245,9 @@ export interface SessionEventMap {
   /**
    * `callId` is the block's `tool_use_id`, absent for replayed M1 transcripts.
    * `parentCallId` is set when the result belongs to a subagent tool call.
+   * `outcome` is absent on transcripts saved before it was added.
    */
-  tool_result: { toolName: string; summary: string; callId?: string; parentCallId?: string };
+  tool_result: { toolName: string; summary: string; callId?: string; parentCallId?: string; outcome?: ToolOutcome };
   /**
    * The preparation of the kubectl a `freelens_kubectl` or `freelens_helm`
    * call runs with (download, verification, waiting for another preparation),

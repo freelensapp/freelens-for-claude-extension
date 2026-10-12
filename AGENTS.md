@@ -112,12 +112,12 @@ src/
     session-store.ts       # ChatSessionStore: per-cluster sessionId + permission mode + model
     preferences-store.ts   # PreferencesStore: pod logs, agent rules, path override, default model, MCP config, subagents, prompt shortcuts
     prompt-shortcuts.ts    # built-in quick-prompt chips + parser for the promptShortcuts preference (renderer-free)
-    protocol.ts            # shared request/response and SSE event types (usage, context, compaction, model, retry, thinking, local command output, tool_progress, parentCallId, mcp/slash meta); ClusterUsageResponse (/usage dialog data), ClusterContextResponse (/context donut data)
+    protocol.ts            # shared request/response and SSE event types (usage, context, compaction, model, retry, thinking, local command output, tool_progress, tool result outcome, parentCallId, mcp/slash meta); ClusterUsageResponse (/usage dialog data), ClusterContextResponse (/context donut data)
   main/
     index.ts               # onActivate: start bridge + stores (incl. preferences); onDeactivate: stop it
     claude/
       detect.ts            # locate Claude Code binary (or validate an explicit path override), read version
-      session-manager.ts   # session lifecycle, resume, transcript, usage/context/compaction, model, retry, pod-logs gating, user MCP + subagent wiring, thinking + local-command + nested tool events
+      session-manager.ts   # session lifecycle, resume, transcript, usage/context/compaction, model, retry, pod-logs gating, user MCP + subagent wiring, thinking + local-command + nested tool events, tool result outcome (denied by toolUseID, interrupted by open calls at Stop)
       context.ts           # buildContextResponse: shape SDK getContextUsage() into ClusterContextResponse (drops free-space category)
       permission-broker.ts # permission modes + approval request/resolve (mutating + consent-required reads + external MCP tools)
       preparation-progress.ts # kubectl preparation of a kubectl/helm call -> tool_progress events (250 ms throttle, stop on interrupt, replay)
@@ -129,7 +129,7 @@ src/
     tools/
       kube-client.ts       # requests through Main.K8sApi.KubeJsonApi.forCluster (Freelens proxy): discovery, timeout, Error conversion, connected check
       kube-format.ts       # YAML, managedFields stripping, truncation, selectFields, toDiff
-      mcp-server.ts        # createSdkMcpServer; read-only vs mutating tool name sets (freelens_ prefix, incl. kubectl/helm); pod-logs tail-lines getter; tool_use id from the request's _meta
+      mcp-server.ts        # createSdkMcpServer; read-only vs mutating tool name sets (freelens_ prefix, incl. kubectl/helm); pod-logs tail-lines getter; tool_use id from the request's _meta; guard flags a thrown error isError
       approval.ts          # describeApproval: action title + backup target (incl. READ POD LOGS, RUN KUBECTL, RUN HELM, USE MCP TOOL)
       cli-exec.ts          # shared spawn helper: kubectl/helm and their environment from Main.Shell for the cluster (download progress to the log and the call's preparation report, problems to the result), timeout after preparation, non-tty capture, process registry
       resources.ts         # freelens_resources tool (field selection, managedFields opt-in)
