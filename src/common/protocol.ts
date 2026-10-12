@@ -272,6 +272,12 @@ export interface SessionEventMap {
     error?: string;
   };
   turn_complete: Record<string, never>;
+  /**
+   * The turn the user stopped ended without completing. Sent instead of the
+   * `error` that such an end gives otherwise, as the stop was the user's
+   * decision, not a failure. Persisted.
+   */
+  turn_stopped: Record<string, never>;
   /** Per-turn token usage from the SDK `result` message. */
   usage: { inputTokens: number; cachedInputTokens: number; outputTokens: number };
   /**

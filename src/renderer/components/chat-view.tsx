@@ -291,6 +291,9 @@ function reducer(state: ChatState, action: ChatAction): ChatState {
         : state.items;
       return { ...state, items, draft: "", draftReasoning: "", working: false };
     }
+    case "turn_stopped":
+      // The user stopped the turn: a muted line, not an error to retry.
+      return { ...state, items: [...state.items, { kind: "notice", text: "Stopped" }], working: false };
     case "error":
       // Retryable errors become transcript items; others stay in the banner.
       if (action.data.canRetry) {

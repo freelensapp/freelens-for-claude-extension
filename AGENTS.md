@@ -112,12 +112,12 @@ src/
     session-store.ts       # ChatSessionStore: per-cluster sessionId + permission mode + model
     preferences-store.ts   # PreferencesStore: pod logs, agent rules, path override, default model, MCP config, subagents, prompt shortcuts
     prompt-shortcuts.ts    # built-in quick-prompt chips + parser for the promptShortcuts preference (renderer-free)
-    protocol.ts            # shared request/response and SSE event types (usage, context, compaction, model, retry, thinking, local command output, tool_progress, tool result outcome, parentCallId, mcp/slash meta); ClusterUsageResponse (/usage dialog data), ClusterContextResponse (/context donut data)
+    protocol.ts            # shared request/response and SSE event types (usage, context, compaction, model, retry, thinking, local command output, tool_progress, tool result outcome, turn_stopped, parentCallId, mcp/slash meta); ClusterUsageResponse (/usage dialog data), ClusterContextResponse (/context donut data)
   main/
     index.ts               # onActivate: start bridge + stores (incl. preferences); onDeactivate: stop it
     claude/
       detect.ts            # locate Claude Code binary (or validate an explicit path override), read version
-      session-manager.ts   # session lifecycle, resume, transcript, usage/context/compaction, model, retry, pod-logs gating, user MCP + subagent wiring, thinking + local-command + nested tool events, tool result outcome (denied by toolUseID, interrupted by open calls at Stop)
+      session-manager.ts   # session lifecycle, resume, transcript, usage/context/compaction, model, retry, pod-logs gating, user MCP + subagent wiring, thinking + local-command + nested tool events, tool result outcome (denied by toolUseID, interrupted by open calls at Stop), turn_stopped for a turn the user stopped
       context.ts           # buildContextResponse: shape SDK getContextUsage() into ClusterContextResponse (drops free-space category)
       permission-broker.ts # permission modes + approval request/resolve (mutating + consent-required reads + external MCP tools)
       preparation-progress.ts # kubectl preparation of a kubectl/helm call -> tool_progress events (250 ms throttle, stop on interrupt, replay)
@@ -151,7 +151,7 @@ src/
       pending-prompt.ts    # module-scoped handoff between "Ask Claude" menu entries and the chat page
     components/
       chat-page.tsx        # page (observer of BridgeStore): onboarding gate or chat view
-      chat-view.tsx        # observer of PreferencesStore: transcript + input + status strip (context donut / token counter, model + mode selectors, retry, slash popup, shortcut chips, reasoning fold, nested tool cards, command menu)
+      chat-view.tsx        # observer of PreferencesStore: transcript + input + status strip (context donut / token counter, model + mode selectors, retry, Stopped line, slash popup, shortcut chips, reasoning fold, nested tool cards, command menu)
       context-donut.tsx    # composer status-strip ring showing context-window usage %; tooltip = token counts, click opens the details modal
       context-dialog.tsx   # Context usage modal (/context): model, occupancy bar, per-category token breakdown
       context-colors.ts    # categoryColor: color of a context category (SDK color, name palette, per-index fallback)

@@ -128,4 +128,32 @@ describe("ChatView", () => {
     expect(screen.getAllByLabelText("denied")).toHaveLength(2);
     expect(screen.getAllByLabelText("done")).toHaveLength(1);
   });
+
+  it("ends a stopped turn with a muted Stopped line, and a failed one with an error and Retry", async () => {
+    let onEvent: ((event: SessionEvent) => void) | undefined;
+    const client = {
+      ...fakeClient(),
+      streamEvents: vi.fn((_clusterId: string, handlers: { onEvent: (event: SessionEvent) => void }) => {
+        onEvent = handlers.onEvent;
+        return () => {};
+      }),
+    } as unknown as BridgeClient;
+    render(<ChatView clusterId="cluster-a" client={client} />);
+    const send = (event: SessionEvent) => act(async () => onEvent?.(event));
+
+    await send({ type: "user_message", data: { text: "watch the pods" } });
+    await send({ type: "turn_stopped", data: {} });
+    await send({ type: "turn_complete", data: {} });
+    expect(screen.getByText("Stopped")).toBeTruthy();
+    expect(screen.queryByText("Retry")).toBeNull();
+
+    await send({ type: "user_message", data: { text: "again" } });
+    await send({
+      type: "error",
+      data: { message: "The turn ended without completing (error_during_execution).", kind: "other", canRetry: true },
+    });
+    await send({ type: "turn_complete", data: {} });
+    expect(screen.getByText("The turn ended without completing (error_during_execution).")).toBeTruthy();
+    expect(screen.getByText("Retry")).toBeTruthy();
+  });
 });

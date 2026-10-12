@@ -84,6 +84,7 @@ const PERSISTED_EVENTS = new Set<SessionEvent["type"]>([
   "usage",
   "compaction",
   "error",
+  "turn_stopped",
   "permission_request",
   "permission_resolved",
   "local_command_output",
@@ -187,6 +188,8 @@ class ClusterSession {
   private readonly deniedCalls = new Set<string>();
   /** The calls that were open when the user stopped the turn and have no result yet. */
   private readonly interruptedCalls = new Set<string>();
+  /** Whether the user stopped the turn in flight, until that turn's `result` arrives. */
+  private turnStopped = false;
   /** In-flight kubectl/helm children, killed on interrupt, new chat, and dispose. */
   private readonly cliRegistry = new ProcessRegistry();
   /** The preparations of the kubectl those children run with, shown in their tool cards. */
@@ -672,6 +675,7 @@ class ClusterSession {
         );
       }
     } finally {
+      this.turnStopped = false;
       this.broker.denyAllPending("the session ended");
       this.setWorking(false);
     }
@@ -838,13 +842,19 @@ class ClusterSession {
         break;
       }
       case "result": {
+        const stopped = this.turnStopped;
+        this.turnStopped = false;
         if (message.subtype !== "success") {
+          // A stopped turn ends as error_during_execution; the stop was the
+          // user's decision, so it is not reported as a failure to retry.
           this.emit(
-            sessionEvent("error", {
-              message: `The turn ended without completing (${message.subtype}).`,
-              kind: "other",
-              canRetry: this.lastUserText != null,
-            }),
+            stopped
+              ? sessionEvent("turn_stopped", {})
+              : sessionEvent("error", {
+                  message: `The turn ended without completing (${message.subtype}).`,
+                  kind: "other",
+                  canRetry: this.lastUserText != null,
+                }),
           );
         }
         this.emitUsage((message as { usage?: UsageTotals }).usage);
@@ -878,7 +888,8 @@ class ClusterSession {
   }
 
   async interrupt(): Promise<void> {
-    // Before anything settles: the calls open now end because of the stop.
+    // Before anything settles: the turn and the calls open now end because of the stop.
+    if (this.working) this.turnStopped = true;
     for (const callId of this.openCalls) this.interruptedCalls.add(callId);
     this.broker.denyAllPending("the turn was interrupted");
     this.cliRegistry.killAll();

@@ -435,6 +435,34 @@ describe("tool result outcome", () => {
     expect(session.outcome("aborted")).toBe("error");
   });
 
+  it("ends a stopped turn with turn_stopped, persisted, instead of a retryable error", async () => {
+    const session = await startSession("o9");
+    session.call("watching", "mcp__freelens-kube__freelens_kubectl");
+    await flush();
+    await session.manager.interrupt("o9");
+    session.result("watching", true);
+    session.emit({ type: "result", subtype: "error_during_execution" });
+    await flush();
+    const types = (events: SessionEvent[]) => events.map((event) => event.type);
+    expect(types(session.events)).toContain("turn_stopped");
+    expect(types(session.events)).not.toContain("error");
+    const replay: SessionEvent[] = [];
+    session.manager.subscribe("o9", (event) => replay.push(event));
+    expect(types(replay)).toContain("turn_stopped");
+  });
+
+  it("keeps the retryable error for a turn that fails without a stop, also after a stopped one", async () => {
+    const session = await startSession("o10");
+    await session.manager.interrupt("o10");
+    session.emit({ type: "result", subtype: "error_during_execution" });
+    await session.manager.sendMessage("o10", "again");
+    session.emit({ type: "result", subtype: "error_during_execution" });
+    await flush();
+    const ends = session.events.filter((event) => event.type === "turn_stopped" || event.type === "error");
+    expect(ends.map((event) => event.type)).toEqual(["turn_stopped", "error"]);
+    expect(ends[1]?.type === "error" && ends[1].data.canRetry).toBe(true);
+  });
+
   it("persists the outcome with the result, so it replays after a remount", async () => {
     const session = await startSession("o8");
     session.call("failed", RESOURCES);
