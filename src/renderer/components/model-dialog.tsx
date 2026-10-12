@@ -16,7 +16,7 @@ interface ModelDialogProps {
   models: ModelChoice[];
   /** The currently selected explicit model value, if any; unset means "Default". */
   current?: string;
-  /** Label for the "use the Claude Code default" row, e.g. "Default (claude-sonnet-5)". */
+  /** Label for the "use the Claude Code default" row: "Default", with the wire model it resolves to in parens when known. */
   defaultLabel: string;
   /** Chosen a model; `null` restores the Claude Code default. */
   onSelect: (value: string | null) => void;

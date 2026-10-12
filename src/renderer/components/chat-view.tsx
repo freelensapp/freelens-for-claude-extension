@@ -428,8 +428,8 @@ export const ChatView = observer(function ChatView({ clusterId, client }: ChatVi
   };
 
   // Live model picker catalog, sourced from the installed Claude Code build so
-  // labels show the resolved wire model (e.g. "Opus (claude-opus-5)") and any
-  // pinned versions the SDK exposes. Falls back to the static alias list
+  // labels show the wire model each alias resolves to and any pinned versions
+  // the SDK exposes. Falls back to the static alias list
   // (rendered without a resolved suffix) while loading or on failure. A
   // missing catalog is fetched again when the Switch model dialog opens and
   // when the event stream connects again (to a new bridge after a reload).
