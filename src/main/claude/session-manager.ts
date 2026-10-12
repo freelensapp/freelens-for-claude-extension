@@ -891,7 +891,7 @@ class ClusterSession {
     // Before anything settles: the turn and the calls open now end because of the stop.
     if (this.working) this.turnStopped = true;
     for (const callId of this.openCalls) this.interruptedCalls.add(callId);
-    this.broker.denyAllPending("the turn was interrupted");
+    this.broker.stopAllPending();
     this.cliRegistry.killAll();
     this.preparations.stopAll();
     try {

@@ -159,3 +159,8 @@
   color: var(--colorError, #e06c75);
   font-weight: 600;
 }
+
+.stoppedTag {
+  color: var(--textColorSecondary, rgba(127, 127, 127, 0.8));
+  font-weight: 600;
+}

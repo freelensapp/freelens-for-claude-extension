@@ -119,7 +119,7 @@ src/
       detect.ts            # locate Claude Code binary (or validate an explicit path override), read version
       session-manager.ts   # session lifecycle, resume, transcript, usage/context/compaction, model, retry, pod-logs gating, user MCP + subagent wiring, thinking + local-command + nested tool events, tool result outcome (denied by toolUseID, interrupted by open calls at Stop), turn_stopped for a turn the user stopped
       context.ts           # buildContextResponse: shape SDK getContextUsage() into ClusterContextResponse (drops free-space category)
-      permission-broker.ts # permission modes + approval request/resolve (mutating + consent-required reads + external MCP tools)
+      permission-broker.ts # permission modes + approval request/resolve (mutating + consent-required reads + external MCP tools); pending approvals resolved as stopped on Stop
       preparation-progress.ts # kubectl preparation of a kubectl/helm call -> tool_progress events (250 ms throttle, stop on interrupt, replay)
       mcp-config.ts        # parse/validate Claude-Desktop-style user MCP JSON into SDK server configs (never throws)
       subagents.ts         # cluster-analyzer definition: read-only investigator subagent
@@ -158,7 +158,7 @@ src/
       model-dialog.tsx     # "Switch model" modal: Default row, live model catalog, custom model id
       effort-dialog.tsx    # "Effort" modal: Default row and the reasoning-effort levels
       tool-card.tsx        # collapsible tool call/result card; outcome icon (red card for an error, neutral denied/stopped, text fallback for old transcripts); kubectl preparation line of kubectl/helm calls (LineProgress, bytesToUnits)
-      permission-dialog.tsx # inline approval card (proposed YAML, backup, diff)
+      permission-dialog.tsx # inline approval card (proposed YAML, backup, diff; Approved / Denied / neutral Stopped)
       code-viewer.tsx      # read-only code block in the host's MonacoEditor, with language label and copy button
       menu-entry.tsx       # "Ask Claude" kube object menu item, generic over the host's model class
       preferences.tsx      # preferences page body + hint (incl. MCP switch/textarea, subagent toggle, shortcuts textarea)

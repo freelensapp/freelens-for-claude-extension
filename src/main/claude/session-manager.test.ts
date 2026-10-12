@@ -419,6 +419,9 @@ describe("tool result outcome", () => {
     session.result("pending", true);
     await flush();
     expect(session.outcome("pending")).toBe("interrupted");
+    // Its approval card shows it stopped too, not denied.
+    const resolved = session.events.find((event) => event.type === "permission_resolved");
+    expect(resolved?.type === "permission_resolved" && resolved.data.stopped).toBe(true);
   });
 
   it("is not denied for a call whose approval the abort signal ended", async () => {

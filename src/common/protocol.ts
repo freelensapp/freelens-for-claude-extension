@@ -305,8 +305,12 @@ export interface SessionEventMap {
     /** Unified diff from `currentYaml` to the proposed manifest (updates only). */
     diff?: string;
   };
-  /** A pending permission request was resolved (by the user or automatically). */
-  permission_resolved: { requestId: string; behavior: PermissionBehavior; reason?: string };
+  /**
+   * A pending permission request was resolved (by the user or automatically).
+   * `stopped` marks a request that nobody decided: the user stopped the turn
+   * while it was pending, so it is denied to the model and shown as stopped.
+   */
+  permission_resolved: { requestId: string; behavior: PermissionBehavior; reason?: string; stopped?: boolean };
   /** Session metadata pushed to a new subscriber before the transcript replay. */
   session_meta: {
     permissionMode: PermissionMode;

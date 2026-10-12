@@ -147,6 +147,15 @@ describe("ChatView", () => {
     expect(screen.getByText("Stopped")).toBeTruthy();
     expect(screen.queryByText("Retry")).toBeNull();
 
+    // An approval pending at the stop shows stopped too, not denied.
+    await send({
+      type: "permission_request",
+      data: { requestId: "r1", toolName: "freelens_kubectl", actionTitle: "RUN KUBECTL", input: {}, proposedYaml: "" },
+    });
+    await send({ type: "permission_resolved", data: { requestId: "r1", behavior: "deny", stopped: true } });
+    expect(screen.getAllByText("Stopped")).toHaveLength(2);
+    expect(screen.queryByText("Denied")).toBeNull();
+
     await send({ type: "user_message", data: { text: "again" } });
     await send({
       type: "error",

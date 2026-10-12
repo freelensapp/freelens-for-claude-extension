@@ -71,7 +71,7 @@ type ChatItem =
       kind: "permission";
       requestId: string;
       request: PermissionRequest;
-      resolution?: { behavior: PermissionBehavior; reason?: string };
+      resolution?: { behavior: PermissionBehavior; reason?: string; stopped?: boolean };
     };
 
 interface UsageTotals {
@@ -260,7 +260,14 @@ function reducer(state: ChatState, action: ChatAction): ChatState {
         ...state,
         items: state.items.map((item) =>
           item.kind === "permission" && item.requestId === action.data.requestId
-            ? { ...item, resolution: { behavior: action.data.behavior, reason: action.data.reason } }
+            ? {
+                ...item,
+                resolution: {
+                  behavior: action.data.behavior,
+                  reason: action.data.reason,
+                  stopped: action.data.stopped,
+                },
+              }
             : item,
         ),
       };
