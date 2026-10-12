@@ -114,13 +114,15 @@ export function describeApproval(toolName: string, input: unknown): ApprovalDesc
     }
     case "freelens_kubectl": {
       // No target to back up; the whole proposal is the shell-quoted command line
-      // the model supplied (the injected --kubeconfig/--context are omitted).
+      // the model supplied, which is the whole command: the cluster comes from
+      // the environment.
       const kubectlArgs = Array.isArray(args.args) ? (args.args as unknown[]).map(String) : [];
       return { actionTitle: "RUN KUBECTL", proposedValue: quoteCommand("kubectl", kubectlArgs) };
     }
     case "freelens_helm": {
       // No target to back up; the whole proposal is the shell-quoted command line
-      // the model supplied (the injected --kubeconfig/--kube-context are omitted).
+      // the model supplied, which is the whole command: the cluster comes from
+      // the environment.
       const helmArgs = Array.isArray(args.args) ? (args.args as unknown[]).map(String) : [];
       return { actionTitle: "RUN HELM", proposedValue: quoteCommand("helm", helmArgs) };
     }

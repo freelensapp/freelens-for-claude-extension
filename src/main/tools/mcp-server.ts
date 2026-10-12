@@ -112,23 +112,6 @@ function textResult(text: string) {
   return { content: [{ type: "text" as const, text }] };
 }
 
-/**
- * A best-effort, memoized getter for the cluster's API server version, used by
- * the kubectl tool to prefer a version-matched downloaded binary. The version
- * is fetched at most once per successful call and cached; a failure resolves to
- * undefined (falling back to the bundled kubectl) and is retried on the next
- * call rather than being cached.
- */
-function makeClusterVersionGetter(client: KubeClient): () => Promise<string | undefined> {
-  let cached: string | undefined;
-  return async () => {
-    if (cached) return cached;
-    const info = await client.version();
-    cached = info.gitVersion;
-    return cached;
-  };
-}
-
 /** Run a tool body, converting any thrown error into an explanatory result. */
 async function guard(run: () => Promise<string>) {
   try {
@@ -149,7 +132,7 @@ export function createKubeMcpServer(
   podLogsTailLines: () => number = () => DEFAULT_POD_LOGS_TAIL_LINES,
   registry: ProcessRegistry = new ProcessRegistry(),
 ): McpSdkServerConfigWithInstance {
-  const getClusterVersion = makeClusterVersionGetter(client);
+  const cli = { clusterId: client.clusterId, ensureConnected: client.ensureConnected, registry };
   return createSdkMcpServer({
     name: MCP_SERVER_NAME,
     version: "0.1.0",
@@ -203,17 +186,10 @@ export function createKubeMcpServer(
         (args: RolloutRestartInput) => guard(() => runRolloutRestart(client, args)),
       ),
       tool("freelens_kubectl", TOOL_DESCRIPTIONS.freelens_kubectl, kubectlSchema, (args: KubectlInput) =>
-        guard(() =>
-          runKubectl(
-            { kubeConfigPath: client.kubeConfigPath, contextName: client.contextName, registry, getClusterVersion },
-            args,
-          ),
-        ),
+        guard(() => runKubectl(cli, args)),
       ),
       tool("freelens_helm", TOOL_DESCRIPTIONS.freelens_helm, helmSchema, (args: HelmInput) =>
-        guard(() =>
-          runHelm({ kubeConfigPath: client.kubeConfigPath, contextName: client.contextName, registry }, args),
-        ),
+        guard(() => runHelm(cli, args)),
       ),
     ],
   });

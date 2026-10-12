@@ -272,8 +272,6 @@ describe("getKubeClient", () => {
   const cluster = (status: string) => ({
     id: "c1",
     name: "kind-kind",
-    kubeConfigPath: "/kube/config",
-    contextName: "kind-kind",
     status,
   });
 
@@ -290,9 +288,19 @@ describe("getKubeClient", () => {
   it("refuses a cluster that is not connected, without creating its KubeJsonApi", async () => {
     getClusterById.mockReturnValue(cluster("disconnected") as never);
     const client = getKubeClient("c1");
-    expect(client.kubeConfigPath).toBe("/kube/config");
     await expect(client.version()).rejects.toThrow('Cluster "kind-kind" is not connected in Freelens.');
+    expect(() => client.ensureConnected()).toThrow(
+      'Cluster "kind-kind" is not connected in Freelens. Connect to it in Freelens and try again.',
+    );
     expect(forCluster).not.toHaveBeenCalled();
+  });
+
+  it("lets ensureConnected pass for a connected cluster and refuse one no longer registered", () => {
+    getClusterById.mockReturnValue(cluster("connected") as never);
+    const client = getKubeClient("c1");
+    expect(() => client.ensureConnected()).not.toThrow();
+    getClusterById.mockReturnValue(undefined);
+    expect(() => client.ensureConnected()).toThrow('Cluster "kind-kind" is no longer registered in Freelens.');
   });
 
   it("creates the KubeJsonApi of a connected cluster once, on the first request", async () => {
