@@ -34,7 +34,7 @@ import type {
   SessionEventMap,
 } from "../../common/protocol";
 import type { BridgeClient } from "../api/bridge-client";
-import type { ToolChild } from "./tool-card";
+import type { ToolChild, ToolPreparation } from "./tool-card";
 
 const { Icon } = Renderer.Component;
 
@@ -51,7 +51,15 @@ type PermissionRequest = SessionEventMap["permission_request"];
 type ChatItem =
   | { kind: "user"; text: string; timestamp?: string }
   | { kind: "assistant"; text: string; reasoning?: string }
-  | { kind: "tool"; callId: string; toolName: string; input: unknown; result?: string; children?: ToolChild[] }
+  | {
+      kind: "tool";
+      callId: string;
+      toolName: string;
+      input: unknown;
+      result?: string;
+      children?: ToolChild[];
+      preparation?: ToolPreparation;
+    }
   | { kind: "tool_call"; toolName: string }
   | { kind: "tool_result"; toolName: string; summary: string }
   | { kind: "notice"; text: string }
@@ -177,10 +185,17 @@ function reducer(state: ChatState, action: ChatAction): ChatState {
             ),
           };
         }
+        // A preparation still shown as running ended with the call.
         return {
           ...state,
           items: state.items.map((item) =>
-            item.kind === "tool" && item.callId === callId ? { ...item, result: summary } : item,
+            item.kind === "tool" && item.callId === callId
+              ? {
+                  ...item,
+                  result: summary,
+                  preparation: item.preparation?.state === "preparing" ? undefined : item.preparation,
+                }
+              : item,
           ),
         };
       }
@@ -189,6 +204,14 @@ function reducer(state: ChatState, action: ChatAction): ChatState {
         items: [...state.items, { kind: "tool_result", toolName: action.data.toolName, summary: action.data.summary }],
       };
     }
+    case "tool_progress":
+      // Each event is a full snapshot of the call's preparation.
+      return {
+        ...state,
+        items: state.items.map((item) =>
+          item.kind === "tool" && item.callId === action.data.callId ? { ...item, preparation: action.data } : item,
+        ),
+      };
     case "usage": {
       const usage: UsageTotals = state.usage ?? { input: 0, cached: 0, output: 0 };
       return {
@@ -610,6 +633,7 @@ export const ChatView = observer(function ChatView({ clusterId, client }: ChatVi
                   input={item.input}
                   result={item.result}
                   childCalls={item.children}
+                  preparation={item.preparation}
                 />
               );
             }

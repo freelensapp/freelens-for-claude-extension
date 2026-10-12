@@ -25,12 +25,19 @@ function Icon({ material }: { material?: string }) {
   return React.createElement("i", null, material);
 }
 
+// Minimal stand-in for the host progress bar: its value and maximum as data
+// attributes.
+function LineProgress({ value, max }: { value: number; max?: number }) {
+  return React.createElement("div", { "data-line-progress": `${value}/${max ?? 100}` });
+}
+
 export const Renderer = {
   Catalog: {
     getActiveCluster: vi.fn<() => { id: string } | undefined>(() => undefined),
   },
   Component: {
     Icon,
+    LineProgress,
     MonacoEditor,
   },
 };
@@ -80,6 +87,15 @@ export const Common = {
   },
   Store: {
     ExtensionStore,
+  },
+  Util: {
+    // The host's formatting: binary units, one decimal, "N/A" for no bytes.
+    bytesToUnits: (bytes: number): string => {
+      if (bytes <= 0 || !Number.isFinite(bytes)) return "N/A";
+      const units = ["B", "KiB", "MiB", "GiB", "TiB", "PiB", "EiB"];
+      const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+      return `${(bytes / 1024 ** index).toFixed(1)}${units[index]}`;
+    },
   },
 };
 

@@ -12,6 +12,14 @@ declare const classNames: {
   readonly children: "children";
   readonly runningDot: "runningDot";
   readonly pulse: "pulse";
+  readonly warningIcon: "warningIcon";
+  readonly preparation: "preparation";
+  readonly preparationRow: "preparationRow";
+  readonly preparationText: "preparationText";
+  readonly preparationCounter: "preparationCounter";
+  readonly preparationBar: "preparationBar";
+  readonly preparationDetails: "preparationDetails";
+  readonly visuallyHidden: "visuallyHidden";
   readonly body: "body";
   readonly sectionLabel: "sectionLabel";
 };
