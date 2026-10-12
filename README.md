@@ -47,10 +47,7 @@ affiliation with Anthropic.
   extension never handles or stores credentials. A third-party provider is
   used when it is configured in your shell environment or in the `env`
   block of `~/.claude/settings.json` (`$CLAUDE_CONFIG_DIR/settings.json`
-  when that is set), with its credential helpers (`apiKeyHelper`,
-  `awsAuthRefresh`, `awsCredentialExport`, `gcpAuthRefresh`) and `model`;
-  see [Security model](#security-model) for what else is taken from that
-  file.
+  when that is set); see [Security model](#security-model) for the details.
 - **Node.js** is required only when building the extension from source (see
   [Build from the source](#build-from-the-source)); it is not needed to run
   the extension.
