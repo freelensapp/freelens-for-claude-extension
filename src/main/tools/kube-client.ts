@@ -107,10 +107,12 @@ export interface KubeRequests {
 export interface KubeClient extends KubeRequests {
   clusterId: string;
   clusterName: string;
-  /** The cluster's kubeconfig file path, passed to spawned CLI tools as `--kubeconfig`. */
-  kubeConfigPath: string;
-  /** The selected context name, passed to spawned CLI tools as `--context`/`--kube-context`. */
-  contextName?: string;
+  /**
+   * Throw when the cluster is no longer registered or not connected in
+   * Freelens, with the message every request refuses it with. The CLI tools
+   * call it before they ask the host for the cluster's binaries.
+   */
+  ensureConnected(): void;
 }
 
 /** A `Status` object of the API server, as far as the client reads it. */
@@ -359,8 +361,7 @@ export function getKubeClient(clusterId: string): KubeClient {
     throw new Error(`Cluster "${clusterId}" is not registered in Freelens.`);
   }
 
-  let api: KubeJsonApiLike | undefined;
-  const getApi = (): KubeJsonApiLike => {
+  const ensureConnected = (): void => {
     const current = Main.Catalog.getClusterById(clusterId);
     if (!current) {
       throw new Error(`Cluster "${cluster.name}" is no longer registered in Freelens.`);
@@ -370,6 +371,11 @@ export function getKubeClient(clusterId: string): KubeClient {
         `Cluster "${current.name}" is not connected in Freelens. Connect to it in Freelens and try again.`,
       );
     }
+  };
+
+  let api: KubeJsonApiLike | undefined;
+  const getApi = (): KubeJsonApiLike => {
+    ensureConnected();
     api ??= Main.K8sApi.KubeJsonApi.forCluster(clusterId);
     return api;
   };
@@ -377,8 +383,7 @@ export function getKubeClient(clusterId: string): KubeClient {
   const client: KubeClient = {
     clusterId,
     clusterName: cluster.name,
-    kubeConfigPath: cluster.kubeConfigPath,
-    contextName: cluster.contextName,
+    ensureConnected,
     ...createKubeRequests(getApi),
   };
   clientCache.set(clusterId, client);

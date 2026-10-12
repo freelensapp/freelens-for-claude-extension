@@ -130,7 +130,7 @@ src/
       kube-format.ts       # YAML, managedFields stripping, truncation, selectFields, toDiff
       mcp-server.ts        # createSdkMcpServer; read-only vs mutating tool name sets (freelens_ prefix, incl. kubectl/helm); pod-logs tail-lines getter
       approval.ts          # describeApproval: action title + backup target (incl. READ POD LOGS, RUN KUBECTL, RUN HELM, USE MCP TOOL)
-      cli-exec.ts          # shared spawn helper: binary resolution (prefers Freelens' downloaded version-matched kubectl, userData read from electron on activation), env hygiene, timeout, non-tty capture, process registry
+      cli-exec.ts          # shared spawn helper: kubectl/helm and their environment from Main.Shell for the cluster (download progress to the log, problems to the result), timeout after preparation, non-tty capture, process registry
       resources.ts         # freelens_resources tool (field selection, managedFields opt-in)
       pod-logs.ts          # freelens_pod_logs tool (previous, timestamps, configurable tail-lines default)
       warning-events.ts    # freelens_warning_events tool
@@ -141,8 +141,8 @@ src/
       delete-resource.ts   # freelens_delete_resource tool (delete / force / finalize)
       delete-pod.ts        # freelens_delete_pod tool (evict / force / finalizers)
       rollout-restart.ts   # freelens_rollout_restart tool (Deployment/DaemonSet/StatefulSet)
-      kubectl.ts           # freelens_kubectl tool (argv contract, direct spawn via cli-exec)
-      helm.ts              # freelens_helm tool (argv contract, direct spawn via cli-exec)
+      kubectl.ts           # freelens_kubectl tool (argv contract, the cluster terminal's kubectl, spawned via cli-exec)
+      helm.ts              # freelens_helm tool (argv contract, the cluster terminal's helm, spawned via cli-exec)
   renderer/
     index.tsx              # clusterPages, clusterPageMenus, appPreferences, kubeObjectMenuItems (menuItemFor)
     api/
@@ -191,8 +191,12 @@ The Kubernetes tools send their requests through
 through the Freelens proxy and the cluster's `freelens-k8s-proxy`, with the
 kubeconfig's authentication and the cluster's proxy setting, as the rest of
 Freelens does; a cluster that is not connected in Freelens is refused.
-`freelens_kubectl` and `freelens_helm` are the exception: they spawn the
-binaries with the cluster's kubeconfig file and context.
+`freelens_kubectl` and `freelens_helm` spawn the kubectl and helm the cluster
+terminal runs, from `Main.Shell.getKubectlPath` and `getHelmPath`, in the
+environment of `Main.Shell.getEnvironment`, whose `KUBECONFIG` reaches the
+cluster through the Freelens proxy too, so they pass no `--kubeconfig` or
+`--context`. They refuse a disconnected cluster with the message of the other
+tools (`KubeClient.ensureConnected`) before they ask the host.
 
 The extension presents no custom resource, so `customResources` of the
 renderer extension stays empty, and it defines no KubeObject model of its own:
@@ -354,8 +358,9 @@ the bundle.
   import(...)` in a function that catches the failure, not at the top of a
   module. `electron` is one: under Vitest it resolves to the npm package,
   whose entry throws (or starts downloading the binary) outside Electron.
-  `loadHostUserDataPath()` in `cli-exec.ts` imports it once, on activation, to
-  read `app.getPath("userData")`, and the tests never call it.
+  Main code does not import it: what the extension needs of the host, its
+  kubectl, helm and their environment included, comes from the extension API
+  (`Main.Shell`), not from Electron or the host's file layout.
 - The Agent SDK is bundled and always gets `pathToClaudeCodeExecutable`, the
   user's Claude Code. Without it the SDK looks for its own native binary next
   to `import.meta.url`, which in the bundle is `dist/main.js`.
@@ -509,9 +514,9 @@ test: it is a shim that reads `Common`, `Main` and `Renderer` off
 mocks. The `alias` in `vitest.config.ts` points the import at
 `test/freelens-extensions.ts`, for the tests and for the extension code they
 import. The stub covers only what the tests use (the `ExtensionStore` base
-class, `Common.logger`, `Common.App.Preferences`, `Common.Clusters`,
+class, `Common.logger`, `Common.Clusters`,
 `Main.Catalog.getClusterById`, `Main.K8sApi.KubeJsonApi.forCluster`,
-`Renderer.Catalog`, and stand-ins for `Icon` and for `MonacoEditor`, which
+`Main.Shell`, `Renderer.Catalog`, and stand-ins for `Icon` and for `MonacoEditor`, which
 renders a `<textarea>`), at
 runtime only; the type check still uses the real declaration. As in the host, a
 store is a singleton per class, so a test that renders a component reading a
@@ -678,11 +683,13 @@ git-ignored.
   `freelens_helm` included), a pod log read (unless its preference is off)
   and every external MCP tool stop at an approval card; approve or deny it to
   let the turn go on.
-- `freelens_kubectl` and `freelens_helm` look for the host's binaries in a
-  packaged Freelens's layout. Under Freelens dev, `process.resourcesPath` is
-  Electron's own resources directory, so they fall back to a version-matched
-  download, else to `PATH`. Check which binary ran before reading a version
-  mismatch as a bug.
+- `freelens_kubectl` and `freelens_helm` run the kubectl and helm of the
+  cluster terminal, under Freelens dev too: `freelens_kubectl` with
+  `["version"]` reports the client that `kubectl version` reports in the
+  cluster's terminal. The first call on a cluster whose Kubernetes version has
+  no kubectl downloaded yet waits for the download, before its timeout starts;
+  the progress is in the main log (`[for-claude] kubectl: ...`), and a problem
+  with it, such as a fallback to the bundled kubectl, heads the tool result.
 
 ### Reading the console
 

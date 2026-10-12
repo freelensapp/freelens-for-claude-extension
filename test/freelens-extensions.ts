@@ -70,11 +70,6 @@ export const Common = {
     warn: vi.fn(),
     error: vi.fn(),
   },
-  App: {
-    Preferences: {
-      getKubectlPath: vi.fn<() => string | undefined>(() => undefined),
-    },
-  },
   Clusters: {
     ClusterConnectionStatus: {
       CONNECTING: "connecting",
@@ -96,5 +91,10 @@ export const Main = {
     KubeJsonApi: {
       forCluster: vi.fn<(clusterId: string) => unknown>(),
     },
+  },
+  Shell: {
+    getKubectlPath: vi.fn<(clusterId: string, options?: unknown) => Promise<string>>(),
+    getHelmPath: vi.fn<(clusterId: string) => Promise<string>>(),
+    getEnvironment: vi.fn<(clusterId: string, options?: unknown) => Promise<Record<string, string>>>(),
   },
 };
