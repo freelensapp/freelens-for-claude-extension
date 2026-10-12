@@ -195,6 +195,51 @@ describe("user settings of Claude Code", () => {
   });
 });
 
+describe("model of the user settings of Claude Code", () => {
+  const providerModel = "arn:aws:bedrock:eu-central-1:1:inference-profile/sonnet";
+
+  beforeEach(() => {
+    writeFileSync(join(configDir, "settings.json"), JSON.stringify({ model: providerModel }));
+  });
+
+  it("is the model when the chat has none selected", async () => {
+    const manager = makeManager();
+    await manager.sendMessage("m0", "hello");
+    const options = sdk.queries.at(-1)?.options;
+    expect(options.model).toBe(providerModel);
+    // The model is passed as the model option, not as a setting.
+    expect(options.settings).toBeUndefined();
+  });
+
+  it("gives way to the default model preference", async () => {
+    const manager = makeManager({ defaultModel: "opus" });
+    await manager.sendMessage("m1", "hello");
+    expect(sdk.queries.at(-1)?.options.model).toBe("opus");
+  });
+
+  it("gives way to the model selected in the chat", async () => {
+    const manager = makeManager({ defaultModel: "opus" });
+    manager.setModel("m2", "haiku");
+    await manager.sendMessage("m2", "hello");
+    expect(sdk.queries.at(-1)?.options.model).toBe("haiku");
+  });
+
+  it("is what the live session goes back to when the chat selects Default", async () => {
+    const manager = makeManager({ defaultModel: "opus" });
+    await manager.sendMessage("m3", "hello");
+    const setModel = vi.spyOn(sdk.queries.at(-1) as InstanceType<typeof sdk.FakeQuery>, "setModel");
+    manager.setModel("m3", undefined);
+    expect(setModel).toHaveBeenCalledWith(providerModel);
+  });
+
+  it("is ignored with the wrong type", async () => {
+    writeFileSync(join(configDir, "settings.json"), JSON.stringify({ model: { id: "sonnet" } }));
+    const manager = makeManager();
+    await manager.sendMessage("m4", "hello");
+    expect(sdk.queries.at(-1)?.options.model).toBeUndefined();
+  });
+});
+
 describe("subagent wiring", () => {
   it("passes the cluster-analyzer agent and lets Agent/Task through when enabled", async () => {
     const manager = makeManager({ subagentsEnabled: true });

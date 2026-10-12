@@ -103,6 +103,19 @@ describe("pickUserSettings", () => {
     });
   });
 
+  it("takes the model apart from the settings", () => {
+    expect(pickUserSettings({ model: " sonnet ", env: { AWS_PROFILE: "work" } })).toEqual({
+      settings: { env: { AWS_PROFILE: "work" } },
+      model: "sonnet",
+    });
+  });
+
+  it("ignores a model that is empty or not a string", () => {
+    expect(pickUserSettings({ model: "" })).toEqual({ settings: {} });
+    expect(pickUserSettings({ model: 4 })).toEqual({ settings: {} });
+    expect(pickUserSettings({ model: ["sonnet"] })).toEqual({ settings: {} });
+  });
+
   it("gives nothing for a value that is not an object", () => {
     expect(pickUserSettings(null).settings).toEqual({});
     expect(pickUserSettings([]).settings).toEqual({});

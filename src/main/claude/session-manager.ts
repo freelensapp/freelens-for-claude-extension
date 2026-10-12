@@ -207,8 +207,10 @@ class ClusterSession {
   private working = false;
   private started = false;
   private writeTimer?: ReturnType<typeof setTimeout>;
-  /** The selected model alias; `undefined` means the Claude Code default. */
+  /** The selected model alias; `undefined` means the settings file's model, else the Claude Code default. */
   private selectedModel?: string;
+  /** The `model` of the user's Claude Code settings file at the last session start, used when none is selected. */
+  private userSettingsModel?: string;
   /** The model id the SDK `init` message reported (for the Default label). */
   private resolvedModel?: string;
   /** The selected reasoning-effort level; `undefined` means the Claude Code default ("high"). */
@@ -321,14 +323,15 @@ class ClusterSession {
   /**
    * Switch the model used for subsequent turns. Persists the choice, updates a
    * live query best-effort (never restarting the conversation), and echoes the
-   * new selection through `session_meta`.
+   * new selection through `session_meta`. `undefined` goes back to the model
+   * of the user's settings file, when it has one.
    */
   setModel(model: string | undefined): void {
     this.selectedModel = model;
     this.store.writeModel(this.clusterId, model);
     if (this.queryHandle) {
       try {
-        void this.queryHandle.setModel(model);
+        void this.queryHandle.setModel(model ?? this.userSettingsModel);
       } catch (error) {
         this.emit(
           sessionEvent("error", {
@@ -497,6 +500,10 @@ class ClusterSession {
       : DISALLOWED_BUILTIN_TOOLS;
     const allowedTools = subagentsEnabled ? [...AUTO_ALLOWED_TOOL_NAMES, "Agent"] : AUTO_ALLOWED_TOOL_NAMES;
     const userSettings = readUserSettings();
+    this.userSettingsModel = userSettings.model;
+    // The chat's model selector and the default model preference win over the
+    // settings file, which a third-party provider can need for its model ids.
+    const model = this.selectedModel ?? userSettings.model;
     this.queryHandle = query({
       prompt: this.input,
       options: {
@@ -523,7 +530,7 @@ class ClusterSession {
         includePartialMessages: true,
         canUseTool: (toolName, input, extra) => this.canUseTool(toolName, input, extra),
         ...(resume ? { resume } : {}),
-        ...(this.selectedModel ? { model: this.selectedModel } : {}),
+        ...(model ? { model } : {}),
         ...(this.selectedEffort ? { effort: this.selectedEffort } : {}),
         systemPrompt: {
           type: "preset",

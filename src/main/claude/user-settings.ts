@@ -10,7 +10,8 @@
 // and how to authenticate to it (Bedrock, Vertex, a gateway, an API key
 // helper). Only those keys are taken from the file and passed back through
 // the SDK's `settings` option, so a provider that works in the terminal works
-// in the chat without loosening the isolation. The file is read at every
+// in the chat without loosening the isolation. Its `model` is taken too, as
+// the default of a chat that has no model selected. The file is read at every
 // session start, so a change applies to the next session; a missing file is
 // normal, and an unreadable or invalid one is skipped with a warning that
 // never includes its contents, which can carry tokens and keys.
@@ -38,6 +39,12 @@ export type ProviderSettings = Pick<Settings, "env" | "modelOverrides" | (typeof
 export interface UserClaudeSettings {
   /** The keys passed to the SDK's `settings` option; empty when the file has none. */
   settings: ProviderSettings;
+  /**
+   * The file's `model`, the model of a session whose chat has none selected
+   * (neither in the model selector nor in the default model preference). A
+   * third-party provider can need a model id of its own.
+   */
+  model?: string;
 }
 
 /** The configuration directory of Claude Code: `$CLAUDE_CONFIG_DIR`, else `~/.claude`. */
@@ -77,8 +84,9 @@ function pickStringRecord(value: unknown): Record<string, string> | undefined {
 }
 
 /**
- * Take the provider and authentication keys from the parsed settings file.
- * Every other key is dropped, and so is one of these with the wrong type.
+ * Take the provider and authentication keys and the model from the parsed
+ * settings file. Every other key is dropped, and so is one of these with the
+ * wrong type.
  */
 export function pickUserSettings(raw: unknown): UserClaudeSettings {
   const settings: ProviderSettings = {};
@@ -92,7 +100,8 @@ export function pickUserSettings(raw: unknown): UserClaudeSettings {
     const value = raw[key];
     if (typeof value === "string" && value.trim()) settings[key] = value;
   }
-  return { settings };
+  const model = typeof raw.model === "string" ? raw.model.trim() : "";
+  return model ? { settings, model } : { settings };
 }
 
 /**
