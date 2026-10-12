@@ -60,6 +60,12 @@ const sdk = vi.hoisted(() => {
     async mcpServerStatus(): Promise<unknown[]> {
       return [];
     }
+    async supportedModels(): Promise<unknown[]> {
+      return [{ value: "opus", displayName: "Opus", description: "", resolvedModel: "claude-opus" }];
+    }
+    async getContextUsage(): Promise<unknown> {
+      return { model: "claude-opus", categories: [], totalTokens: 10, maxTokens: 100, percentage: 10 };
+    }
   }
 
   const queries: FakeQuery[] = [];
@@ -98,7 +104,10 @@ let baseDir: string;
 /** The Claude Code configuration directory the sessions read, empty unless a test writes to it. */
 let configDir: string;
 
-function makeManager(prefs: Partial<PreferencesState> = {}) {
+function makeManager(
+  prefs: Partial<PreferencesState> = {},
+  resolveClaudeCodePath: () => string | undefined = () => "/usr/bin/claude",
+) {
   const preferences: PreferencesState = {
     podLogsRequireApproval: false,
     podLogsTailLines: 1000,
@@ -118,7 +127,7 @@ function makeManager(prefs: Partial<PreferencesState> = {}) {
     writeModel: () => {},
     writeEffort: () => {},
   };
-  return new SessionManager(() => "/usr/bin/claude", baseDir, store, preferences);
+  return new SessionManager(resolveClaudeCodePath, baseDir, store, preferences);
 }
 
 /** Let the background consume loop drain any buffered messages. */
@@ -141,6 +150,52 @@ describe("query options", () => {
     const manager = makeManager();
     await manager.sendMessage("c0", "hello");
     expect(sdk.queries.at(-1)?.options.permissionMode).toBe("default");
+  });
+});
+
+describe("session start", () => {
+  it("gives two concurrent model requests on a fresh session the catalog, from one query", async () => {
+    const manager = makeManager();
+    const [first, second] = await Promise.all([manager.getClusterModels("r0"), manager.getClusterModels("r0")]);
+    expect(first).toEqual({ models: [{ value: "opus", displayName: "Opus", resolvedModel: "claude-opus" }] });
+    expect(second).toEqual(first);
+    expect(sdk.queries).toHaveLength(1);
+  });
+
+  it("gives concurrent context and model requests on a fresh session their data, from one query", async () => {
+    const manager = makeManager();
+    const [context, models] = await Promise.all([manager.getClusterContext("r1"), manager.getClusterModels("r1")]);
+    expect(context.error).toBeUndefined();
+    expect(context.maxTokens).toBe(100);
+    expect(models.error).toBeUndefined();
+    expect(models.models).toHaveLength(1);
+    expect(sdk.queries).toHaveLength(1);
+  });
+
+  it("starts once for a turn sent while a model request starts the session", async () => {
+    const manager = makeManager();
+    await Promise.all([manager.getClusterModels("r2"), manager.sendMessage("r2", "hello")]);
+    expect(sdk.queries).toHaveLength(1);
+  });
+
+  it("can be started again after Claude Code was not found", async () => {
+    let path: string | undefined;
+    const manager = makeManager({}, () => path);
+    const events: SessionEvent[] = [];
+    manager.subscribe("r3", (event) => events.push(event));
+
+    const [first, second] = await Promise.all([manager.getClusterModels("r3"), manager.getClusterModels("r3")]);
+    expect(first.error).toBeDefined();
+    expect(second.error).toBeDefined();
+    expect(sdk.queries).toHaveLength(0);
+    // The concurrent callers share the failed start, which reports it once.
+    expect(events.filter((event) => event.type === "error" && event.data.kind === "not_found")).toHaveLength(1);
+
+    path = "/usr/bin/claude";
+    const models = await manager.getClusterModels("r3");
+    expect(models.error).toBeUndefined();
+    expect(models.models).toHaveLength(1);
+    expect(sdk.queries).toHaveLength(1);
   });
 });
 
