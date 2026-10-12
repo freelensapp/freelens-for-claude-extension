@@ -243,6 +243,9 @@ for every request, so the next request goes to the new bridge.
   observer keeps what it read first until something else renders it again.
 - The one cluster page is registered as `Page: () => <ChatPage />`; the host renders a cluster page with `params`
   only, and `ChatPage` takes the cluster from `Renderer.Catalog.getActiveCluster()`.
+- The host renders under `React.StrictMode`, so in Freelens dev every effect runs, is cleaned up and runs again on
+  mount. An effect that starts a request or a stream cleans it up, or drops its answer, so that the second run is the
+  one that counts; do not try to skip the second run.
 - The "Ask Claude" items in `kubeObjectMenuItems` are made by `Renderer.K8sApi.menuItemFor(Pod, { MenuItem })` with the
   host's model classes (`KubeEvent`, `Pod`, `Deployment`, `DaemonSet`, `StatefulSet`, `Service`, `Node`), not written
   out with `kind` and `apiVersions`. The helper takes both from the class and types the item's props from it, so
@@ -701,6 +704,12 @@ git-ignored.
 - The chat page connects once `BridgeStore` has synced into the frame, and an
   answer streams in over seconds. Wait for the expected content, not a fixed
   time.
+- Freelens renders under `React.StrictMode`, which in its development build
+  runs every effect twice on mount, with the cleanup in between. So the
+  network log of Freelens dev shows two `/status`, two `/events` (the first
+  aborted) and two `/models` when the chat page opens; that is not a remount,
+  and a production build sends one of each. The bridge answers concurrent
+  requests for one cluster from one session start.
 - In the default "Approve" mode, a mutating tool (`freelens_kubectl` and
   `freelens_helm` included), a pod log read (unless its preference is off)
   and every external MCP tool stop at an approval card; approve or deny it to
