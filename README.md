@@ -164,14 +164,19 @@ run automatically; mutating tools always require your approval.
 <!-- markdownlint-enable MD013 -->
 
 `freelens_kubectl` and `freelens_helm` receive an argv array only — there is
-no shell — and are always pinned to the current cluster's kubeconfig and
-context. They are a fallback for actions the dedicated tools do not cover.
+no shell — and are always pinned to the current cluster: they run in the
+environment of the cluster's terminal in Freelens, whose kubeconfig reaches
+the cluster through Freelens, with the cluster's proxy setting, like the other
+tools. A cluster that is not connected in Freelens is refused. They are a
+fallback for actions the dedicated tools do not cover.
 
-`freelens_kubectl` runs the kubectl set in the Freelens preferences when
-there is one, else the kubectl Freelens downloaded for the cluster's
-Kubernetes version, else the kubectl Freelens ships, else the first
-`kubectl` on the `PATH`. `freelens_helm` runs the helm Freelens ships, else
-the first `helm` on the `PATH`.
+They run the binaries the cluster's terminal runs. `freelens_kubectl` runs
+the "Path to kubectl binary" preference when downloading kubectl binaries is
+turned off, else the kubectl matched to the cluster's Kubernetes version,
+downloaded into the download directory when it is missing, else the kubectl
+Freelens ships. `freelens_helm` runs the "Path to helm binary" preference,
+else the helm Freelens ships. The first call on a cluster may wait for
+kubectl to be downloaded; the call's timeout starts once it is ready.
 
 ### Permissions and safety
 
@@ -244,8 +249,9 @@ where noted, changes apply to the next new chat.
 - The permission broker is the single gate for every mutating,
   consent-gated, and external tool call.
 - `kubectl`/`helm` argv is validated: `--kubeconfig`, `--context`, and
-  `--kube-context` are rejected, and cluster targeting is injected by the
-  extension so those tools cannot be pointed at another cluster.
+  `--kube-context` are rejected, and the cluster comes from the environment
+  Freelens provides for it, so those tools cannot be pointed at another
+  cluster.
 
 ## Privacy
 
@@ -333,11 +339,6 @@ packed.
 
 A change to `main` or `renderer` in `package.json` needs a restart of
 Freelens, which watches only the entries it loaded.
-
-Under a Freelens started from its own source (`pnpm dev` in a Freelens
-checkout), the host keeps its own kubectl and helm at another place than a
-packaged Freelens does, so `freelens_kubectl` and `freelens_helm` can fall
-back to the binaries on the `PATH` (see [Built-in tools](#built-in-tools)).
 
 ### Pack and install the extension
 
