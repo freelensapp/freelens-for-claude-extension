@@ -39,6 +39,7 @@ import { PermissionBroker, type ResolveResult } from "./permission-broker";
 import { isPersistedToolProgress, PreparationProgress } from "./preparation-progress";
 import { buildAgents } from "./subagents";
 import { buildUsageResponse } from "./usage";
+import { readUserSettings } from "./user-settings";
 
 import type { McpServerConfig, ModelInfo, Query, SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 
@@ -495,6 +496,7 @@ class ClusterSession {
       ? DISALLOWED_BUILTIN_TOOLS.filter((name) => name !== "Task")
       : DISALLOWED_BUILTIN_TOOLS;
     const allowedTools = subagentsEnabled ? [...AUTO_ALLOWED_TOOL_NAMES, "Agent"] : AUTO_ALLOWED_TOOL_NAMES;
+    const userSettings = readUserSettings();
     this.queryHandle = query({
       prompt: this.input,
       options: {
@@ -513,7 +515,11 @@ class ClusterSession {
         // auto mode, whose classifier approves calls that never reach `canUseTool`.
         permissionMode: "default",
         ...(subagentsEnabled ? { agents: buildAgents() } : {}),
+        // No settings file is loaded: the user's permissions, hooks and plugins
+        // stay out of the chat. Only the keys that select the API provider and
+        // authenticate to it are taken from the user's settings file.
         settingSources: [],
+        ...(Object.keys(userSettings.settings).length > 0 ? { settings: userSettings.settings } : {}),
         includePartialMessages: true,
         canUseTool: (toolName, input, extra) => this.canUseTool(toolName, input, extra),
         ...(resume ? { resume } : {}),

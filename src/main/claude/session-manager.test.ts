@@ -3,7 +3,7 @@
  * Licensed under MIT License. See LICENSE in root directory for more information.
  */
 
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Main } from "@freelensapp/extensions";
@@ -95,6 +95,8 @@ vi.mock("../tools/kube-client", () => ({
 const { SessionManager } = await import("./session-manager");
 
 let baseDir: string;
+/** The Claude Code configuration directory the sessions read, empty unless a test writes to it. */
+let configDir: string;
 
 function makeManager(prefs: Partial<PreferencesState> = {}) {
   const preferences: PreferencesState = {
@@ -124,11 +126,14 @@ const flush = () => new Promise((resolve) => setTimeout(resolve, 10));
 
 beforeEach(() => {
   baseDir = mkdtempSync(join(tmpdir(), "for-claude-test-"));
+  configDir = mkdtempSync(join(tmpdir(), "for-claude-config-"));
+  vi.stubEnv("CLAUDE_CONFIG_DIR", configDir);
   sdk.queries.length = 0;
 });
 
 afterEach(() => {
   vi.clearAllMocks();
+  vi.unstubAllEnvs();
 });
 
 describe("query options", () => {
@@ -136,6 +141,57 @@ describe("query options", () => {
     const manager = makeManager();
     await manager.sendMessage("c0", "hello");
     expect(sdk.queries.at(-1)?.options.permissionMode).toBe("default");
+  });
+});
+
+describe("user settings of Claude Code", () => {
+  it("loads no settings file and passes no settings without one", async () => {
+    const manager = makeManager();
+    await manager.sendMessage("u0", "hello");
+    const options = sdk.queries.at(-1)?.options;
+    expect(options.settingSources).toEqual([]);
+    expect(options.settings).toBeUndefined();
+  });
+
+  it("passes only the provider and authentication keys, still loading no settings file", async () => {
+    writeFileSync(
+      join(configDir, "settings.json"),
+      JSON.stringify({
+        env: { CLAUDE_CODE_USE_BEDROCK: "1", AWS_REGION: "eu-central-1" },
+        awsAuthRefresh: "aws sso login",
+        permissions: { allow: ["mcp__freelens-kube__*"] },
+        hooks: { PreToolUse: [] },
+        mcpServers: { other: { command: "other" } },
+      }),
+    );
+    const manager = makeManager();
+    await manager.sendMessage("u1", "hello");
+    const options = sdk.queries.at(-1)?.options;
+    expect(options.settingSources).toEqual([]);
+    expect(options.settings).toEqual({
+      env: { CLAUDE_CODE_USE_BEDROCK: "1", AWS_REGION: "eu-central-1" },
+      awsAuthRefresh: "aws sso login",
+    });
+    expect(Object.keys(options.mcpServers)).toEqual(["freelens-kube"]);
+  });
+
+  it("starts the session without the file when it is not valid JSON", async () => {
+    writeFileSync(join(configDir, "settings.json"), "{ not json");
+    const manager = makeManager();
+    await manager.sendMessage("u2", "hello");
+    const options = sdk.queries.at(-1)?.options;
+    expect(options.settingSources).toEqual([]);
+    expect(options.settings).toBeUndefined();
+  });
+
+  it("reads the file again at the next session start", async () => {
+    const manager = makeManager();
+    await manager.sendMessage("u3", "hello");
+    expect(sdk.queries.at(-1)?.options.settings).toBeUndefined();
+
+    writeFileSync(join(configDir, "settings.json"), JSON.stringify({ env: { CLAUDE_CODE_USE_VERTEX: "1" } }));
+    await manager.sendMessage("u4", "hello");
+    expect(sdk.queries.at(-1)?.options.settings).toEqual({ env: { CLAUDE_CODE_USE_VERTEX: "1" } });
   });
 });
 
