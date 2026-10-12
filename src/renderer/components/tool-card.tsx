@@ -226,13 +226,14 @@ function resultToYaml(result: string): string {
 
 /**
  * How a call with a result ended: the outcome main reported, or, for a
- * transcript saved before main reported one, an error when the text starts as
- * an error does (`Tool error:` is how the extension's own tools fail).
+ * transcript saved before main reported one, an error when the text starts
+ * with `Tool error:`, which is how the extension's own tools fail. Any other
+ * text is a success: a kubectl that exited non-zero starts with kubectl's own
+ * `Error from server`, and a non-zero exit is not an error of the call.
  */
 function outcomeOf(result: string, outcome: ToolOutcome | undefined): ToolOutcome {
   if (outcome) return outcome;
-  const text = result.trimStart();
-  return text.startsWith("Error") || text.startsWith("Tool error:") ? "error" : "success";
+  return result.trimStart().startsWith("Tool error:") ? "error" : "success";
 }
 
 /**

@@ -151,15 +151,19 @@ describe("ToolCard outcome", () => {
   });
 
   it("falls back to the text for a result without an outcome, from a transcript saved before it", () => {
-    const { container } = renderOutcome("Tool error: pods not found");
+    const { container } = renderOutcome("  Tool error: pods not found");
     expect(screen.getByLabelText("error")).toBeTruthy();
     expect(card(container)).toContain("errorCard");
     cleanup();
-    renderOutcome("  Error: boom");
-    expect(screen.getByLabelText("error")).toBeTruthy();
-    cleanup();
     renderOutcome("kind: Pod");
     expect(screen.getByLabelText("done")).toBeTruthy();
+  });
+
+  it("keeps the check for an old kubectl exit-1 result without an outcome", () => {
+    // Saved before main reported outcomes: kubectl's stderr starts with "Error", but a non-zero exit is no error.
+    const { container } = renderOutcome('Error from server (NotFound): pods "x" not found\n\n[exit code 1]');
+    expect(screen.getByLabelText("done").textContent).toBe("check");
+    expect(card(container)).not.toContain("errorCard");
   });
 
   it("shows the outcome of a subagent's nested call", () => {
