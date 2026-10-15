@@ -43,6 +43,24 @@ const BEHAVIOR_COPY: Record<UsageBehavior["key"], { title: (pct: number) => stri
     title: (pct) => `${pct}% of your usage came from scheduled runs`,
     description: "Scheduled runs add up in the background. Review how often they run and which model they use.",
   },
+  max_effort: {
+    title: (pct) => `${pct}% of your usage ran at max effort`,
+    description: "Max effort thinks longer on every request. Use a lower effort level for routine tasks.",
+  },
+  workflow: {
+    title: (pct) => `${pct}% of your usage came from workflows`,
+    description: "Workflows run many agents for one task. Keep them for work that needs them.",
+  },
+  always_on_context: {
+    title: (pct) => `${pct}% of your usage carried a large always-on context`,
+    description:
+      "Instructions, tools and MCP servers are sent with every request. Turn off what the session does not need.",
+  },
+  large_tool_results: {
+    title: (pct) => `${pct}% of your usage followed large tool results`,
+    description:
+      "Large tool results stay in the context for the rest of the session. Ask for narrower results, such as selected fields or fewer log lines.",
+  },
 };
 
 /** "Resets in 6d" / "Resets in 1h" / "Resets in 12m" from an ISO timestamp. */
