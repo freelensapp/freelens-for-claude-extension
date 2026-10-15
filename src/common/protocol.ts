@@ -47,7 +47,16 @@ export interface UsageWindow {
 /** One behavioral characteristic contributing to limits usage. */
 export interface UsageBehavior {
   /** Stable behavior key; the renderer maps it to a sentence and a tip. */
-  key: "cache_miss" | "long_context" | "subagent_heavy" | "high_parallel" | "cron";
+  key:
+    | "cache_miss"
+    | "long_context"
+    | "subagent_heavy"
+    | "high_parallel"
+    | "cron"
+    | "max_effort"
+    | "workflow"
+    | "always_on_context"
+    | "large_tool_results";
   /** Share of the weighted local usage attributed to this behavior, 0-100. */
   pct: number;
 }
