@@ -6,6 +6,7 @@
 import { Renderer } from "@freelensapp/extensions";
 import { BridgeStore } from "../common/bridge-store";
 import { PreferencesStore } from "../common/preferences-store";
+import { BridgeIpc } from "./api/bridge-ipc";
 import { ChatPage } from "./components/chat-page";
 import { createAskClaudeMenuItem } from "./components/menu-entry";
 import { PreferencesHint, PreferencesInput } from "./components/preferences";
@@ -46,6 +47,7 @@ export default class ForClaudeRenderer extends Renderer.LensExtension {
   async onActivate(): Promise<void> {
     const store = BridgeStore.createInstance<BridgeStore>();
     store.loadExtension(this);
+    BridgeIpc.createInstance(this);
 
     const preferences = PreferencesStore.createInstance<PreferencesStore>();
     preferences.loadExtension(this);

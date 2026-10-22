@@ -3,7 +3,7 @@
  * Licensed under MIT License. See LICENSE in root directory for more information.
  */
 
-import { BridgeStore } from "../../common/bridge-store";
+import { type BridgeConnection, BridgeStore } from "../../common/bridge-store";
 import {
   type ClusterContextResponse,
   type ClusterModelsResponse,
@@ -15,6 +15,7 @@ import {
   type SessionEvent,
   type StatusResponse,
 } from "../../common/protocol";
+import { BridgeIpc } from "./bridge-ipc";
 
 /** Handlers for a live SSE subscription. */
 export interface StreamHandlers {
@@ -23,41 +24,79 @@ export interface StreamHandlers {
   onOpen?: () => void;
 }
 
+/** Asks main for the bridge's port and token; `null` when main refuses this frame. */
+export type RequestConnection = () => Promise<BridgeConnection | null>;
+
+const JSON_HEADERS = { "Content-Type": "application/json" };
+
 /**
- * Thin fetch wrapper around the main-process HTTP bridge. Reads the ephemeral
- * port and bearer token from the synced {@link BridgeStore}. SSE uses a
- * `fetch()` + `ReadableStream` reader (not `EventSource`, which cannot send the
- * `Authorization` header).
+ * Thin fetch wrapper around the main-process HTTP bridge. Watches the port in
+ * the synced {@link BridgeStore} and asks main over IPC for the port and the
+ * bearer token of that bridge, once per port, keeping them in this object
+ * only. SSE uses a `fetch()` + `ReadableStream` reader (not `EventSource`,
+ * which cannot send the `Authorization` header).
  */
 export class BridgeClient {
+  private connection?: Promise<BridgeConnection>;
+  private connectionPort = 0;
+
+  constructor(
+    private readonly requestConnection: RequestConnection = async () => BridgeIpc.getInstance().requestConnection(),
+  ) {}
+
   private get store(): BridgeStore {
     return BridgeStore.getInstanceOrCreate<BridgeStore>();
   }
 
-  private get baseUrl(): string {
-    return `http://127.0.0.1:${this.store.port}`;
-  }
-
-  private get authHeader(): Record<string, string> {
-    return { Authorization: `Bearer ${this.store.token}` };
-  }
-
+  /** Whether main has announced a listening bridge. */
   get isReady(): boolean {
-    return this.store.port > 0 && this.store.token.length > 0;
+    return this.store.port > 0;
+  }
+
+  /**
+   * The connection to the bridge the store names. Asked for again when the
+   * port changes, after a failed request for it, and after a 401.
+   */
+  private connect(): Promise<BridgeConnection> {
+    const port = this.store.port;
+    if (!this.connection || this.connectionPort !== port) {
+      this.connectionPort = port;
+      const pending = this.requestConnection().then((connection) => {
+        if (!connection?.token) throw new Error("the bridge refused this frame");
+        return connection;
+      });
+      pending.catch(() => this.forget(pending));
+      this.connection = pending;
+    }
+    return this.connection;
+  }
+
+  private forget(connection: Promise<BridgeConnection>): void {
+    if (this.connection === connection) this.connection = undefined;
+  }
+
+  /** `fetch` a bridge path with the bearer token. */
+  private async request(path: string, init: RequestInit = {}): Promise<Response> {
+    const connection = this.connect();
+    const { port, token } = await connection;
+    const response = await fetch(`http://127.0.0.1:${port}${path}`, {
+      ...init,
+      headers: { ...(init.headers as Record<string, string> | undefined), Authorization: `Bearer ${token}` },
+    });
+    if (response.status === 401) this.forget(connection);
+    return response;
   }
 
   async getStatus(refresh = false): Promise<StatusResponse> {
-    const response = await fetch(`${this.baseUrl}/status${refresh ? "?refresh=1" : ""}`, {
-      headers: this.authHeader,
-    });
+    const response = await this.request(`/status${refresh ? "?refresh=1" : ""}`);
     if (!response.ok) throw new Error(`status request failed: ${response.status}`);
     return (await response.json()) as StatusResponse;
   }
 
   async sendMessage(clusterId: string, text: string): Promise<void> {
-    const response = await fetch(`${this.baseUrl}/clusters/${encodeURIComponent(clusterId)}/messages`, {
+    const response = await this.request(`/clusters/${encodeURIComponent(clusterId)}/messages`, {
       method: "POST",
-      headers: { ...this.authHeader, "Content-Type": "application/json" },
+      headers: JSON_HEADERS,
       body: JSON.stringify({ text }),
     });
     if (!response.ok) throw new Error(`send failed: ${response.status}`);
@@ -65,50 +104,38 @@ export class BridgeClient {
 
   /** Fetch the `/usage` data: account, plan rate-limit windows, contributing breakdown. */
   async getUsage(clusterId: string): Promise<ClusterUsageResponse> {
-    const response = await fetch(`${this.baseUrl}/clusters/${encodeURIComponent(clusterId)}/usage`, {
-      headers: this.authHeader,
-    });
+    const response = await this.request(`/clusters/${encodeURIComponent(clusterId)}/usage`);
     if (!response.ok) throw new Error(`usage request failed: ${response.status}`);
     return (await response.json()) as ClusterUsageResponse;
   }
 
   /** Fetch the `/context` breakdown: current context-window occupancy by category. */
   async getContext(clusterId: string): Promise<ClusterContextResponse> {
-    const response = await fetch(`${this.baseUrl}/clusters/${encodeURIComponent(clusterId)}/context`, {
-      headers: this.authHeader,
-    });
+    const response = await this.request(`/clusters/${encodeURIComponent(clusterId)}/context`);
     if (!response.ok) throw new Error(`context request failed: ${response.status}`);
     return (await response.json()) as ClusterContextResponse;
   }
 
   /** Fetch the live model picker catalog from the installed Claude Code build. */
   async getModels(clusterId: string): Promise<ClusterModelsResponse> {
-    const response = await fetch(`${this.baseUrl}/clusters/${encodeURIComponent(clusterId)}/models`, {
-      headers: this.authHeader,
-    });
+    const response = await this.request(`/clusters/${encodeURIComponent(clusterId)}/models`);
     if (!response.ok) throw new Error(`models request failed: ${response.status}`);
     return (await response.json()) as ClusterModelsResponse;
   }
 
   async interrupt(clusterId: string): Promise<void> {
-    await fetch(`${this.baseUrl}/clusters/${encodeURIComponent(clusterId)}/interrupt`, {
-      method: "POST",
-      headers: this.authHeader,
-    });
+    await this.request(`/clusters/${encodeURIComponent(clusterId)}/interrupt`, { method: "POST" });
   }
 
   async disposeSession(clusterId: string): Promise<void> {
-    await fetch(`${this.baseUrl}/clusters/${encodeURIComponent(clusterId)}/session`, {
-      method: "DELETE",
-      headers: this.authHeader,
-    });
+    await this.request(`/clusters/${encodeURIComponent(clusterId)}/session`, { method: "DELETE" });
   }
 
   /** Approve or deny a pending mutating-tool request. */
   async resolvePermission(requestId: string, behavior: PermissionBehavior): Promise<void> {
-    const response = await fetch(`${this.baseUrl}/permissions/${encodeURIComponent(requestId)}`, {
+    const response = await this.request(`/permissions/${encodeURIComponent(requestId)}`, {
       method: "POST",
-      headers: { ...this.authHeader, "Content-Type": "application/json" },
+      headers: JSON_HEADERS,
       body: JSON.stringify({ behavior }),
     });
     if (!response.ok) throw new Error(`resolve permission failed: ${response.status}`);
@@ -116,9 +143,9 @@ export class BridgeClient {
 
   /** Switch the per-cluster permission mode. */
   async setPermissionMode(clusterId: string, mode: PermissionMode): Promise<void> {
-    const response = await fetch(`${this.baseUrl}/clusters/${encodeURIComponent(clusterId)}/permission-mode`, {
+    const response = await this.request(`/clusters/${encodeURIComponent(clusterId)}/permission-mode`, {
       method: "POST",
-      headers: { ...this.authHeader, "Content-Type": "application/json" },
+      headers: JSON_HEADERS,
       body: JSON.stringify({ mode }),
     });
     if (!response.ok) throw new Error(`set permission mode failed: ${response.status}`);
@@ -126,9 +153,9 @@ export class BridgeClient {
 
   /** Switch the per-cluster model; `null` restores the Claude Code default. */
   async setModel(clusterId: string, model: string | null): Promise<void> {
-    const response = await fetch(`${this.baseUrl}/clusters/${encodeURIComponent(clusterId)}/model`, {
+    const response = await this.request(`/clusters/${encodeURIComponent(clusterId)}/model`, {
       method: "POST",
-      headers: { ...this.authHeader, "Content-Type": "application/json" },
+      headers: JSON_HEADERS,
       body: JSON.stringify({ model }),
     });
     if (!response.ok) throw new Error(`set model failed: ${response.status}`);
@@ -136,9 +163,9 @@ export class BridgeClient {
 
   /** Switch the per-cluster reasoning-effort level; `null` restores the Claude Code default ("high"). */
   async setEffort(clusterId: string, effort: EffortLevel | null): Promise<void> {
-    const response = await fetch(`${this.baseUrl}/clusters/${encodeURIComponent(clusterId)}/effort`, {
+    const response = await this.request(`/clusters/${encodeURIComponent(clusterId)}/effort`, {
       method: "POST",
-      headers: { ...this.authHeader, "Content-Type": "application/json" },
+      headers: JSON_HEADERS,
       body: JSON.stringify({ effort }),
     });
     if (!response.ok) throw new Error(`set effort failed: ${response.status}`);
@@ -146,10 +173,7 @@ export class BridgeClient {
 
   /** Re-run the last failed turn. Resolves for a 202, rejects for a 409/other. */
   async retry(clusterId: string): Promise<void> {
-    const response = await fetch(`${this.baseUrl}/clusters/${encodeURIComponent(clusterId)}/retry`, {
-      method: "POST",
-      headers: this.authHeader,
-    });
+    const response = await this.request(`/clusters/${encodeURIComponent(clusterId)}/retry`, { method: "POST" });
     if (!response.ok) throw new Error(`retry failed: ${response.status}`);
   }
 
@@ -166,8 +190,7 @@ export class BridgeClient {
     const run = async () => {
       while (!closed) {
         try {
-          const response = await fetch(`${this.baseUrl}/clusters/${encodeURIComponent(clusterId)}/events`, {
-            headers: this.authHeader,
+          const response = await this.request(`/clusters/${encodeURIComponent(clusterId)}/events`, {
             signal: controller.signal,
           });
           if (!response.ok || !response.body) throw new Error(`events request failed: ${response.status}`);

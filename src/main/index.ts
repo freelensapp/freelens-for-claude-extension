@@ -8,6 +8,7 @@ import { Common, Main } from "@freelensapp/extensions";
 import { BridgeStore } from "../common/bridge-store";
 import { PreferencesStore } from "../common/preferences-store";
 import { ChatSessionStore } from "../common/session-store";
+import { BridgeIpc } from "./bridge/ipc";
 import { BridgeServer } from "./bridge/server";
 import { type DetectionResult, detectClaudeCode } from "./claude/detect";
 import { SessionManager } from "./claude/session-manager";
@@ -25,6 +26,9 @@ export default class ForClaudeMain extends Main.LensExtension {
     try {
       const store = BridgeStore.createInstance<BridgeStore>();
       store.loadExtension(this);
+      // The bridge of the last launch is gone. The change also makes the host
+      // save the store, which overwrites the token an older version left in it.
+      store.setPort(0);
 
       const sessionStore = ChatSessionStore.createInstance<ChatSessionStore>();
       sessionStore.loadExtension(this);
@@ -50,8 +54,11 @@ export default class ForClaudeMain extends Main.LensExtension {
         getStatus: (refresh) => this.buildStatus(refresh),
       });
       const port = await this.server.start();
+      // The handler is in place before the port reaches the frames, which ask
+      // for the token as soon as they see it.
+      BridgeIpc.createInstance(this).serveConnection({ port, token });
       this.ready = true;
-      store.set({ port, token });
+      store.setPort(port);
 
       Common.logger.info(`[for-claude] bridge listening on 127.0.0.1:${port}`);
     } catch (error) {

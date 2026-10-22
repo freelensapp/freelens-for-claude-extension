@@ -31,6 +31,36 @@ function LineProgress({ value, max }: { value: number; max?: number }) {
   return React.createElement("div", { "data-line-progress": `${value}/${max ?? 100}` });
 }
 
+// Singletons of the stand-ins below, one per class, as in the host.
+// `resetInstance()` drops one between tests.
+const instances = new Map<unknown, unknown>();
+
+// Minimal stand-in for the host `Main.Ipc` and `Renderer.Ipc` base classes, a
+// singleton per subclass. `handle` and `invoke` are mocks: a test reads the
+// handler that main code registered from `handle`, and gives renderer code
+// main's answer through `invoke`. By default `invoke` fails, as in the host
+// when main has registered no handler.
+class Ipc {
+  readonly handle = vi.fn<(channel: string, handler: (event: unknown, ...args: unknown[]) => unknown) => void>();
+  readonly invoke = vi.fn<(channel: string, ...args: unknown[]) => Promise<unknown>>(async (channel) => {
+    throw new Error(`No handler registered for '${channel}'`);
+  });
+  constructor(_extension: unknown) {}
+  static createInstance<T>(this: new (extension: unknown) => T, extension: unknown): T {
+    const instance = (instances.get(this) as T | undefined) ?? new this(extension);
+    instances.set(this, instance);
+    return instance;
+  }
+  static getInstance<T>(this: new (extension: unknown) => T, strict = true): T | undefined {
+    const instance = instances.get(this) as T | undefined;
+    if (!instance && strict) throw new TypeError(`instance of ${this.name} is not created`);
+    return instance;
+  }
+  static resetInstance(this: unknown): void {
+    instances.delete(this);
+  }
+}
+
 export const Renderer = {
   Catalog: {
     getActiveCluster: vi.fn<() => { id: string } | undefined>(() => undefined),
@@ -40,14 +70,13 @@ export const Renderer = {
     LineProgress,
     MonacoEditor,
   },
+  Ipc,
 };
 
 // Minimal stand-in for the host `ExtensionStore` base class. The real one
 // persists to disk: it loads the saved model with `fromStore()` and saves it
 // whenever `toJSON()` changes. The stub keeps subclass state in memory so store
-// logic (e.g. `ChatSessionStore`) can be unit-tested. As in the host, a store is
-// a singleton per class; `resetInstance()` drops it between tests.
-const instances = new Map<unknown, unknown>();
+// logic (e.g. `ChatSessionStore`) can be unit-tested.
 
 class ExtensionStore<_T> {
   constructor(_params: unknown) {}
@@ -100,6 +129,7 @@ export const Common = {
 };
 
 export const Main = {
+  Ipc,
   Catalog: {
     getClusterById: vi.fn<(id: string) => unknown>(() => undefined),
   },

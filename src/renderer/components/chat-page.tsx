@@ -15,9 +15,9 @@ import type { StatusResponse } from "../../common/protocol";
 
 /**
  * Top-level cluster page: onboarding gate or the chat view. An observer: the
- * bridge port and token come from BridgeStore, which the host syncs from main
- * and may fill in only after the page has rendered; the status is fetched
- * again once they arrive.
+ * bridge port comes from BridgeStore, which the host syncs from main and may
+ * fill in only after the page has rendered; the status is fetched again once
+ * it arrives, after the client has asked main for the token.
  */
 export const ChatPage = observer(function ChatPage() {
   const client = bridgeClient();
