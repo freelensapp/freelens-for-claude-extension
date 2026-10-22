@@ -235,9 +235,14 @@ port to `BridgeStore`, which the host syncs to every frame and also saves to
 token is never in a store: the client asks main for the port and the token
 over IPC (`BRIDGE_CONNECTION_CHANNEL`, `bridge/ipc.ts` and
 `api/bridge-ipc.ts`), once per port, and keeps them in the client object.
-Main answers only a frame whose `senderFrame.origin`, which Electron sets
-and the page cannot, is a cluster frame, and `null` to the root frame and
-any other. The store's model keeps a `token` key that is always empty: the
+Main answers only a frame whose `senderFrame.origin` is a cluster frame, and
+`null` to the root frame and any other. That keeps the token out of the
+frames that never call the bridge; it is not a boundary between extensions.
+Freelens runs every frame with Node integration, so any code in a cluster
+frame can ask over the same channel, and any extension can reach the cluster
+without the bridge. The guards of the bridge are aimed at what runs outside
+Freelens: web pages in a browser, and the store file on disk. The store's
+model keeps a `token` key that is always empty: the
 host saves each key of the model and never deletes one, so the empty value
 is what overwrites the token an older version saved. Do not drop the key.
 
