@@ -248,7 +248,11 @@ where noted, changes apply to the next new chat.
 
 - The bridge between the renderer and the agent runtime binds to
   `127.0.0.1` only and requires a per-launch random bearer token on every
-  request.
+  request, compared in constant time. The token stays in memory: the main
+  process hands it over IPC to the Freelens cluster frames only, and it is
+  never written to disk. The bridge answers CORS requests and preflights
+  only for the cluster frames' origins, and refuses a request under any
+  `Host` other than `127.0.0.1:<port>`.
 - The extension stores no credentials and never talks to Anthropic itself —
   all model traffic goes through your own Claude Code session.
 - `settingSources: []` and `strictMcpConfig` keep your global Claude Code

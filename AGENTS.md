@@ -108,7 +108,7 @@ local HTTP/SSE bridge; the renderer is a per-cluster chat page.
 ```text
 src/
   common/
-    bridge-store.ts        # ExtensionStore: { port, token } synced main -> renderer
+    bridge-store.ts        # ExtensionStore: bridge port synced main -> renderer (token always empty); IPC channel + BridgeConnection type
     session-store.ts       # ChatSessionStore: per-cluster sessionId + permission mode + model
     preferences-store.ts   # PreferencesStore: pod logs, agent rules, path override, default model, MCP config, subagents, prompt shortcuts
     prompt-shortcuts.ts    # built-in quick-prompt chips + parser for the promptShortcuts preference (renderer-free)
@@ -126,7 +126,9 @@ src/
       usage.ts             # buildUsageResponse: shape SDK accountInfo + /usage data into ClusterUsageResponse
       user-settings.ts     # read the user's Claude Code settings.json ($CLAUDE_CONFIG_DIR or ~/.claude) at each session start: provider/auth keys for the SDK settings option, model default (never throws, never logs values)
     bridge/
-      server.ts            # node:http server, routing, bearer auth, CORS, SSE, permission/model/retry/usage/context routes
+      server.ts            # node:http server, routing, bearer auth (constant time), Host check, CORS for cluster frames, SSE, permission/model/retry/usage/context routes
+      frame-origin.ts      # isClusterFrameOrigin: the origins the bridge serves
+      ipc.ts               # BridgeIpc (Main.Ipc): hands port + token to cluster frames only, by senderFrame.origin
     tools/
       kube-client.ts       # requests through Main.K8sApi.KubeJsonApi.forCluster (Freelens proxy): discovery, timeout, Error conversion, connected check
       kube-format.ts       # YAML, managedFields stripping, truncation, selectFields, toDiff
@@ -148,7 +150,8 @@ src/
   renderer/
     index.tsx              # clusterPages, clusterPageMenus, appPreferences, kubeObjectMenuItems (menuItemFor)
     api/
-      bridge-client.ts     # fetch wrapper + SSE reader; resolvePermission, setPermissionMode, setModel, retry, getUsage, getContext
+      bridge-client.ts     # fetch wrapper + SSE reader; token from BridgeIpc once per port, in memory; resolvePermission, setPermissionMode, setModel, retry, getUsage, getContext
+      bridge-ipc.ts        # BridgeIpc (Renderer.Ipc): asks main for the bridge connection
       pending-prompt.ts    # module-scoped handoff between "Ask Claude" menu entries and the chat page
     components/
       chat-page.tsx        # page (observer of BridgeStore): onboarding gate or chat view
@@ -224,22 +227,49 @@ The extension presents no custom resource, so `customResources` of the
 renderer extension stays empty, and it defines no KubeObject model of its own:
 the "Ask Claude" items use the host's model classes.
 
-The renderer talks to main over HTTP, not IPC: main writes the bridge's port
-and a random bearer token to `BridgeStore`, which the host syncs to every
-frame, and `bridge-client.ts` calls `http://127.0.0.1:<port>` with plain
-`fetch` and reads the event stream as SSE. The host's Content Security Policy
-has no `connect-src`, and the bridge echoes the request `Origin` for CORS, so
-the cluster frame (`https://<clusterId>.renderer.freelens.app`) reaches it.
-Main stops the bridge in `onDeactivate`, so a reload of the extension starts a
-new bridge with a new port and token. The client reads both from `BridgeStore`
-for every request, so the next request goes to the new bridge.
+The renderer talks to main over HTTP: `bridge-client.ts` calls
+`http://127.0.0.1:<port>` with plain `fetch`, a random bearer token in every
+request, and reads the event stream as SSE. IPC carries short
+request/response exchanges only, such as the connection handoff below; the
+chat traffic stays on HTTP and SSE. The extension API has no send to a single
+frame: `Ipc.broadcast` reaches every frame of every window, so a session's
+events would reach the frames of other clusters, while an HTTP request gives
+each frame a stream of its own. Main writes only the bridge's
+port to `BridgeStore`, which the host syncs to every frame and also saves to
+`bridge-store.json`; a new port tells the chat that a new bridge is up. The
+token is never in a store: the client asks main for the port and the token
+over IPC (`BRIDGE_CONNECTION_CHANNEL`, `bridge/ipc.ts` and
+`api/bridge-ipc.ts`), once per port, and keeps them in the client object.
+Main answers only a frame whose `senderFrame.origin` is a cluster frame, and
+`null` to the root frame and any other. That keeps the token out of the
+frames that never call the bridge; it is not a boundary between extensions.
+Freelens runs every frame with Node integration, so any code in a cluster
+frame can ask over the same channel, and any extension can reach the cluster
+without the bridge. The guards of the bridge are aimed at what runs outside
+Freelens: web pages in a browser, and the store file on disk. The store's
+model keeps a `token` key that is always empty: the
+host saves each key of the model and never deletes one, so the empty value
+is what overwrites the token an older version saved. Do not drop the key.
+
+The host's Content Security Policy has no `connect-src`, and the bridge
+allows CORS for the origin of a cluster frame
+(`https://<clusterId>.renderer.freelens.app:<port>`, `frame-origin.ts`) and
+for no other: a request with another `Origin`, the root frame's included,
+and a preflight without one get a 403, as does a request whose `Host` is
+not `127.0.0.1:<port>` (DNS rebinding). A request without `Origin` is not
+from a page and still needs the token, which is compared in constant time.
+Main stops the bridge in `onDeactivate`, and the host removes the IPC
+handler, so a reload of the extension starts a new bridge with a new port
+and token. The client asks for the token again when the port in
+`BridgeStore` changes, after a failed IPC call and after a 401, so the next
+request goes to the new bridge.
 
 ## Renderer Components
 
 - A component that reads a store while it renders is an `observer` from `mobx-react`, which the build maps to the
   host's copy. The host syncs the stores between main, the root frame and each cluster frame, possibly after the
-  component has rendered: `ChatPage` reads the bridge port and token from `BridgeStore` and asks for the status again
-  once they arrive, and `ChatView` reads the prompt shortcuts from `PreferencesStore`. A component that is not an
+  component has rendered: `ChatPage` reads the bridge port from `BridgeStore` and asks for the status again once it
+  arrives, and `ChatView` reads the prompt shortcuts from `PreferencesStore`. A component that is not an
   observer keeps what it read first until something else renders it again.
 - The one cluster page is registered as `Page: () => <ChatPage />`; the host renders a cluster page with `params`
   only, and `ChatPage` takes the cluster from `Renderer.Catalog.getActiveCluster()`.
@@ -546,8 +576,9 @@ mocks. The `alias` in `vitest.config.ts` points the import at
 import. The stub covers only what the tests use (the `ExtensionStore` base
 class, `Common.logger`, `Common.Clusters`, `Common.Util.bytesToUnits`,
 `Main.Catalog.getClusterById`, `Main.K8sApi.KubeJsonApi.forCluster`,
-`Main.Shell`, `Renderer.Catalog`, and stand-ins for `Icon`, for `LineProgress`
-and for `MonacoEditor`, which renders a `<textarea>`), at
+`Main.Shell`, `Renderer.Catalog`, the `Main.Ipc` and `Renderer.Ipc` base
+classes, whose `handle` and `invoke` are mocks, and stand-ins for `Icon`, for
+`LineProgress` and for `MonacoEditor`, which renders a `<textarea>`), at
 runtime only; the type check still uses the real declaration. As in the host, a
 store is a singleton per class, so a test that renders a component reading a
 store sets the same instance the component reads, and drops it afterwards with

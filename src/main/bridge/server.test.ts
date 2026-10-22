@@ -3,8 +3,10 @@
  * Licensed under MIT License. See LICENSE in root directory for more information.
  */
 
+import { request } from "node:http";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { BridgeServer } from "./server";
+import { BridgeServer, isAuthorized } from "./server";
+import type { IncomingMessage } from "node:http";
 
 import type { StatusResponse } from "../../common/protocol";
 import type { SessionManager } from "../claude/session-manager";
@@ -69,6 +71,48 @@ afterAll(async () => {
   await server.stop();
 });
 
+/** A GET through node:http, which sends the Host header it is given (fetch does not). */
+function rawGet(path: string, headers: Record<string, string>): Promise<{ status: number }> {
+  const url = new URL(path, baseUrl);
+  return new Promise((resolve, reject) => {
+    const req = request({ host: url.hostname, port: url.port, path: url.pathname, headers }, (res) => {
+      res.resume();
+      resolve({ status: res.statusCode ?? 0 });
+    });
+    req.on("error", reject);
+    req.end();
+  });
+}
+
+describe("isAuthorized", () => {
+  const request = (authorization?: string) => ({ headers: { authorization } }) as IncomingMessage;
+
+  it("accepts the expected bearer token", () => {
+    expect(isAuthorized(request(`Bearer ${TOKEN}`), TOKEN)).toBe(true);
+  });
+
+  it("rejects a missing header", () => {
+    expect(isAuthorized(request(), TOKEN)).toBe(false);
+  });
+
+  it("rejects a token of another length", () => {
+    expect(isAuthorized(request(`Bearer ${TOKEN}x`), TOKEN)).toBe(false);
+    expect(isAuthorized(request("Bearer "), TOKEN)).toBe(false);
+  });
+
+  it("rejects a wrong token of the same length", () => {
+    expect(isAuthorized(request(`Bearer ${"x".repeat(TOKEN.length)}`), TOKEN)).toBe(false);
+  });
+
+  it("rejects the token without the Bearer scheme", () => {
+    expect(isAuthorized(request(TOKEN), TOKEN)).toBe(false);
+  });
+
+  it("rejects everything while the expected token is empty", () => {
+    expect(isAuthorized(request("Bearer "), "")).toBe(false);
+  });
+});
+
 describe("bridge auth", () => {
   it("rejects requests without a token", async () => {
     const response = await fetch(`${baseUrl}/status`);
@@ -90,21 +134,64 @@ describe("bridge auth", () => {
     expect(await response.json()).toEqual(status);
   });
 
-  it("answers OPTIONS preflight without a token and reflects the origin", async () => {
-    const response = await fetch(`${baseUrl}/status`, {
-      method: "OPTIONS",
-      headers: { Origin: "http://renderer.local" },
-    });
-    expect(response.status).toBe(204);
-    expect(response.headers.get("access-control-allow-origin")).toBe("http://renderer.local");
-    expect(response.headers.get("access-control-allow-headers")).toContain("Authorization");
-  });
-
   it("returns 404 for unknown routes", async () => {
     const response = await fetch(`${baseUrl}/nope`, {
       headers: { Authorization: `Bearer ${TOKEN}` },
     });
     expect(response.status).toBe(404);
+  });
+
+  it("rejects a request under another Host, even with the token", async () => {
+    const response = await rawGet("/status", { Host: "attacker.example:80", Authorization: `Bearer ${TOKEN}` });
+    expect(response.status).toBe(403);
+  });
+});
+
+describe("bridge CORS", () => {
+  const CLUSTER_FRAME = "https://0123abcd.renderer.freelens.app:9443";
+
+  it("answers the preflight of a cluster frame without a token", async () => {
+    const response = await fetch(`${baseUrl}/status`, {
+      method: "OPTIONS",
+      headers: { Origin: CLUSTER_FRAME },
+    });
+    expect(response.status).toBe(204);
+    expect(response.headers.get("access-control-allow-origin")).toBe(CLUSTER_FRAME);
+    expect(response.headers.get("access-control-allow-headers")).toContain("Authorization");
+    expect(response.headers.get("vary")).toBe("Origin");
+  });
+
+  it("allows a cluster frame's request with the token", async () => {
+    const response = await fetch(`${baseUrl}/status`, {
+      headers: { Origin: CLUSTER_FRAME, Authorization: `Bearer ${TOKEN}` },
+    });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("access-control-allow-origin")).toBe(CLUSTER_FRAME);
+  });
+
+  it.each([
+    "https://evil.example",
+    "https://renderer.freelens.app:9443",
+    "http://0123abcd.renderer.freelens.app:9443",
+    "https://0123abcd.renderer.freelens.app.evil.example",
+    "null",
+  ])("refuses the preflight of %s with no CORS header", async (origin) => {
+    const response = await fetch(`${baseUrl}/status`, { method: "OPTIONS", headers: { Origin: origin } });
+    expect(response.status).toBe(403);
+    expect(response.headers.get("access-control-allow-origin")).toBeNull();
+  });
+
+  it("refuses a foreign origin's request even with the token", async () => {
+    const response = await fetch(`${baseUrl}/status`, {
+      headers: { Origin: "https://evil.example", Authorization: `Bearer ${TOKEN}` },
+    });
+    expect(response.status).toBe(403);
+    expect(response.headers.get("access-control-allow-origin")).toBeNull();
+  });
+
+  it("refuses a preflight without an Origin", async () => {
+    const response = await fetch(`${baseUrl}/status`, { method: "OPTIONS" });
+    expect(response.status).toBe(403);
   });
 });
 
