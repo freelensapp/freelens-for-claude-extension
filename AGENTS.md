@@ -126,7 +126,8 @@ src/
       usage.ts             # buildUsageResponse: shape SDK accountInfo + /usage data into ClusterUsageResponse
       user-settings.ts     # read the user's Claude Code settings.json ($CLAUDE_CONFIG_DIR or ~/.claude) at each session start: provider/auth keys for the SDK settings option, model default (never throws, never logs values)
     bridge/
-      server.ts            # node:http server, routing, bearer auth, CORS, SSE, permission/model/retry/usage/context routes
+      server.ts            # node:http server, routing, bearer auth (constant time), Host check, CORS for cluster frames, SSE, permission/model/retry/usage/context routes
+      frame-origin.ts      # isClusterFrameOrigin: the origins the bridge serves
     tools/
       kube-client.ts       # requests through Main.K8sApi.KubeJsonApi.forCluster (Freelens proxy): discovery, timeout, Error conversion, connected check
       kube-format.ts       # YAML, managedFields stripping, truncation, selectFields, toDiff
@@ -228,9 +229,13 @@ The renderer talks to main over HTTP, not IPC: main writes the bridge's port
 and a random bearer token to `BridgeStore`, which the host syncs to every
 frame, and `bridge-client.ts` calls `http://127.0.0.1:<port>` with plain
 `fetch` and reads the event stream as SSE. The host's Content Security Policy
-has no `connect-src`, and the bridge echoes the request `Origin` for CORS, so
-the cluster frame (`https://<clusterId>.renderer.freelens.app`) reaches it.
-Main stops the bridge in `onDeactivate`, so a reload of the extension starts a
+has no `connect-src`, and the bridge allows CORS for the origin of a cluster
+frame (`https://<clusterId>.renderer.freelens.app:<port>`,
+`frame-origin.ts`) and for no other: a request with another `Origin`, the
+root frame's included, and a preflight without one get a 403, as does a
+request whose `Host` is not `127.0.0.1:<port>` (DNS rebinding). A request
+without `Origin` is not from a page and still needs the token, which is
+compared in constant time. Main stops the bridge in `onDeactivate`, so a reload of the extension starts a
 new bridge with a new port and token. The client reads both from `BridgeStore`
 for every request, so the next request goes to the new bridge.
 

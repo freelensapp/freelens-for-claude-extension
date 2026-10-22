@@ -6,6 +6,7 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { encodeSseEvent, isEffortLevel, SSE_HEARTBEAT, type StatusResponse } from "../../common/protocol";
+import { isClusterFrameOrigin } from "./frame-origin";
 
 import type { SessionManager } from "../claude/session-manager";
 
@@ -32,11 +33,16 @@ export function isAuthorized(req: IncomingMessage, token: string): boolean {
   return timingSafeEqual(actual, expected);
 }
 
-function applyCors(req: IncomingMessage, res: ServerResponse): void {
-  const origin = req.headers.origin;
-  if (origin) res.setHeader("Access-Control-Allow-Origin", origin);
+/**
+ * Allow the request's origin for CORS. Only called for a cluster frame
+ * origin; any other gets no CORS header, so the browser keeps the response
+ * from the page.
+ */
+function applyCors(res: ServerResponse, origin: string): void {
+  res.setHeader("Access-Control-Allow-Origin", origin);
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Authorization, Content-Type");
+  res.setHeader("Vary", "Origin");
 }
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
@@ -99,10 +105,28 @@ export class BridgeServer {
   }
 
   private async handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    applyCors(req, res);
+    // The client calls `127.0.0.1:<port>`. Any other Host is a request that
+    // reached the socket under another name, as a DNS rebinding page does.
+    if (req.headers.host !== `127.0.0.1:${this.port}`) {
+      sendJson(res, 403, { error: "Forbidden host" });
+      return;
+    }
 
+    // A browser sends an Origin with every cross-origin request; only the
+    // cluster frames get one through. A request without it is not from a page
+    // and still has to carry the token.
+    const origin = req.headers.origin;
+    if (origin !== undefined) {
+      if (!isClusterFrameOrigin(origin)) {
+        sendJson(res, 403, { error: "Forbidden origin" });
+        return;
+      }
+      applyCors(res, origin);
+    }
+
+    // The preflight carries no token; it is answered for a cluster frame only.
     if (req.method === "OPTIONS") {
-      res.writeHead(204);
+      res.writeHead(origin === undefined ? 403 : 204);
       res.end();
       return;
     }
