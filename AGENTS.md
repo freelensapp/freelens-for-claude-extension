@@ -229,7 +229,12 @@ the "Ask Claude" items use the host's model classes.
 
 The renderer talks to main over HTTP: `bridge-client.ts` calls
 `http://127.0.0.1:<port>` with plain `fetch`, a random bearer token in every
-request, and reads the event stream as SSE. Main writes only the bridge's
+request, and reads the event stream as SSE. IPC carries short
+request/response exchanges only, such as the connection handoff below; the
+chat traffic stays on HTTP and SSE. The extension API has no send to a single
+frame: `Ipc.broadcast` reaches every frame of every window, so a session's
+events would reach the frames of other clusters, while an HTTP request gives
+each frame a stream of its own. Main writes only the bridge's
 port to `BridgeStore`, which the host syncs to every frame and also saves to
 `bridge-store.json`; a new port tells the chat that a new bridge is up. The
 token is never in a store: the client asks main for the port and the token
