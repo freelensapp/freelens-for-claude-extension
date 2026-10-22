@@ -4,7 +4,8 @@
  */
 
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { BridgeServer } from "./server";
+import { BridgeServer, isAuthorized } from "./server";
+import type { IncomingMessage } from "node:http";
 
 import type { StatusResponse } from "../../common/protocol";
 import type { SessionManager } from "../claude/session-manager";
@@ -67,6 +68,35 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await server.stop();
+});
+
+describe("isAuthorized", () => {
+  const request = (authorization?: string) => ({ headers: { authorization } }) as IncomingMessage;
+
+  it("accepts the expected bearer token", () => {
+    expect(isAuthorized(request(`Bearer ${TOKEN}`), TOKEN)).toBe(true);
+  });
+
+  it("rejects a missing header", () => {
+    expect(isAuthorized(request(), TOKEN)).toBe(false);
+  });
+
+  it("rejects a token of another length", () => {
+    expect(isAuthorized(request(`Bearer ${TOKEN}x`), TOKEN)).toBe(false);
+    expect(isAuthorized(request("Bearer "), TOKEN)).toBe(false);
+  });
+
+  it("rejects a wrong token of the same length", () => {
+    expect(isAuthorized(request(`Bearer ${"x".repeat(TOKEN.length)}`), TOKEN)).toBe(false);
+  });
+
+  it("rejects the token without the Bearer scheme", () => {
+    expect(isAuthorized(request(TOKEN), TOKEN)).toBe(false);
+  });
+
+  it("rejects everything while the expected token is empty", () => {
+    expect(isAuthorized(request("Bearer "), "")).toBe(false);
+  });
 });
 
 describe("bridge auth", () => {

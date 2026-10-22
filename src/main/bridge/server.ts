@@ -3,6 +3,7 @@
  * Licensed under MIT License. See LICENSE in root directory for more information.
  */
 
+import { createHash, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { encodeSseEvent, isEffortLevel, SSE_HEARTBEAT, type StatusResponse } from "../../common/protocol";
 
@@ -18,10 +19,17 @@ export interface BridgeServerDeps {
   getStatus: (refresh: boolean) => Promise<StatusResponse>;
 }
 
-/** Whether the request carries the expected bearer token. */
+/**
+ * Whether the request carries the expected bearer token. Both sides are hashed
+ * first, so that `timingSafeEqual` compares buffers of one length and the time
+ * it takes tells nothing about the header, its length included.
+ */
 export function isAuthorized(req: IncomingMessage, token: string): boolean {
   const header = req.headers.authorization;
-  return typeof header === "string" && header === `Bearer ${token}`;
+  if (!token || typeof header !== "string") return false;
+  const expected = createHash("sha256").update(`Bearer ${token}`).digest();
+  const actual = createHash("sha256").update(header).digest();
+  return timingSafeEqual(actual, expected);
 }
 
 function applyCors(req: IncomingMessage, res: ServerResponse): void {
