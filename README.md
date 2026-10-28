@@ -374,7 +374,7 @@ pnpm lint:check
 pnpm test:unit
 ```
 
-and, for the formats Biome does not cover (Markdown, YAML, SCSS):
+and, for the formats Biome does not cover (TOML, shell scripts, workflows):
 
 ```sh
 pnpm trunk:check
