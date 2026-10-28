@@ -24,6 +24,16 @@ describe("ChatSessionStore", () => {
     expect(restored.read("c1")?.permissionMode).toBe("readOnly");
   });
 
+  it("gives a model that IPC can send", () => {
+    const store = new ChatSessionStore();
+    store.writePermissionMode("c1", "readOnly");
+    store.writeSessionId("c1", "sess-123");
+
+    // The host sends the model to every frame through IPC, which takes only
+    // what the structured clone algorithm takes: no mobx proxy.
+    expect(structuredClone(store.toJSON())).toEqual(store.toJSON());
+  });
+
   it("never persists acceptAll", () => {
     const store = new ChatSessionStore();
     store.writePermissionMode("c1", "approve");

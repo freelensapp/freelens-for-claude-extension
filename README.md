@@ -374,7 +374,7 @@ pnpm lint:check
 pnpm test:unit
 ```
 
-and, for the formats Biome does not cover (Markdown, YAML, SCSS):
+and, for the formats Biome does not cover (TOML, shell scripts, workflows):
 
 ```sh
 pnpm trunk:check
@@ -389,6 +389,47 @@ pnpm knip:check
 
 `pnpm build` and `pnpm dev` do not run the type check; run
 `pnpm type:check` before a commit.
+
+### Integration tests
+
+The integration tests drive Freelens dev, started from a
+[freelensapp/freelens](https://github.com/freelensapp/freelens) checkout,
+against a [kind](https://kind.sigs.k8s.io/) cluster. In the Freelens checkout:
+
+```sh
+pnpm dev
+```
+
+Freelens dev lists no cluster until a kubeconfig is added in Preferences >
+Kubernetes > Kubeconfig Syncs. Add one with the kind cluster, for example:
+
+```sh
+kubectl config view --minify --flatten --context kind-kind > ~/kind-kind.kubeconfig
+```
+
+Then, with the kind cluster running and Claude Code logged in, in the
+extension repository:
+
+```sh
+pnpm build
+pnpm test:integration
+```
+
+The tests install the checkout in place, replacing any other installation of
+the extension in Freelens dev. They create the namespace `integration-tests`
+with a Deployment and a Service, and delete it afterwards. They clear the chat
+of the kind cluster and send Claude one short prompt, which costs one turn.
+Without Freelens dev or the cluster the tests are skipped.
+
+Optional variables:
+
+- `TEST_KIND_CLUSTER_NAME`: the kind cluster, `kind` by default, used
+  through the context `kind-<name>`.
+- `FREELENS_CDP_URL`: the CDP endpoint of Freelens dev,
+  `http://127.0.0.1:9223` by default.
+- `FREELENS_MAIN_LOG`: a log of the main process to check for errors, such
+  as its `lens.log`. Without it only the renderer's errors are checked.
+- `TEST_SKIP_CLAUDE_PROMPT`: any value skips the prompt to Claude.
 
 ## License
 

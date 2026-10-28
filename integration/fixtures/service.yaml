@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: integration-tests-object
+  namespace: integration-tests
+spec:
+  selector:
+    app: integration-tests-object
+  ports:
+    - port: 80
