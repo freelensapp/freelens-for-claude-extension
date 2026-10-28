@@ -807,7 +807,10 @@ renderer's console carries the errors of the root frame and of every cluster
 frame; the main log is read from the file that `FREELENS_MAIN_LOG` names, from
 its size when the session started, and every line that starts with `error:`
 counts, also after a task prefix that turbo may add, such as `freelens:dev:`,
-except `proxy_server.go:… Error while proxying request: context canceled`,
+and so does `Error sending from webContents:` or `webFrameMain:`, which
+Electron writes to stderr, outside the logger, for a message that IPC cannot
+send, such as a store's model with a mobx proxy; `lens.log` does not have
+those, only the output of `pnpm dev`. The exception is `proxy_server.go:… Error while proxying request: context canceled`,
 which the Kubernetes proxy of Freelens logs for a request that the renderer
 aborts. Freelens dev renders in `React.StrictMode`, which mounts every view
 twice and aborts the requests of the first mount, so the line comes and goes
