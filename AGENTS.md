@@ -317,6 +317,23 @@ mechanism; this is the list to check a change against.
   without `observer` the chat page stays on "not ready" and the chips keep the
   old shortcuts. `chat-page.test.tsx` and `chat-view.test.tsx` fail without it
   ("Renderer Components").
+- **A memo over a store's items is keyed on something that changes with
+  them.** The host keeps one observable array per store and updates it in
+  place, with `replace` and `splice`, so `store.items` stays the same array
+  while the objects in it change. A `useMemo` keyed on it, or on a prop that
+  holds it, is computed once, and an open view keeps the objects it was opened
+  with. An `observer` that reads the items while it renders follows them; a
+  memo needs a key such as the ids and `resourceVersion`s of the objects. It
+  shows only on a cluster whose objects change while the view is open.
+- **An effect creates what its cleanup aborts or releases.** Freelens dev
+  renders in `React.StrictMode`, which runs an effect, cleans it up and runs
+  it again on the same instance. An `AbortController` kept in a `useRef` is
+  aborted by the first cleanup, and every request of the second run with it: a
+  bridge request or the event stream that takes an abort for no failure ends
+  quietly, so the chat shows nothing and logs nothing. Create the controller,
+  and whatever else the cleanup releases, inside the effect. The production
+  build has no `StrictMode`, so only Freelens dev shows it ("Renderer
+  Components").
 - **No Node or Electron in renderer and common code.** They are `undefined` in
   the renderer. The build fails on an import, `pnpm type:check` on a global
   ("Process-specific settings").
@@ -728,6 +745,17 @@ exiting the process; do not close the browser, which belongs to Freelens.
 Playwright MCP writes its snapshots to `.playwright-mcp/`, which is
 git-ignored.
 
+A profile of Freelens dev syncs no kubeconfig until one is added in
+"Kubeconfig Syncs" of the Kubernetes preferences, so its catalog lists none of
+the developer's clusters; `KUBECONFIG` does not change that. For the checks,
+add a kubeconfig with the test cluster alone, such as the output of
+`kubectl config view --minify --flatten --context kind-kind`. A fresh profile,
+in a `FREELENS_INTEGRATION_TESTING_DIR` under the system's temporary
+directory, can start with it already in place: seed
+`FreelensDev/lens-user-store.json` there with
+`preferences.syncKubeconfigEntries`, whose `filePath` is absolute ("Kubeconfig
+syncs of the dev profile" in Freelens's `DEVELOPMENT.md`).
+
 ### Installing the checkout
 
 1. `pnpm install`, then `pnpm build`. After a branch switch, `node_modules`
@@ -790,6 +818,19 @@ or a report. A transcript holds cluster data too; quote only what a report
 needs. React reports key problems as console errors ("Each child in a list
 should have a unique key", "Encountered two children with the same key");
 they count as failures of the "no error in DevTools" check.
+
+The renderer's requests, to Kubernetes and to the bridge, go through Chromium,
+which logs every response that is not a success as a console error,
+`Failed to load resource: the server responded with a status of N`, also one
+that the code that sent it handles. The text names no URL; the location of the
+message does. Leave out such an error by its status and URL only where the
+response is expected, not every "Failed to load resource".
+
+The main process logs to the terminal running Freelens, and to a file. On
+macOS it is `~/Library/Logs/Freelens/lens.log`, with the renderer's
+`lens-renderer-*.log` next to it; when the terminal is not at hand, it shows
+the extension's activation, its reloads, the bridge's port and its own
+`[for-claude]` lines. Filter it as the console.
 
 ## Code Style
 
