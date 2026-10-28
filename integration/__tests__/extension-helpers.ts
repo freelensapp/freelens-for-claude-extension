@@ -694,16 +694,31 @@ const turnTimeout = { timeout: 3 * 60 * 1000 };
 const assistantMessageSelector = '[class*="_assistantBubble_"]';
 const chatErrorSelector = '[class*="_errorItem_"], [class*="_errorBanner_"]';
 
+// What the chat page renders in place of the chat: its notices, and the
+// onboarding panel.
+const chatPageNoticeSelector = '[class*="_notice_"], [class*="_onboarding_"]';
+
 /**
  * Opens the chat page of the extension in the cluster frame, and waits for its
  * composer, which renders once the bridge answers and Claude Code is found.
+ * Without it, fails with what the page shows instead: the notice that the
+ * bridge is not ready, or the onboarding panel that says Claude Code is not
+ * found.
  */
 export async function openChat(frame: Frame): Promise<Locator> {
   await navigateFrame(frame, chatPageUrl);
 
   const composer = frame.getByPlaceholder(composerPlaceholder, { exact: true });
 
-  await composer.waitFor(viewTimeout);
+  try {
+    await composer.waitFor(viewTimeout);
+  } catch (error) {
+    const shown = await frame.locator(chatPageNoticeSelector).allInnerTexts();
+
+    throw new Error(`The chat page shows no composer: ${shown.join("; ").replaceAll("\n", " ") || "nothing"}`, {
+      cause: error,
+    });
+  }
 
   return composer;
 }
