@@ -61,20 +61,20 @@ Before cutting a stable `X.Y.Z` release:
 
 - [ ] `pnpm type:check && pnpm lint:check && pnpm test:unit && pnpm build &&
       pnpm knip:check` pass on `main`; the type check and integration tests
-      workflows are green.
+  workflows are green.
 - [ ] Manual smoke test in a real Freelens (>= 2.0.0, the floor in
-      `engines.freelens`), with the packed `.tgz` installed:
+  `engines.freelens`), with the packed `.tgz` installed:
   - onboarding panel appears when Claude Code is absent;
   - a read-only question is answered from tool calls;
   - one approved mutation succeeds;
   - one denied mutation is refused;
   - restart Freelens and confirm the transcript resumes.
 - [ ] README claims are still accurate — the Freelens version floor and the
-      feature/tool list match the shipped code.
+  feature/tool list match the shipped code.
 - [ ] **Anthropic terms-of-service contact (D2 gate).** Before any public
-      announcement or marketplace submission, contact Anthropic to confirm
-      the terms-of-service posture: the extension drives the user's own
-      Claude Code installation and never handles their credentials.
-      Publishing the GitHub release itself is fine — the project has been
-      public throughout; it is the announcement that the maintainer
-      deferred until after legal review.
+  announcement or marketplace submission, contact Anthropic to confirm
+  the terms-of-service posture: the extension drives the user's own
+  Claude Code installation and never handles their credentials.
+  Publishing the GitHub release itself is fine — the project has been
+  public throughout; it is the announcement that the maintainer
+  deferred until after legal review.

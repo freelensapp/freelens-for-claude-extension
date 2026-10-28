@@ -1,15 +1,11 @@
 # @freelensapp/for-claude-extension
 
-<!-- markdownlint-disable MD013 -->
-
 [![Home](https://img.shields.io/badge/%F0%9F%8F%A0-freelens.app-02a7a0)](https://freelens.app)
 [![GitHub](https://img.shields.io/github/stars/freelensapp/freelens-for-claude-extension?style=flat&label=GitHub%20%E2%AD%90)](https://github.com/freelensapp/freelens-for-claude-extension)
 [![Release](https://img.shields.io/github/v/release/freelensapp/freelens-for-claude-extension?display_name=tag&sort=semver)](https://github.com/freelensapp/freelens-for-claude-extension/releases)
 [![npm](https://img.shields.io/npm/v/@freelensapp/for-claude-extension.svg)](https://www.npmjs.com/package/@freelensapp/for-claude-extension)
 [![Unit tests](https://github.com/freelensapp/freelens-for-claude-extension/actions/workflows/unit-tests.yaml/badge.svg?branch=main)](https://github.com/freelensapp/freelens-for-claude-extension/actions/workflows/unit-tests.yaml)
 [![Integration tests](https://github.com/freelensapp/freelens-for-claude-extension/actions/workflows/integration-tests.yaml/badge.svg?branch=main)](https://github.com/freelensapp/freelens-for-claude-extension/actions/workflows/integration-tests.yaml)
-
-<!-- markdownlint-enable MD013 -->
 
 ## Overview
 
@@ -103,17 +99,13 @@ You can also build and pack the extension yourself — see
 The **[/]** button in the composer opens a popover with two groups. The
 **Context** group holds the actions that are not prompts:
 
-<!-- markdownlint-disable MD013 -->
-
-| Entry | What it does |
-| --- | --- |
-| **Account & Usage...** | Your account and plan, the plan's rate-limit windows, and what has been contributing to them |
-| **Switch model (`<current>`)...** | Pick the model for this cluster (see below) |
-| **Effort (`<current>`)...** | Pick the reasoning-effort level for this cluster (see below) |
-| **Clear conversation** | Start a new chat: drops the transcript and the resumed session id |
-| **Compact** | Compact the conversation now, rather than waiting for it to happen automatically |
-
-<!-- markdownlint-enable MD013 -->
+| Entry                             | What it does                                                                                 |
+| --------------------------------- | -------------------------------------------------------------------------------------------- |
+| **Account & Usage...**            | Your account and plan, the plan's rate-limit windows, and what has been contributing to them |
+| **Switch model (`<current>`)...** | Pick the model for this cluster (see below)                                                  |
+| **Effort (`<current>`)...**       | Pick the reasoning-effort level for this cluster (see below)                                 |
+| **Clear conversation**            | Start a new chat: drops the transcript and the resumed session id                            |
+| **Compact**                       | Compact the conversation now, rather than waiting for it to happen automatically             |
 
 The model and effort entries show the active selection in parentheses, so
 the menu doubles as a readout of what the next turn will use.
@@ -149,24 +141,20 @@ remembered per cluster.
 Claude acts on the cluster only through these typed tools. Read-only tools
 run automatically; mutating tools always require your approval.
 
-<!-- markdownlint-disable MD013 -->
-
-| Tool | Type | Purpose |
-| --- | --- | --- |
-| `freelens_resources` | read-only | List or get resources of any kind (built-in or CRD), YAML with `managedFields` stripped |
-| `freelens_pod_logs` | read-only | Fetch a snapshot of a pod's logs, optionally regex-filtered |
-| `freelens_warning_events` | read-only | List Warning-type events, most recent first |
-| `freelens_cluster_version` | read-only | Report the Kubernetes API server version |
-| `freelens_create_resource` | mutating | Create a resource from a full manifest |
-| `freelens_update_resource` | mutating | Replace a resource with a full manifest (backup + diff) |
-| `freelens_patch_resource` | mutating | Patch a resource, or scale via the `scale` subresource |
-| `freelens_delete_resource` | mutating | Delete a resource (normal, force, or finalizer-clearing) |
-| `freelens_delete_pod` | mutating | Evict or delete a pod (evict, force, or clear finalizers) |
-| `freelens_rollout_restart` | mutating | Roll-restart a Deployment, DaemonSet, or StatefulSet |
-| `freelens_kubectl` | mutating | Run `kubectl` against this cluster (argv only, no shell) |
-| `freelens_helm` | mutating | Run `helm` against this cluster (argv only, no shell) |
-
-<!-- markdownlint-enable MD013 -->
+| Tool                       | Type      | Purpose                                                                                 |
+| -------------------------- | --------- | --------------------------------------------------------------------------------------- |
+| `freelens_resources`       | read-only | List or get resources of any kind (built-in or CRD), YAML with `managedFields` stripped |
+| `freelens_pod_logs`        | read-only | Fetch a snapshot of a pod's logs, optionally regex-filtered                             |
+| `freelens_warning_events`  | read-only | List Warning-type events, most recent first                                             |
+| `freelens_cluster_version` | read-only | Report the Kubernetes API server version                                                |
+| `freelens_create_resource` | mutating  | Create a resource from a full manifest                                                  |
+| `freelens_update_resource` | mutating  | Replace a resource with a full manifest (backup + diff)                                 |
+| `freelens_patch_resource`  | mutating  | Patch a resource, or scale via the `scale` subresource                                  |
+| `freelens_delete_resource` | mutating  | Delete a resource (normal, force, or finalizer-clearing)                                |
+| `freelens_delete_pod`      | mutating  | Evict or delete a pod (evict, force, or clear finalizers)                               |
+| `freelens_rollout_restart` | mutating  | Roll-restart a Deployment, DaemonSet, or StatefulSet                                    |
+| `freelens_kubectl`         | mutating  | Run `kubectl` against this cluster (argv only, no shell)                                |
+| `freelens_helm`            | mutating  | Run `helm` against this cluster (argv only, no shell)                                   |
 
 `freelens_kubectl` and `freelens_helm` receive an argv array only — there is
 no shell — and are always pinned to the current cluster: they run in the
@@ -228,21 +216,17 @@ connected — built-in tools and each MCP server.
 All settings live on the **Freelens for Claude** preferences page. Except
 where noted, changes apply to the next new chat.
 
-<!-- markdownlint-disable MD013 -->
-
-| Preference | Default | Meaning |
-| --- | --- | --- |
-| Claude Code executable path | empty (auto-detect) | Absolute path to the `claude` binary |
-| Default model | empty (`model` of `~/.claude/settings.json`, else the Claude Code default) | Used for clusters that have not picked a model in the chat |
-| Custom agent rules | empty | Extra rules appended to the system prompt of every new session |
-| Require approval before reading pod logs | on | Prompt before `freelens_pod_logs` runs |
-| Default tail lines | 1000 | Lines read from the end of a log when Claude does not request an amount |
-| Enable MCP servers | off | Start your MCP servers alongside the built-in tools |
-| MCP JSON configuration | empty `mcpServers` | Claude-Desktop-style JSON, applied at the next new chat |
-| Enable analysis subagent | on | Allow delegation to the read-only `cluster-analyzer` subagent |
-| Prompt shortcuts | `[]` | JSON array of `{ "title", "prompt" }` rendered as quick-prompt chips |
-
-<!-- markdownlint-enable MD013 -->
+| Preference                               | Default                                                                    | Meaning                                                                 |
+| ---------------------------------------- | -------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| Claude Code executable path              | empty (auto-detect)                                                        | Absolute path to the `claude` binary                                    |
+| Default model                            | empty (`model` of `~/.claude/settings.json`, else the Claude Code default) | Used for clusters that have not picked a model in the chat              |
+| Custom agent rules                       | empty                                                                      | Extra rules appended to the system prompt of every new session          |
+| Require approval before reading pod logs | on                                                                         | Prompt before `freelens_pod_logs` runs                                  |
+| Default tail lines                       | 1000                                                                       | Lines read from the end of a log when Claude does not request an amount |
+| Enable MCP servers                       | off                                                                        | Start your MCP servers alongside the built-in tools                     |
+| MCP JSON configuration                   | empty `mcpServers`                                                         | Claude-Desktop-style JSON, applied at the next new chat                 |
+| Enable analysis subagent                 | on                                                                         | Allow delegation to the read-only `cluster-analyzer` subagent           |
+| Prompt shortcuts                         | `[]`                                                                       | JSON array of `{ "title", "prompt" }` rendered as quick-prompt chips    |
 
 ## Security model
 
