@@ -1,0 +1,18 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: integration-tests-object
+  namespace: integration-tests
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: integration-tests-object
+  template:
+    metadata:
+      labels:
+        app: integration-tests-object
+    spec:
+      containers:
+        - name: pause
+          image: registry.k8s.io/pause:3.10
