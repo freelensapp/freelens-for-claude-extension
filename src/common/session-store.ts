@@ -4,7 +4,7 @@
  */
 
 import { Common } from "@freelensapp/extensions";
-import { makeObservable, observable } from "mobx";
+import { makeObservable, observable, toJS } from "mobx";
 
 import type { EffortLevel, PermissionMode } from "./protocol";
 
@@ -125,7 +125,9 @@ export class ChatSessionStore extends Common.Store.ExtensionStore<ChatSessionSto
     this.sessions = sessions ?? {};
   }
 
+  // `sessions` is deeply observable, so it holds mobx proxies, which the host
+  // cannot send to the frames through IPC; the model is a plain copy.
   toJSON(): ChatSessionStoreModel {
-    return { sessions: this.sessions };
+    return { sessions: toJS(this.sessions) };
   }
 }

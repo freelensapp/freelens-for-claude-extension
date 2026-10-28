@@ -315,6 +315,13 @@ mechanism; this is the list to check a change against.
   build throws when the class is defined, and its production build leaves the
   field unobservable. A decorated field is `@observable accessor` and its class
   does not call `makeObservable(this)` ("Decorators").
+- **A store's `toJSON()` returns plain data.** The host saves the model to
+  disk as JSON, which takes a mobx proxy, and sends it to every frame through
+  IPC, which does not: Electron's structured clone refuses the proxy of a
+  deeply observable object or array, and main logs `Error sending from
+  webContents: Error: Failed to serialize arguments` on stderr, outside its
+  logger, at every change. Return a copy (`toJS`) of such a field.
+  `session-store.test.ts` sends the model through `structuredClone`.
 - **A component that reads a store while it renders is an `observer`.** The
   host syncs a store into a frame after the component may have rendered;
   without `observer` the chat page stays on "not ready" and the chips keep the
