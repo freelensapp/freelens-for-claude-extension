@@ -295,11 +295,14 @@ jobs:
       # setuid root.
       #
       # Claude Code inherits the environment of the main process, and takes its
-      # credentials from CLAUDE_CODE_OAUTH_TOKEN. A pull request gets no token:
-      # the workflow runs the code of the pull request, and of the dependencies
-      # it updates, with the token in the environment of the job, also on a
-      # branch of Renovate. Only a push to main and a manual run send a prompt.
-      # The model is the smallest one, as a turn only has to answer.
+      # credentials from CLAUDE_CODE_OAUTH_TOKEN. turbo, which `pnpm dev` runs,
+      # passes a task only the variables that turbo.json of Freelens lists, so
+      # CLAUDE_CODE_PATH, the token and the model would not reach Electron;
+      # TURBO_ENV_MODE=loose passes the whole environment. A pull request gets
+      # no token: the workflow runs the code of the pull request, and of the
+      # dependencies it updates, with the token in the environment of the job,
+      # also on a branch of Renovate. Only a push to main and a manual run send
+      # a prompt. The model is the smallest one, as a turn only has to answer.
       - name: Start Freelens dev
         working-directory: freelens
         run: |
@@ -315,6 +318,7 @@ jobs:
           # In GitHub Actions turbo groups the output of a task and prints it
           # when the task ends, which a persistent `dev` task never does.
           TURBO_LOG_ORDER: stream
+          TURBO_ENV_MODE: loose
           FREELENS_INTEGRATION_TESTING_DIR: /tmp/freelens-integration-testing
           FREELENS_MAIN_LOG: ${{ runner.temp }}/freelens-dev.log
           CLAUDE_CODE_OAUTH_TOKEN: ${{ github.event_name != 'pull_request' && secrets.CLAUDE_CODE_OAUTH_TOKEN || '' }}

@@ -774,7 +774,13 @@ the Claude workflows, and `ANTHROPIC_MODEL` of the smallest model, to
 code of its branch, and of the dependencies a branch of Renovate updates, in
 the job, so it gets no token, and the workflow sets `TEST_SKIP_CLAUDE_PROMPT`,
 which skips the prompt; the composer is checked all the same, as it needs
-Claude Code but no credentials.
+Claude Code but no credentials. `pnpm dev` of Freelens runs turbo, which in
+its strict mode passes a task only the variables that Freelens's `turbo.json`
+lists, so the workflow sets `TURBO_ENV_MODE=loose` for it. Without it none of
+these variables reach Electron: Claude Code is not found, unless it is on the
+`PATH`, which turbo always passes, and the chat page shows the onboarding
+panel instead of the composer. Locally the developer's `claude` is usually on
+the `PATH` and logged in, so a run there does not show it.
 
 The tests are deterministic, so nothing retries them: the config sets no
 `retry`, and the workflow runs the step once, under `timeout 600`. A retry
