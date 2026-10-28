@@ -326,6 +326,11 @@ mechanism; this is the list to check a change against.
   platform too, and the bundle then throws when the
   host evaluates it. Only loading `dist/main.js` shows it ("Process-specific
   settings").
+- **A bundled CommonJS package loads in the ESM main.** Main is built for
+  Rolldown's `node` platform, which gives it a `require`, and defines
+  `__dirname` and `__filename`. Without either, the package throws when
+  Freelens evaluates `dist/main.js`, and the extension does not activate;
+  `pnpm build` and `pnpm type:check` pass ("Process-specific settings").
 - **One CSS asset, `dist/renderer.css`.** Any other name, or a second asset,
   leaves the extension unstyled, dialogs and popovers included. Nothing checks
   it; look at `dist/` after a change to the CSS setup ("CSS").
@@ -408,7 +413,13 @@ the bundle.
   there is no `require`. For the browser platform Rolldown turns
   such a call into a shim that throws when the module is evaluated, so the
   extension would fail to load; for the `node` platform it creates `require`
-  with `createRequire(import.meta.url)`.
+  with `createRequire(import.meta.url)`. `__dirname` and `__filename` are the
+  other half: Node passes them to a CommonJS module, Rolldown leaves them as
+  they are on either platform, and the ES module throws `ReferenceError:
+  __dirname is not defined in ES module scope`. Main defines them (`define`)
+  as `import.meta.dirname` and `import.meta.filename`, the directory and file
+  of `dist/main.js`, not of the package: a library that loads a file next to
+  itself, such as a `.wasm`, finds it only when the build puts it in `dist/`.
 - **Main code** uses ESM only: no `require()`, `__dirname` or `__filename`. A
   host module that a test cannot load is imported on demand with `await
   import(...)` in a function that catches the failure, not at the top of a
