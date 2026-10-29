@@ -100,8 +100,16 @@ export class BridgeServer {
     return this.port;
   }
 
+  /**
+   * Stop listening and drop every open connection. `close()` alone waits for
+   * them, and an event stream stays open for as long as its frame does, so
+   * `onDeactivate` would never return and the host would keep the IPC handler
+   * that the next activation registers again.
+   */
   async stop(): Promise<void> {
-    await new Promise<void>((resolve) => this.server.close(() => resolve()));
+    const closed = new Promise<void>((resolve) => this.server.close(() => resolve()));
+    this.server.closeAllConnections();
+    await closed;
   }
 
   private async handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
