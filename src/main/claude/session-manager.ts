@@ -97,6 +97,13 @@ const AUTO_ALLOWED_TOOL_NAMES = ALLOWED_TOOL_NAMES.filter((name) => unqualifyToo
 /** Delay after the last persisted event before the transcript is flushed to disk. */
 const TRANSCRIPT_DEBOUNCE_MS = 500;
 
+/**
+ * How long deactivation waits for the sessions to close. The host keeps the
+ * extension's IPC handler until `onDeactivate` returns, so a Claude Code that
+ * does not exit would fail the next activation.
+ */
+export const DISPOSE_ALL_TIMEOUT_MS = 5_000;
+
 /** Per-cluster scratch directory holding the resumable transcript. */
 function clusterDir(baseDir: string, clusterId: string): string {
   return join(baseDir, "clusters", clusterId);
@@ -1181,6 +1188,16 @@ export class SessionManager {
   async disposeAll(): Promise<void> {
     const all = [...this.sessions.values()];
     this.sessions.clear();
-    await Promise.all(all.map((session) => session.dispose(true)));
+    // A session that does not finish in time keeps closing on its own; its
+    // transcript is written before the query is closed.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timedOut = new Promise<boolean>((resolve) => {
+      timer = setTimeout(() => resolve(true), DISPOSE_ALL_TIMEOUT_MS);
+    });
+    const disposed = Promise.all(all.map((session) => session.dispose(true))).then(() => false);
+    if (await Promise.race([disposed, timedOut])) {
+      Common.logger.warn(`[for-claude] sessions still closing after ${DISPOSE_ALL_TIMEOUT_MS} ms; deactivating anyway`);
+    }
+    clearTimeout(timer);
   }
 }

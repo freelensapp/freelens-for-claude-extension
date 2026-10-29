@@ -318,3 +318,28 @@ describe("usage route", () => {
     expect(getClusterUsage).toHaveBeenCalledWith("c1");
   });
 });
+
+describe("stop", () => {
+  it("returns while an event stream is open", async () => {
+    const bridge = new BridgeServer({ token: TOKEN, sessionManager, getStatus: async () => status });
+    const port = await bridge.start();
+
+    // The stream stays open until the client goes away, as a chat page's does.
+    const req = request({
+      host: "127.0.0.1",
+      port,
+      path: "/clusters/c1/events",
+      headers: { Authorization: `Bearer ${TOKEN}` },
+    });
+    const response = await new Promise<IncomingMessage>((resolve, reject) => {
+      req.on("response", resolve);
+      req.on("error", reject);
+      req.end();
+    });
+    expect(response.statusCode).toBe(200);
+    const ended = new Promise<void>((resolve) => response.on("close", () => resolve()));
+
+    await bridge.stop();
+    await ended;
+  });
+});
