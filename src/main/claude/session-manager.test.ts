@@ -6,7 +6,7 @@
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Main } from "@freelensapp/extensions";
+import { Common, Main } from "@freelensapp/extensions";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { PreferencesState } from "../../common/preferences-store";
@@ -98,7 +98,7 @@ vi.mock("../tools/kube-client", () => ({
 }));
 
 // Imported after the mocks are registered.
-const { SessionManager } = await import("./session-manager");
+const { DISPOSE_ALL_TIMEOUT_MS, SessionManager } = await import("./session-manager");
 
 let baseDir: string;
 /** The Claude Code configuration directory the sessions read, empty unless a test writes to it. */
@@ -292,6 +292,32 @@ describe("model of the user settings of Claude Code", () => {
     const manager = makeManager();
     await manager.sendMessage("m4", "hello");
     expect(sdk.queries.at(-1)?.options.model).toBeUndefined();
+  });
+});
+
+describe("disposeAll", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("returns when Claude Code does not close in time", async () => {
+    const manager = makeManager();
+    await manager.sendMessage("d0", "hello");
+    // A query that never closes, as a Claude Code that does not exit.
+    sdk.queries[0].return = () => new Promise<void>(() => {});
+
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const disposed = manager.disposeAll();
+    await vi.advanceTimersByTimeAsync(DISPOSE_ALL_TIMEOUT_MS);
+    await disposed;
+    expect(Common.logger.warn).toHaveBeenCalledWith(expect.stringContaining("sessions still closing"));
+  });
+
+  it("logs nothing when the sessions close in time", async () => {
+    const manager = makeManager();
+    await manager.sendMessage("d1", "hello");
+    await manager.disposeAll();
+    expect(Common.logger.warn).not.toHaveBeenCalled();
   });
 });
 

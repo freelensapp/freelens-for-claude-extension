@@ -264,7 +264,11 @@ not `127.0.0.1:<port>` (DNS rebinding). A request without `Origin` is not
 from a page and still needs the token, which is compared in constant time.
 Main stops the bridge in `onDeactivate`, and the host removes the IPC
 handler, so a reload of the extension starts a new bridge with a new port
-and token. The client asks for the token again when the port in
+and token. The host removes the handler only once `onDeactivate` returns, and
+the next activation fails to register it until then, so deactivation must
+not wait on anything that can stay open: the bridge drops its open
+connections (an open chat's event stream never ends on its own), and
+`disposeAll` waits for the sessions at most `DISPOSE_ALL_TIMEOUT_MS`. The client asks for the token again when the port in
 `BridgeStore` changes, after a failed IPC call and after a 401, so the next
 request goes to the new bridge.
 
