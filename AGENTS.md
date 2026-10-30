@@ -727,7 +727,6 @@ The other workflows automate releases, maintenance and the CI agent:
 | `release.yaml`       | on a `v*` tag: builds, packs, publishes to npm and creates the GitHub release             |
 | `biome-migrate.yaml` | runs `biome migrate` on the Renovate branch of a Biome update and commits the result      |
 | `trunk-upgrade.yaml` | upgrades the Trunk plugins and linters in a pull request                                  |
-| `npm-audit.yaml`     | `pnpm audit fix` in a pull request                                                        |
 | `npm-dedupe.yaml`    | `pnpm dedupe` in a pull request                                                           |
 | `claude.yaml`        | the CI agent, started by a mention in an issue or pull request (see below)                |
 | `claude-task.yaml`   | the CI agent on a task given when the workflow is started by hand                         |
