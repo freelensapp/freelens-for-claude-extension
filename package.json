@@ -68,7 +68,7 @@
     "clean:all": "pnpm \"/^clean:(dist|dts|node_modules|tgz)\\$/\""
   },
   "devDependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.3.312",
+    "@anthropic-ai/claude-agent-sdk": "^0.3.314",
     "@freelensapp/extensions": "2.0.0",
     "@testing-library/dom": "10.4.2",
     "@testing-library/react": "16.3.3",
