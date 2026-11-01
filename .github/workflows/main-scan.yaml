@@ -25,7 +25,7 @@ jobs:
   scan:
     name: scan the main branch
 
-    runs-on: ubuntu-24.04-arm
+    runs-on: ubuntu-26.04-arm
 
     # Carries the GH_TOKEN secret (a PAT) used to update the discussion: the
     # default GITHUB_TOKEN cannot write discussions in this repo even with
@@ -67,9 +67,9 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ${{ env.pnpm_cache_dir }}
-          key: ubuntu-24.04-arm-node-${{ hashFiles('**/pnpm-lock.yaml') }}
+          key: ubuntu-26.04-arm-node-${{ hashFiles('**/pnpm-lock.yaml') }}
           restore-keys: |
-            ubuntu-24.04-arm-node-
+            ubuntu-26.04-arm-node-
 
       - name: Install pnpm dependencies
         run: pnpm install --color=always --prefer-offline --frozen-lockfile

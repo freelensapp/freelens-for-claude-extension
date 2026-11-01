@@ -38,7 +38,7 @@ jobs:
 
     if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
 
-    runs-on: ubuntu-24.04-arm
+    runs-on: ubuntu-26.04-arm
 
     # Carries the GH_TOKEN secret (a PAT) used to update the discussion: the
     # default GITHUB_TOKEN cannot write discussions in this repo even with
