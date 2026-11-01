@@ -715,6 +715,7 @@ is an entry: Trunk runs SVGO, and no dependency turns the plugin on.
 | `trunk-check.yaml`       | `trunk check --all`                                                           |
 | `integration-tests.yaml` | the integration tests in `integration/`, against Freelens dev                 |
 | `mise-lock-check.yaml`   | on a change to `mise.lock`: no checksum changed for an unchanged tool version |
+| `cleanup-cache.yaml`     | on a closed pull request: deletes the caches of its merge ref                 |
 | `main-scan.yaml`         | Grype over the packages in `prod-packages.json` of a `main` build             |
 | `release-scan.yaml`      | Grype over the `prod-packages.json` assets of the last release                |
 
