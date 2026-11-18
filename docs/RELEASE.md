@@ -10,10 +10,13 @@ The release chain is three workflows that hand off to one another.
 
 1. **Bump the version.** Run the **Automated npm version**
    (`npm-version.yaml`) workflow from the Actions tab (`workflow_dispatch`),
-   passing the target version in the `newversion` input:
-   - an exact `X.Y.Z` for a real release;
+   choosing the `bump` input from its list:
+   - `patch`, `minor` or `major` for a real release, as `2.1.0` after
+     `2.1.0-0`, or `manual` with an exact `X.Y.Z` in the `version` input;
    - the default `prerelease` for a development pack (this is what runs
-     automatically after each published release to reopen the dev cycle).
+     automatically after each published release to reopen the dev cycle);
+     `prepatch`, `preminor` and `premajor` start the first pre-release of
+     the next version.
 
    The workflow bumps `package.json` via `pnpm bump-version` and opens (or
    updates) a pull request titled `Automated npm version vX.Y.Z` on the
