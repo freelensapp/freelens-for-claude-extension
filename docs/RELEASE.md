@@ -35,12 +35,11 @@ The release chain is three workflows that hand off to one another.
      `dist/renderer.js`, `dist/renderer.css`) and packs it;
    - publishes to npm (with provenance or `NPM_TOKEN`) — dist-tag `next` for
      hyphenated prerelease versions, `latest` otherwise;
-   - generates an SPDX SBOM, keeps the `prod-packages.json` the build wrote
-     (the npm packages bundled into `dist/`, which `release-scan.yaml` scans),
-     and writes a sha256 checksum for each;
+   - generates the SBOM, as SPDX and as CycloneDX, and writes a sha256
+     checksum for the package and each SBOM;
    - attests the build provenance of every asset;
-   - creates the GitHub release with the `.tgz`, the SBOM, the package list
-     and their checksums.
+   - creates the GitHub release with the `.tgz`, the SBOMs and their
+     checksums.
 
 4. **Dev cycle reopens.** After the GitHub release is published, the
    version workflow auto-runs once more with `prerelease` to bump into the

@@ -182,7 +182,7 @@ src/
 Outside `src/`:
 
 ```text
-build/                      # Vite plugins: host modules, standard decorators, CSS module declarations, bundled package list
+build/                      # Vite plugins: host modules, standard decorators, CSS module declarations
 environment-tests/          # probes that prove each program has only its runtime's APIs ("Environment tests")
 test/freelens-extensions.ts # runtime stub of @freelensapp/extensions for the unit tests ("Tests and tooling")
 integration/__tests__/      # integration tests, run against Freelens dev over CDP, and their shared module
@@ -495,15 +495,6 @@ names included). It awaits its work, writes a declaration only when its
 content changed, and writes through a temporary file and a rename, so a failed
 or interrupted build cannot leave a committed declaration empty.
 
-### Bundled package list
-
-`build/vite-plugin-prod-packages.mjs` writes `prod-packages.json`, the npm
-packages inlined into `dist/` with their pnpm store paths. The security scans
-(`main-scan.yaml`, `release-scan.yaml`) and the release assets use it as the
-runtime closure of the extension. The two runs are separate processes, so the
-list is their union, kept in the file: the run that empties `dist/` (the
-renderer run) starts it, and the main run adds to it.
-
 ## TypeScript
 
 Main code runs in Node, renderer code in a browser page, and common code in
@@ -725,8 +716,6 @@ is an entry: Trunk runs SVGO, and no dependency turns the plugin on.
 | `integration-tests.yaml` | the integration tests in `integration/`, against Freelens dev                 |
 | `mise-lock-check.yaml`   | on a change to `mise.lock`: no checksum changed for an unchanged tool version |
 | `cleanup-cache.yaml`     | on a closed pull request: deletes the caches of its merge ref                 |
-| `main-scan.yaml`         | Grype over the packages in `prod-packages.json` of a `main` build             |
-| `release-scan.yaml`      | Grype over the `prod-packages.json` assets of the last release                |
 
 The other workflows automate releases, maintenance and the CI agent:
 

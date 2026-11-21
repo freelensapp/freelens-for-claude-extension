@@ -14,7 +14,6 @@ import react from "@vitejs/plugin-react";
 import { defaultServerConditions, defaultServerMainFields, defineConfig } from "vite";
 import { cssModuleDeclarations } from "./build/vite-plugin-css-module-declarations.mjs";
 import { hostModules } from "./build/vite-plugin-host-modules.mjs";
-import { prodPackages } from "./build/vite-plugin-prod-packages.mjs";
 import { standardDecorators } from "./build/vite-plugin-standard-decorators.mjs";
 
 /**
@@ -82,9 +81,6 @@ export default defineConfig(({ mode }) => {
       react(),
       // The committed `*.module.d.scss.ts` declarations of the CSS modules.
       ...(name === "renderer" ? [noNodeInRenderer, cssModuleDeclarations()] : []),
-      // prod-packages.json, the npm packages inlined into dist/, for the
-      // security scans and the release assets.
-      prodPackages(),
     ],
     css: {
       modules: {
