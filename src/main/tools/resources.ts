@@ -26,8 +26,9 @@ export const resourcesSchema = {
     .describe(
       "JSONPath-subset selectors to project each object down to, e.g. " +
         '["metadata.name", "spec.containers[*].image", "status.conditions[0].type", ' +
-        "\"metadata.labels['app.kubernetes.io/name']\"]. Supports dot keys, [*] wildcards, numeric and negative " +
-        "indexes, and bracketed quoted keys.",
+        "\"metadata.labels['app.kubernetes.io/name']\", \"status.conditions[?(@.type=='Ready')].status\"]. Supports " +
+        "dot keys, [*] wildcards, numeric and negative indexes, bracketed quoted keys, and filters " +
+        "[?(@.key OP value)] with ==, !=, <, <=, >, >= or [?(@.key)] for presence.",
     ),
   includeManagedFields: z
     .boolean()

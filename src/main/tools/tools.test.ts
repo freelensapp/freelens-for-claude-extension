@@ -114,6 +114,70 @@ describe("selectFields", () => {
 
   it("throws a readable error on a malformed selector", () => {
     expect(() => selectFields(object, ["metadata[oops"])).toThrow(/Invalid field selector "metadata\[oops"/);
+    expect(() => selectFields(object, ["status.conditions[?(@.type=~'R')]"])).toThrow(/unsupported filter/);
+    expect(() => selectFields(object, ["status.conditions[?(@.type==Ready)]"])).toThrow(/invalid filter value/);
+  });
+
+  it("supports filters of kubectl's JSONPath", () => {
+    const kustomization = {
+      metadata: { name: "apps" },
+      status: {
+        conditions: [
+          { type: "Reconciling", status: "False", reason: "Progressing", observedGeneration: 3 },
+          { type: "Ready", status: "True", reason: "Succeeded", message: "a]b", observedGeneration: 4 },
+        ],
+      },
+    };
+    expect(selectFields(kustomization, ["status.conditions[?(@.type=='Ready')].reason"])).toEqual({
+      status: { conditions: [{ reason: "Succeeded" }] },
+    });
+    expect(selectFields(kustomization, ['status.conditions[?(@.type == "Ready")]'])).toEqual({
+      status: { conditions: [kustomization.status.conditions[1]] },
+    });
+    expect(selectFields(kustomization, ["status.conditions[?(@.message=='a]b')].type"])).toEqual({
+      status: { conditions: [{ type: "Ready" }] },
+    });
+    expect(selectFields(kustomization, ["status.conditions[?(@.type!='Ready')].type"])).toEqual({
+      status: { conditions: [{ type: "Reconciling" }] },
+    });
+    expect(selectFields(kustomization, ["status.conditions[?(@.observedGeneration>=4)].type"])).toEqual({
+      status: { conditions: [{ type: "Ready" }] },
+    });
+    expect(selectFields(kustomization, ["status.conditions[?(@.message)].type"])).toEqual({
+      status: { conditions: [{ type: "Ready" }] },
+    });
+    expect(selectFields(kustomization, ["status.conditions[?(@.type=='Stalled')]"])).toEqual({});
+  });
+
+  it("merges selectors on one array element by element", () => {
+    expect(selectFields(object, ["status.conditions[-1].type", "status.conditions[0].type"])).toEqual({
+      status: { conditions: [{ type: "Initialized" }, { type: "Ready" }] },
+    });
+    const pod = {
+      spec: { containers: [{ name: "c1" }, { name: "c2", ports: [{ containerPort: 80 }] }] },
+    };
+    expect(selectFields(pod, ["spec.containers[*].ports", "spec.containers[*].name"])).toEqual({
+      spec: { containers: [{ name: "c1" }, { name: "c2", ports: [{ containerPort: 80 }] }] },
+    });
+    const kustomization = {
+      status: {
+        conditions: [
+          { type: "Reconciling", status: "False", reason: "Progressing" },
+          { type: "Ready", status: "True", reason: "Succeeded", message: "Applied" },
+        ],
+      },
+    };
+    expect(
+      selectFields(kustomization, [
+        "status.conditions[?(@.type=='Ready')]",
+        "status.conditions[*].type",
+        "status.conditions[*].status",
+      ]),
+    ).toEqual({
+      status: {
+        conditions: [{ type: "Reconciling", status: "False" }, kustomization.status.conditions[1]],
+      },
+    });
   });
 });
 

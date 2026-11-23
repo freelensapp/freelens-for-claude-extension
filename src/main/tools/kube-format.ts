@@ -37,17 +37,79 @@ export function toYaml(value: unknown): string {
   return stringify(value);
 }
 
+/** A literal on the right side of a filter comparison. */
+type FilterLiteral = string | number | boolean | null;
+
+type FilterOperator = "==" | "!=" | "<" | "<=" | ">" | ">=";
+
 /** One step of a parsed field selector. */
-type Segment = { type: "key"; key: string } | { type: "wildcard" } | { type: "index"; index: number };
+type Segment =
+  | { type: "key"; key: string }
+  | { type: "wildcard" }
+  | { type: "index"; index: number }
+  | { type: "filter"; path: string[]; operator?: FilterOperator; value?: FilterLiteral };
 
 /** Marker for "this selector did not match" so we can skip it during merge. */
 const NO_MATCH = Symbol("no-match");
 
+/** Index of the "]" that closes the "[" at `open`, skipping quoted text and nested brackets. */
+function findClosingBracket(source: string, open: number): number {
+  let depth = 0;
+  let quote: string | undefined;
+  for (let k = open; k < source.length; k++) {
+    const ch = source[k];
+    if (quote) {
+      if (ch === "\\") k++;
+      else if (ch === quote) quote = undefined;
+    } else if (ch === "'" || ch === '"') {
+      quote = ch;
+    } else if (ch === "[") {
+      depth++;
+    } else if (ch === "]" && --depth === 0) {
+      return k;
+    }
+  }
+  return -1;
+}
+
+function parseFilterLiteral(text: string, raw: string): FilterLiteral {
+  if (text.length >= 2 && (text[0] === "'" || text[0] === '"') && text.at(-1) === text[0]) return text.slice(1, -1);
+  if (text === "true") return true;
+  if (text === "false") return false;
+  if (text === "null") return null;
+  const number = Number(text);
+  if (text !== "" && Number.isFinite(number)) return number;
+  throw new Error(`invalid filter value "${text}" in "${raw}"`);
+}
+
+/** Parse `?(@.path OP literal)` or `?(@.path)`, the filter expressions of kubectl's JSONPath. */
+function parseFilter(inner: string, raw: string): Segment {
+  let expression = inner.slice(1).trim();
+  if (expression.startsWith("(") && expression.endsWith(")")) expression = expression.slice(1, -1).trim();
+  const match = /^@((?:\.[^.\s=!<>[\]]+|\[(?:'[^']*'|"[^"]*")\])*)\s*(?:(==|!=|<=|>=|<|>)\s*(.+))?$/s.exec(expression);
+  if (!match) throw new Error(`unsupported filter "${inner}" in "${raw}"`);
+  const [, pathText, operator, valueText] = match;
+  const path: string[] = [];
+  if (pathText) {
+    for (const segment of parseSelector(pathText)) {
+      if (segment.type !== "key") throw new Error(`unsupported filter path "${pathText}" in "${raw}"`);
+      path.push(segment.key);
+    }
+  }
+  if (!operator) return { type: "filter", path };
+  return {
+    type: "filter",
+    path,
+    operator: operator as FilterOperator,
+    value: parseFilterLiteral(valueText.trim(), raw),
+  };
+}
+
 /**
  * Parse a JSONPath-subset selector into segments. Supports dot-separated keys,
- * `[*]` array wildcards, numeric (incl. negative) indexes, and bracketed quoted
- * keys for dotted label keys. Tolerates a leading `$.` and a `{...}` wrapper.
- * Throws a readable error on malformed input.
+ * `[*]` array wildcards, numeric (incl. negative) indexes, bracketed quoted
+ * keys for dotted label keys, and `[?(@.key == 'value')]` filters. Tolerates a
+ * leading `$.` and a `{...}` wrapper. Throws a readable error on malformed input.
  */
 function parseSelector(raw: string): Segment[] {
   let source = raw.trim();
@@ -63,16 +125,18 @@ function parseSelector(raw: string): Segment[] {
       continue;
     }
     if (ch === "[") {
-      const end = source.indexOf("]", i);
+      const end = findClosingBracket(source, i);
       if (end === -1) throw new Error(`unbalanced "[" in "${raw}"`);
       const inner = source.slice(i + 1, end).trim();
       if (inner === "*") {
         segments.push({ type: "wildcard" });
+      } else if (inner.startsWith("?")) {
+        segments.push(parseFilter(inner, raw));
       } else if ((inner.startsWith("'") && inner.endsWith("'")) || (inner.startsWith('"') && inner.endsWith('"'))) {
         segments.push({ type: "key", key: inner.slice(1, -1) });
       } else {
         const index = Number(inner);
-        if (!Number.isInteger(index)) throw new Error(`invalid array index "${inner}" in "${raw}"`);
+        if (inner === "" || !Number.isInteger(index)) throw new Error(`invalid array index "${inner}" in "${raw}"`);
         segments.push({ type: "index", index });
       }
       i = end + 1;
@@ -89,7 +153,47 @@ function parseSelector(raw: string): Segment[] {
   return segments;
 }
 
-/** Extract the nested value at `segments`, rebuilding the surrounding structure. */
+function filterMatches(element: unknown, segment: Extract<Segment, { type: "filter" }>): boolean {
+  let value: unknown = element;
+  for (const key of segment.path) {
+    if (!isPlainObject(value) || !(key in value)) {
+      value = undefined;
+      break;
+    }
+    value = value[key];
+  }
+  const expected = segment.value;
+  switch (segment.operator) {
+    case undefined:
+      return value !== undefined && value !== null;
+    case "==":
+      return value === expected;
+    case "!=":
+      return value !== expected;
+  }
+  const comparable =
+    (typeof value === "number" && typeof expected === "number") ||
+    (typeof value === "string" && typeof expected === "string");
+  if (!comparable) return false;
+  const [left, right] = [value, expected] as [number | string, number | string];
+  switch (segment.operator) {
+    case "<":
+      return left < right;
+    case "<=":
+      return left <= right;
+    case ">":
+      return left > right;
+    case ">=":
+      return left >= right;
+  }
+}
+
+/**
+ * Extract the nested value at `segments`, rebuilding the surrounding structure.
+ * An array element stays at its own index, leaving holes for the elements that
+ * were not selected, so that selectors on one array merge element by element;
+ * `compact` removes the holes once all selectors are merged.
+ */
 function extract(value: unknown, segments: Segment[]): unknown | typeof NO_MATCH {
   if (segments.length === 0) return structuredClone(value);
   const [seg, ...rest] = segments;
@@ -102,27 +206,37 @@ function extract(value: unknown, segments: Segment[]): unknown | typeof NO_MATCH
     return NO_MATCH;
   }
 
+  if (!Array.isArray(value)) return NO_MATCH;
+
   if (seg.type === "index") {
-    if (Array.isArray(value)) {
-      const index = seg.index < 0 ? value.length + seg.index : seg.index;
-      if (index >= 0 && index < value.length) {
-        const child = extract(value[index], rest);
-        return child === NO_MATCH ? NO_MATCH : [child];
-      }
-    }
-    return NO_MATCH;
+    const index = seg.index < 0 ? value.length + seg.index : seg.index;
+    if (index < 0 || index >= value.length) return NO_MATCH;
+    const child = extract(value[index], rest);
+    if (child === NO_MATCH) return NO_MATCH;
+    const out: unknown[] = [];
+    out[index] = child;
+    return out;
   }
 
-  // wildcard
-  if (Array.isArray(value)) {
-    const out: unknown[] = [];
-    for (const element of value) {
-      const child = extract(element, rest);
-      if (child !== NO_MATCH) out.push(child);
-    }
-    return out.length > 0 ? out : NO_MATCH;
-  }
-  return NO_MATCH;
+  // wildcard or filter
+  const out: unknown[] = [];
+  let matched = false;
+  value.forEach((element, index) => {
+    if (seg.type === "filter" && !filterMatches(element, seg)) return;
+    const child = extract(element, rest);
+    if (child === NO_MATCH) return;
+    out[index] = child;
+    matched = true;
+  });
+  return matched ? out : NO_MATCH;
+}
+
+/** Remove the holes that `extract` leaves in arrays. */
+function compact(value: unknown): unknown {
+  if (Array.isArray(value)) return value.filter(() => true).map(compact);
+  if (isPlainObject(value))
+    return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, compact(child)]));
+  return value;
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -139,10 +253,10 @@ function deepMerge(a: unknown, b: unknown): unknown {
     return result;
   }
   if (Array.isArray(a) && Array.isArray(b)) {
-    const result = [...a];
-    for (let i = 0; i < b.length; i++) {
-      result[i] = i < a.length ? deepMerge(a[i], b[i]) : b[i];
-    }
+    const result = a.slice();
+    b.forEach((element, i) => {
+      result[i] = i in a ? deepMerge(a[i], element) : element;
+    });
     return result;
   }
   return b;
@@ -167,7 +281,7 @@ export function selectFields(object: unknown, selectors: string[]): Record<strin
     const extracted = extract(object, segments);
     if (extracted !== NO_MATCH) result = deepMerge(result, extracted) as Record<string, unknown>;
   }
-  return result;
+  return compact(result) as Record<string, unknown>;
 }
 
 /**
