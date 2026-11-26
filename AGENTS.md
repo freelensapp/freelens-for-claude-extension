@@ -16,9 +16,9 @@ Node stack in main, an HTTP bridge between the processes).
 
 - **Language**: TypeScript 7.x
 - **Runtime**: Freelens >= 2.0.0 (extension API v2)
-- **Toolchain**: Node.js 24.x, yq 4.x and cosign 3.x (`mise.toml` with
-  `mise.lock`; Node also in `.nvmrc`)
-- **Package manager**: pnpm 12.x (`packageManager`, run through corepack)
+- **Toolchain**: Node.js 24.x, pnpm 12.x, yq 4.x and cosign 3.x (`mise.toml`
+  with `mise.lock`; Node also in `.nvmrc`)
+- **Package manager**: pnpm 12.x (`packageManager`)
 - **License**: MIT
 
 Library and tool versions follow the Freelens stack exactly: the catalog in
@@ -36,9 +36,15 @@ Freelens does not have must be excluded there, or its lookup fails on the
 Dependency Dashboard. The bundled libraries that are not in the catalog
 (`@anthropic-ai/claude-agent-sdk`, `diff`, `react-markdown`, `remark-gfm`,
 `yaml`) are excluded and updated from the npm registry as usual.
-pnpm is updated from the npm registry too, in a pull request of its own:
-`packageManager` carries a Corepack hash, which Renovate updates only from the
-digest of the new version, and a custom datasource has none. `mise.lock` pins a
+pnpm follows the pnpm of Freelens's `mise.toml`, both in `mise.toml` and in
+`packageManager`, which must stay equal. The workflows install pnpm with mise,
+not with Corepack, which Node no longer bundles from version 26. Whichever pnpm
+runs reads `packageManager` and switches itself to that version, whose
+integrity `pnpm-lock.yaml` pins under `packageManagerDependencies`, so a pnpm
+from mise of another version makes every CI job download pnpm a second time.
+`packageManager` carries no Corepack hash (`+sha512.…`): Renovate updates the
+hash only from the digest of the new version, which a custom datasource does
+not have, and the update would fail with "no valid digest available". `mise.lock` pins a
 checksum and a URL per tool for every platform; after changing `mise.toml`,
 run `mise lock`. It is lockfile revision 3, which needs mise 2026.9.16 or
 newer. `@freelensapp/extensions` is pinned to one exact version. The libraries the

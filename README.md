@@ -302,13 +302,19 @@ nvm install
 mise install
 ```
 
-Install pnpm, at the version `packageManager` in `package.json` names:
+Install pnpm. `mise install` above already did, otherwise use any other
+installer:
 
 ```sh
-corepack enable
-# or
 curl -fsSL https://get.pnpm.io/install.sh | sh -
+# or
+brew install pnpm
+# or
+npm install -g pnpm
 ```
+
+Any recent pnpm works: in this repository it switches itself to the version
+of `packageManager` in `package.json`.
 
 ### Build extension
 
