@@ -30,7 +30,10 @@ with `pnpm dlx` (Biome, knip, Trunk launcher), and Freelens's `mise.toml` and
 datasources in `.renovaterc.json` read the versions from the same Freelens
 files on `main`, so an update arrives only once Freelens has adopted it, at
 that version, in one `Freelens dependencies` group PR together with a
-release of `@freelensapp/extensions`. A dependency added to `package.json` follows
+release of `@freelensapp/extensions`. Every rule of the
+group sets `separateMajorMinor: false`; otherwise Renovate splits a major
+update off into a PR of its own, and the host's stack arrives in two halves.
+A dependency added to `package.json` follows
 the Freelens catalog unless the catalog rule excludes it with `!`; one that
 Freelens does not have must be excluded there, or its lookup fails on the
 Dependency Dashboard. The bundled libraries that are not in the catalog
